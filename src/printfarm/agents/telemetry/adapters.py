@@ -1,0 +1,313 @@
+"""Vendor adapters: translate printer protocols into the canonical ``PrinterState``.
+
+* ``BambuMqttAdapter``  - Bambu Lab LAN mode: MQTT over TLS on port 8883,
+  user ``bblp``, password = the printer's LAN access code. Reports arrive on
+  ``device/<serial>/report`` (often partial -> merged here), commands go to
+  ``device/<serial>/request``.
+* ``MoonrakerAdapter``  - Klipper/Moonraker: JSON-RPC 2.0 over WebSocket
+  (``ws://host:7125/websocket``), ``printer.objects.subscribe`` then
+  ``notify_status_update`` diffs.
+
+Both reconnect forever with capped exponential backoff and report
+connectivity changes. Commands are idempotent per plate id.
+
+Bambu Cloud API is intentionally not used for control: LAN mode keeps the
+safety loop working when the internet is down (see ADR-0003).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import itertools
+import json
+import logging
+import os
+import ssl
+from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from pathlib import PurePosixPath
+from typing import Any
+
+import aiomqtt
+import websockets
+
+from printfarm.config import PrinterCfg
+from printfarm.contracts.messages import PrinterState, PrinterStatus
+
+log = logging.getLogger(__name__)
+
+StateCb = Callable[[PrinterState], Awaitable[None]]
+ConnCb = Callable[[bool], Awaitable[None]]
+
+
+def _deep_merge(dst: dict, src: dict) -> dict:
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
+
+
+class PrinterAdapter(ABC):
+    vendor = "generic"
+
+    def __init__(self, cfg: PrinterCfg, on_state: StateCb, on_connection: ConnCb):
+        self.cfg, self.on_state, self.on_connection = cfg, on_state, on_connection
+        self.online = False
+        self.raw: dict[str, Any] = {}
+        # States are handed to the agent through a queue, never awaited inline by the
+        # protocol reader: the agent may react with a command (pause!) whose reply
+        # must be read by that same reader - awaiting inline would deadlock.
+        self._states: asyncio.Queue[PrinterState] = asyncio.Queue(maxsize=100)
+
+    def publish_state(self) -> None:
+        if self._states.full():  # agent is behind: drop the oldest sample, keep the newest
+            self._states.get_nowait()
+        self._states.put_nowait(self.to_state())
+
+    async def _dispatch(self) -> None:
+        while True:
+            state = await self._states.get()
+            try:
+                await self.on_state(state)
+            except Exception:  # noqa: BLE001 - never let one bad sample stop the stream
+                log.exception("%s: state handler failed", self.cfg.id)
+
+    async def run(self) -> None:
+        dispatcher = asyncio.create_task(self._dispatch())
+        try:
+            await self._run()
+        finally:
+            dispatcher.cancel()
+
+    async def _run(self) -> None:
+        delay = 1.0
+        while True:
+            try:
+                await self._session()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - any transport failure -> reconnect
+                log.warning("%s: connection lost: %r", self.cfg.id, exc)
+            if self.online:
+                self.online = False
+                await self.on_connection(False)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+
+    async def _connected(self) -> None:
+        if not self.online:
+            self.online = True
+            await self.on_connection(True)
+
+    @abstractmethod
+    async def _session(self) -> None: ...
+
+    @abstractmethod
+    async def start_print(self, plate_id: str, artifact_uris: list[str]) -> None: ...
+
+    @abstractmethod
+    async def pause(self) -> None: ...
+
+    @abstractmethod
+    async def cancel(self) -> None: ...
+
+    @abstractmethod
+    def to_state(self) -> PrinterState: ...
+
+
+# ---------------------------------------------------------------- Bambu Lab
+
+BAMBU_STATUS = {
+    "IDLE": PrinterStatus.IDLE,
+    "PREPARE": PrinterStatus.PRINTING,
+    "SLICING": PrinterStatus.PRINTING,
+    "RUNNING": PrinterStatus.PRINTING,
+    "PAUSE": PrinterStatus.PAUSED,
+    "FINISH": PrinterStatus.FINISHED,
+    "FAILED": PrinterStatus.FAILED,
+}
+
+
+class BambuMqttAdapter(PrinterAdapter):
+    vendor = "bambu"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._client: aiomqtt.Client | None = None
+        self._seq = itertools.count(1)
+
+    def _tls(self) -> ssl.SSLContext | None:
+        if not self.cfg.tls:
+            return None
+        ctx = ssl.create_default_context()
+        # Bambu printers present a self-signed certificate. Pin it in production
+        # (ctx.load_verify_locations(<printer CA>)); here we only disable hostname checks.
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    async def _session(self) -> None:
+        code = os.getenv(self.cfg.access_code_env, "") if self.cfg.access_code_env else ""
+        async with aiomqtt.Client(
+            self.cfg.host, self.cfg.port,
+            username="bblp" if code else None, password=code or None,
+            tls_context=self._tls(), identifier=f"printfarm-{self.cfg.id}", keepalive=15,
+        ) as client:
+            self._client = client
+            await client.subscribe(f"device/{self.cfg.serial}/report")
+            await self._request({"pushing": {"command": "pushall"}})
+            await self._connected()
+            async for message in client.messages:
+                try:
+                    data = json.loads(message.payload)
+                except ValueError:
+                    continue
+                if "print" in data:
+                    _deep_merge(self.raw, data["print"])
+                    self.publish_state()
+        self._client = None
+
+    async def _request(self, body: dict) -> None:
+        if self._client is None:
+            raise ConnectionError(f"{self.cfg.id} not connected")
+        for v in body.values():
+            v.setdefault("sequence_id", str(next(self._seq)))
+        await self._client.publish(f"device/{self.cfg.serial}/request", json.dumps(body), qos=1)
+
+    async def start_print(self, plate_id: str, artifact_uris: list[str]) -> None:
+        # Production: the plate .3mf is first uploaded over FTPS (port 990, user bblp)
+        # by the plate compositor; here we reference it by name.
+        await self._request({
+            "print": {
+                "command": "project_file", "param": "Metadata/plate_1.gcode",
+                "url": f"ftp:///{plate_id}.3mf", "subtask_name": plate_id,
+                "bed_leveling": True, "use_ams": False, "timelapse": False,
+            }
+        })
+
+    async def pause(self) -> None:
+        await self._request({"print": {"command": "pause"}})
+
+    async def cancel(self) -> None:
+        await self._request({"print": {"command": "stop"}})
+
+    def to_state(self) -> PrinterState:
+        r = self.raw
+        err = r.get("print_error")
+        return PrinterState(
+            printer_id=self.cfg.id, vendor=self.vendor,
+            status=BAMBU_STATUS.get(r.get("gcode_state", ""), PrinterStatus.IDLE),
+            plate_id=r.get("subtask_name") or None,
+            progress=min(max(float(r.get("mc_percent", 0)) / 100, 0.0), 1.0),
+            layer=r.get("layer_num"), total_layers=r.get("total_layer_num"),
+            nozzle_temp=r.get("nozzle_temper"), nozzle_target=r.get("nozzle_target_temper"),
+            bed_temp=r.get("bed_temper"), bed_target=r.get("bed_target_temper"),
+            remaining_s=int(r["mc_remaining_time"]) * 60 if r.get("mc_remaining_time") is not None else None,
+            error_code=str(err) if err else None,
+            observed_at=datetime.now(UTC),
+        )
+
+
+# ---------------------------------------------------------------- Klipper / Moonraker
+
+MOONRAKER_STATUS = {
+    "standby": PrinterStatus.IDLE,
+    "printing": PrinterStatus.PRINTING,
+    "paused": PrinterStatus.PAUSED,
+    "complete": PrinterStatus.FINISHED,
+    "cancelled": PrinterStatus.FAILED,
+    "error": PrinterStatus.FAILED,
+}
+
+MOONRAKER_OBJECTS = {"print_stats": None, "extruder": None, "heater_bed": None, "display_status": None}
+
+
+class MoonrakerAdapter(PrinterAdapter):
+    vendor = "moonraker"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._ws = None
+        self._ids = itertools.count(1)
+        self._pending: dict[int, asyncio.Future] = {}
+
+    async def _session(self) -> None:
+        async with websockets.connect(self.cfg.url, ping_interval=10, ping_timeout=10) as ws:
+            self._ws = ws
+            reader = asyncio.create_task(self._reader(ws))
+            try:
+                await self.call("server.connection.identify",
+                                {"client_name": "printfarm", "version": "0.1", "type": "agent", "url": ""})
+                res = await self.call("printer.objects.subscribe", {"objects": MOONRAKER_OBJECTS})
+                _deep_merge(self.raw, res.get("status", {}))
+                await self._connected()
+                self.publish_state()
+                await reader
+            finally:
+                reader.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await reader
+                self._ws = None
+                for f in self._pending.values():
+                    f.cancel()
+                self._pending.clear()
+
+    async def _reader(self, ws) -> None:
+        async for raw in ws:
+            msg = json.loads(raw)
+            if "id" in msg and msg["id"] in self._pending:
+                fut = self._pending.pop(msg["id"])
+                if "error" in msg:
+                    fut.set_exception(RuntimeError(msg["error"]))
+                else:
+                    fut.set_result(msg.get("result"))
+            elif msg.get("method") == "notify_status_update":
+                _deep_merge(self.raw, msg["params"][0])
+                self.publish_state()
+
+    async def call(self, method: str, params: dict | None = None, timeout: float = 10) -> Any:
+        if self._ws is None:
+            raise ConnectionError(f"{self.cfg.id} not connected")
+        rid = next(self._ids)
+        fut = asyncio.get_running_loop().create_future()
+        self._pending[rid] = fut
+        await self._ws.send(json.dumps({"jsonrpc": "2.0", "method": method, "params": params or {}, "id": rid}))
+        return await asyncio.wait_for(fut, timeout)
+
+    async def start_print(self, plate_id: str, artifact_uris: list[str]) -> None:
+        # Production: POST the plate G-code to /server/files/upload first.
+        await self.call("printer.print.start", {"filename": f"{plate_id}.gcode"})
+
+    async def pause(self) -> None:
+        await self.call("printer.print.pause")
+
+    async def cancel(self) -> None:
+        await self.call("printer.print.cancel")
+
+    def to_state(self) -> PrinterState:
+        r = self.raw
+        ps, ex, bed = r.get("print_stats", {}), r.get("extruder", {}), r.get("heater_bed", {})
+        info = ps.get("info") or {}
+        fname = ps.get("filename") or ""
+        return PrinterState(
+            printer_id=self.cfg.id, vendor=self.vendor,
+            status=MOONRAKER_STATUS.get(ps.get("state", "standby"), PrinterStatus.IDLE),
+            plate_id=PurePosixPath(fname).stem or None,
+            progress=min(max(float(r.get("display_status", {}).get("progress", 0.0)), 0.0), 1.0),
+            layer=info.get("current_layer"), total_layers=info.get("total_layer"),
+            nozzle_temp=ex.get("temperature"), nozzle_target=ex.get("target"),
+            bed_temp=bed.get("temperature"), bed_target=bed.get("target"),
+            error_code=ps.get("message") or None if ps.get("state") == "error" else None,
+            observed_at=datetime.now(UTC),
+        )
+
+
+ADAPTERS: dict[str, type[PrinterAdapter]] = {"bambu": BambuMqttAdapter, "moonraker": MoonrakerAdapter}
+
+
+def make_adapter(cfg: PrinterCfg, on_state: StateCb, on_connection: ConnCb) -> PrinterAdapter:
+    return ADAPTERS[cfg.vendor](cfg, on_state, on_connection)

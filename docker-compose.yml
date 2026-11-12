@@ -1,0 +1,103 @@
+# Single-host deployment (VPS or local mini-PC). One container per agent so each
+# can be restarted, scaled or resource-limited independently.
+#
+#   docker compose up -d --build
+#   docker compose run --rm cli order --text "משפחת כהן" --qty 2
+#   docker compose run --rm cli status
+#   docker compose run --rm cli watch
+
+x-agent: &agent
+  build: .
+  restart: unless-stopped
+  environment: &env
+    NATS_URL: nats://nats:4222
+    DATABASE_URL: postgresql://printfarm:printfarm@postgres:5432/printfarm
+    FLEET_CONFIG: /app/config/fleet.toml
+    ARTIFACT_DIR: /app/var/artifacts
+    LOG_LEVEL: INFO
+  volumes:
+    - artifacts:/app/var/artifacts
+    - ./config:/app/config:ro
+  depends_on:
+    nats: { condition: service_healthy }
+    postgres: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports: ["4222:4222", "8222:8222"]
+    volumes: [nats:/data]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: printfarm
+      POSTGRES_PASSWORD: printfarm
+      POSTGRES_DB: printfarm
+    ports: ["5432:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printfarm"]
+      interval: 5s
+      retries: 10
+
+  # Stands in for the MQTT broker that every real Bambu printer runs itself.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes: ["./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
+    ports: ["1883:1883"]
+
+  migrate:
+    build: .
+    command: ["migrate"]
+    environment: *env
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  coordinator:
+    <<: *agent
+    command: ["agent", "coordinator"]
+
+  personalization:
+    <<: *agent
+    command: ["agent", "personalization"]
+
+  fleet:
+    <<: *agent
+    command: ["agent", "fleet"]
+
+  inventory:
+    <<: *agent
+    command: ["agent", "inventory"]
+
+  telemetry:
+    <<: *agent
+    command: ["agent", "telemetry"]
+    # On real hardware this container must reach the printers' LAN.
+    # Access codes: BAMBU_01_ACCESS_CODE etc. via an env_file that is NOT committed.
+
+  # Dev only: simulated Bambu (via mosquitto) and Moonraker (ws://simulator:7125) printers.
+  simulator:
+    <<: *agent
+    command: ["sim"]
+    environment:
+      <<: *env
+      SIM_FAULTS: ${SIM_FAULTS:-}
+    depends_on: [mosquitto]
+    profiles: [sim]
+
+  cli:
+    <<: *agent
+    restart: "no"
+    profiles: [tools]
+
+volumes:
+  nats:
+  pg:
+  artifacts:

@@ -1,7 +1,21 @@
 # Plan: Multi-Agent Orchestration Platform for a 3D Printing Business
 
-Status: **Draft for review.** No architecture document or code has been written yet.
-Once this plan is approved, it turns into `docs/architecture/` (the design) and `contracts/` (Python message schemas).
+Status: **Approved and implemented (phase 1-2).** Design: [`docs/architecture/`](architecture/README.md). Code: `src/printfarm/`.
+
+## Decisions taken after review
+
+| Question | Decision |
+|---|---|
+| Printers | Bambu Lab (local MQTT; Cloud API only for read-only remote viewing) + Klipper/Moonraker (WebSocket + REST) |
+| Scale and hosting | 3-5 printers, 20-50 orders/day: a single host (VPS or mini-PC) with Docker Compose, no Kubernetes |
+| Workflow engine | Postgres state machine + outbox/inbox; Temporal only if volume jumps to hundreds of orders/day (ADR-0004) |
+| Facebook | Human-assisted capture (browser extension) + legally open pages/domains; every reply approved by a human (ADR-0007) |
+| Deliverables | Design docs + a Python skeleton: CloudEvents/Pydantic contracts, simulated printers (MQTT + WebSocket), NATS JetStream base, Coordinator + deterministic agents |
+
+The sections below are the original plan, kept for reference. Where they differ, the architecture docs win:
+* the deliverable layout changed slightly;
+* contracts live in `src/printfarm/contracts/`;
+* artifacts use a local volume first (ADR-0006).
 
 ---
 
@@ -93,7 +107,7 @@ Optional phase 2, if you want it: a runnable Python skeleton (Coordinator + 6 ag
 
 ---
 
-## 5. Open questions for you
+## 5. Open questions (answered above)
 
 1. **Printer fleet:** which brands and models? Bambu Lab, Prusa, Klipper-based, a mix? This determines the adapters and whether MQTT or WebSocket is the main protocol.
 2. **Scale:** roughly how many printers and orders per day? This decides between a single host (Docker Compose) and Kubernetes.
