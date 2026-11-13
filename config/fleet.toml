@@ -1,54 +1,43 @@
-# Fleet description used by the agents and the simulator.
-# For real printers: set host / serial / access_code_env (Bambu) or url (Moonraker), tls = true.
+# REAL fleet. Used by Docker when .env contains FLEET_FILE=fleet.toml (the default is fleet.sim.toml).
+# Printer ids must be lower case (a-z 0-9 _ -) and match the go2rtc stream names in infra/go2rtc/go2rtc.yaml.
+# Give every printer a fixed IP (DHCP reservation) and check it with scripts/preflight.py first (README step 10).
+# Access codes are never written here: access_code_env names an environment variable (cameras.env).
 
 [fleet]
-auto_clear_bed = true        # DEV ONLY. In production an operator runs `printfarm clear-bed <id>`.
+auto_clear_bed = false       # an operator confirms each cleared bed (`printfarm clear-bed <id>` or the dashboard)
 max_plate_minutes = 480
 edge_margin_mm = 5
 part_spacing_mm = 4
 schedule_interval_s = 15
 batch_window_s = 3          # wait this long after new work so parts can share a plate
 
-[simulator]
-print_seconds = 20           # simulated duration of every plate
-
 [personalization]
 font = "Noto Sans Hebrew:style=Bold"
 
 # ---------------------------------------------------------------- printers
-[[printers]]
-id = "bambu-01"
-vendor = "bambu"
-host = "mosquitto"           # real printer: its LAN IP, port 8883, tls = true
-port = 1883
-tls = false
-serial = "SIM00000000001"
-access_code_env = ""         # real printer: e.g. "BAMBU_01_ACCESS_CODE"
-bed_mm = [256, 256]
-nozzle_mm = 0.4
-material = "PLA"
-color = "black"
+# Bambu Lab (LAN mode, MQTT over TLS on 8883). Uncomment and fill in:
+# [[printers]]
+# id = "x1c-02"
+# vendor = "bambu"
+# host = "192.168.50.21"
+# port = 8883
+# tls = true
+# serial = "00M00A000000000"          # printer screen > Settings > Device
+# access_code_env = "BAMBU_CODE_X1C_02"
+# bed_mm = [256, 256]
+# nozzle_mm = 0.4
+# material = "PLA"
+# color = "black"
 
-[[printers]]
-id = "bambu-02"
-vendor = "bambu"
-host = "mosquitto"
-port = 1883
-tls = false
-serial = "SIM00000000002"
-bed_mm = [256, 256]
-nozzle_mm = 0.4
-material = "PLA"
-color = "white"
-
-[[printers]]
-id = "voron-01"
-vendor = "moonraker"
-url = "ws://simulator:7125/websocket"
-bed_mm = [300, 300]
-nozzle_mm = 0.4
-material = "PLA"
-color = "black"
+# Klipper / Moonraker:
+# [[printers]]
+# id = "voron-01"
+# vendor = "moonraker"
+# url = "ws://192.168.50.31:7125/websocket"
+# bed_mm = [300, 300]
+# nozzle_mm = 0.4
+# material = "PLA"
+# color = "black"
 
 # ---------------------------------------------------------------- materials & reorder policy
 [[materials]]
@@ -70,33 +59,3 @@ lead_time_days = 5
 safety_stock_days = 3
 baseline_daily_grams = 100
 auto_approve_limit = 50.0
-
-# ---------------------------------------------------------------- initial spools (seed only)
-[[spools]]
-id = "SP-0001"
-material = "PLA"
-color = "black"
-grams = 1000
-remaining_grams = 650
-loaded_on = "bambu-01"
-
-[[spools]]
-id = "SP-0002"
-material = "PLA"
-color = "black"
-grams = 1000
-remaining_grams = 400
-loaded_on = "voron-01"
-
-[[spools]]
-id = "SP-0003"
-material = "PLA"
-color = "white"
-grams = 1000
-loaded_on = "bambu-02"
-
-[[spools]]
-id = "SP-0004"
-material = "PLA"
-color = "white"
-grams = 1000

@@ -1,64 +1,168 @@
-# Single-host deployment (VPS or local mini-PC). One container per agent so each
-# can be restarted, scaled or resource-limited independently.
+# PrintFarm Ops: local stack (NATS JetStream, PostgreSQL, FastAPI gateway, Ledger service, go2rtc, Caddy HTTPS)
+# plus the agents (coordinator, personalization, fleet, inventory, telemetry).
 #
-#   docker compose up -d --build
-#   docker compose run --rm cli order --text "משפחת כהן" --qty 2
-#   docker compose run --rm cli status
-#   docker compose run --rm cli watch
+# Start:            docker compose up -d --build
+# With simulators:  docker compose --profile sim up -d --build      (no real printers needed)
+# P1/A1 cameras:    add --profile p1a1
+# CLI:              docker compose run --rm cli status
+#
+# Only Caddy (80/443) is reachable from the LAN. Everything else is bound to 127.0.0.1 or internal.
 
+name: printfarm
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+x-restart: &restart unless-stopped
+
+# One image for every agent (built from ./Dockerfile); one container per agent so each can be
+# restarted or resource-limited on its own.
 x-agent: &agent
   build: .
-  restart: unless-stopped
-  environment: &env
-    NATS_URL: nats://nats:4222
-    DATABASE_URL: postgresql://printfarm:printfarm@postgres:5432/printfarm
-    FLEET_CONFIG: /app/config/fleet.toml
+  environment: &agent-env
+    NATS_URL: nats://agents:${NATS_AGENTS_PASSWORD:?set in .env}@nats:4222
+    DATABASE_URL: postgresql://printfarm:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/printfarm
+    # fleet.sim.toml = simulated printers (use with --profile sim); fleet.toml = your real printers
+    FLEET_CONFIG: /app/config/${FLEET_FILE:-fleet.sim.toml}
     ARTIFACT_DIR: /app/var/artifacts
     LOG_LEVEL: INFO
   volumes:
     - artifacts:/app/var/artifacts
     - ./config:/app/config:ro
-  depends_on:
+  depends_on: &agent-deps
     nats: { condition: service_healthy }
     postgres: { condition: service_healthy }
     migrate: { condition: service_completed_successfully }
+  restart: *restart
+  logging: *logging
 
 services:
   nats:
-    image: nats:2.10-alpine
-    command: ["-js", "-sd", "/data", "-m", "8222"]
-    ports: ["4222:4222", "8222:8222"]
-    volumes: [nats:/data]
+    image: nats:2.10.29-alpine
+    command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      NATS_SERVICES_PASSWORD: ${NATS_SERVICES_PASSWORD:?set in .env}
+      NATS_AGENTS_PASSWORD: ${NATS_AGENTS_PASSWORD:?set in .env}
+    volumes:
+      - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    ports:
+      - "127.0.0.1:4222:4222"   # agents running on this PC connect here
+      - "127.0.0.1:8222:8222"   # monitoring
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz?js-enabled-only=true"]
-      interval: 5s
-      retries: 10
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: *restart
+    logging: *logging
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.16-alpine
     environment:
-      POSTGRES_USER: printfarm
-      POSTGRES_PASSWORD: printfarm
       POSTGRES_DB: printfarm
-    ports: ["5432:5432"]
-    volumes: [pg:/var/lib/postgresql/data]
+      POSTGRES_USER: printfarm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro   # runs only on the very first start (empty volume)
+    ports:
+      - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U printfarm"]
-      interval: 5s
-      retries: 10
+      test: ["CMD-SHELL", "pg_isready -U printfarm -d printfarm"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: *restart
+    logging: *logging
 
-  # Stands in for the MQTT broker that every real Bambu printer runs itself.
-  mosquitto:
-    image: eclipse-mosquitto:2
-    volumes: ["./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
-    ports: ["1883:1883"]
+  go2rtc:
+    image: alexxit/go2rtc:1.9.15
+    env_file:                                         # printer access codes only, referenced as ${...} in go2rtc.yaml
+      - path: cameras.env
+        required: false
+    volumes:
+      - ./infra/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+    ports:
+      - "127.0.0.1:1984:1984"   # go2rtc web UI for testing streams, this PC only
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:1984/api"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: *restart
+    logging: *logging
 
+  bambu-cam:                    # P1/A1 frame-reader; only with: --profile p1a1
+    profiles: ["p1a1"]
+    build: ./bambu-cam
+    env_file:                   # BAMBU_CAMS + BAMBU_CODE_<ID> access codes
+      - path: cameras.env
+        required: false
+    restart: *restart
+    logging: *logging
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://printfarm:${POSTGRES_PASSWORD}@postgres:5432/printfarm
+      NATS_URL: nats://services:${NATS_SERVICES_PASSWORD}@nats:4222
+      GO2RTC_URL: http://go2rtc:1984
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?run scripts/init_env.py}
+      COOKIE_SECURE: "true"
+    depends_on:
+      nats: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      go2rtc: { condition: service_started }
+    restart: *restart
+    logging: *logging
+
+  finance:
+    build:
+      context: .
+      dockerfile: finance/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://printfarm:${POSTGRES_PASSWORD}@postgres:5432/printfarm
+      NATS_URL: nats://services:${NATS_SERVICES_PASSWORD}@nats:4222
+    depends_on:
+      nats: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      gateway: { condition: service_healthy }   # gateway creates the JetStream streams first
+    restart: *restart
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11.9-alpine
+    environment:
+      SITE_HOSTS: ${SITE_HOSTS:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web/dist:/srv/web:ro
+      - caddy-data:/data         # holds the local CA; keep it, or every device must re-trust a new one
+      - caddy-config:/config
+    depends_on:
+      gateway: { condition: service_healthy }
+    restart: *restart
+    logging: *logging
+
+  # ------------------------------------------------------------------ agents
+  # Applies src/printfarm/store/migrations once, then exits; every agent waits for it.
   migrate:
     build: .
     command: ["migrate"]
-    environment: *env
+    environment: *agent-env
     depends_on:
       postgres: { condition: service_healthy }
+    restart: "no"
+    logging: *logging
 
   coordinator:
     <<: *agent
@@ -79,25 +183,42 @@ services:
   telemetry:
     <<: *agent
     command: ["agent", "telemetry"]
-    # On real hardware this container must reach the printers' LAN.
-    # Access codes: BAMBU_01_ACCESS_CODE etc. via an env_file that is NOT committed.
+    # The only service that talks to printers: it needs the LAN access codes (fleet.toml access_code_env).
+    env_file:
+      - path: cameras.env
+        required: false
 
-  # Dev only: simulated Bambu (via mosquitto) and Moonraker (ws://simulator:7125) printers.
+  # ------------------------------------------------------------------ simulators (dev, no printers needed)
+  # Stands in for the MQTT broker that every real Bambu printer runs itself.
+  mosquitto:
+    profiles: ["sim"]
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: *restart
+    logging: *logging
+
+  # Simulated Bambu printers (via mosquitto) and a Moonraker printer (ws://simulator:7125/websocket).
+  # Inject failures: SIM_FAULTS="voron-01=thermal_runaway" docker compose --profile sim up -d simulator
   simulator:
     <<: *agent
+    profiles: ["sim"]
     command: ["sim"]
     environment:
-      <<: *env
+      <<: *agent-env
       SIM_FAULTS: ${SIM_FAULTS:-}
-    depends_on: [mosquitto]
-    profiles: [sim]
+    depends_on:
+      mosquitto: { condition: service_started }
 
+  # Operator CLI: docker compose run --rm cli <order|approvals|approve|clear-bed|status|watch>
   cli:
     <<: *agent
+    profiles: ["tools"]
     restart: "no"
-    profiles: [tools]
 
 volumes:
-  nats:
-  pg:
+  nats-data:
+  pg-data:
+  caddy-data:
+  caddy-config:
   artifacts:

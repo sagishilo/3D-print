@@ -1,0 +1,11 @@
+# Most of these files are read inside Linux containers (configs, scripts, SQL),
+# so keep LF line endings in the working tree on Windows too.
+* text=auto eol=lf
+
+# Saved design bundle: large single-line data, not useful to diff
+docs/design/*.html -diff linguist-generated
+
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.zip binary

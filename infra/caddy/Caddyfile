@@ -1,0 +1,34 @@
+# HTTPS front door. SITE_HOSTS comes from .env, e.g. "localhost, 192.168.50.10"
+{
+	# local certificate authority; trust its root once per device (see README)
+	local_certs
+}
+
+{$SITE_HOSTS} {
+	tls internal
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+	}
+
+	# API + camera streams: no buffering so MJPEG frames arrive immediately
+	handle /api/* {
+		reverse_proxy gateway:8000 {
+			flush_interval -1
+		}
+	}
+
+	handle /ws {
+		reverse_proxy gateway:8000
+	}
+
+	# the React build (web/dist); index.html fallback for client-side routes
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}
