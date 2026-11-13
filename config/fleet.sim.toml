@@ -12,18 +12,32 @@ batch_window_s = 3          # wait this long after new work so parts can share a
 [simulator]
 print_seconds = 20           # simulated duration of every plate
 
+[safety]
+pause_confirm_s = 10         # each pause must show up in the printer's own state within this time
+pause_retries = 1            # one more pause attempt, then a critical "pause unconfirmed" alert
+start_confirm_s = 120        # a started plate must be reported as printing within this time
+upload_timeout_s = 600
+
 [personalization]
 font = "Noto Sans Hebrew:style=Bold"
 
 # ---------------------------------------------------------------- printers
+# simulated = true lets the simulator take placeholder plate files; NEVER set it for a real printer.
+# The simulator container serves every printer's FTPS / camera ports itself, so they differ per printer here;
+# a real printer uses its own IP with ftp_port 990 and camera port 6000.
 [[printers]]
 id = "bambu-01"
 vendor = "bambu"
+model = "p1"
+simulated = true
 host = "mosquitto"           # real printer: its LAN IP, port 8883, tls = true
 port = 1883
 tls = false
 serial = "SIM00000000001"
-access_code_env = ""         # real printer: e.g. "BAMBU_01_ACCESS_CODE"
+access_code_env = "SIM_ACCESS_CODE"   # real printer: e.g. "BAMBU_CODE_P1S_01" (in cameras.env)
+ftp_host = "simulator"
+ftp_port = 9901
+camera_port = 6001
 bed_mm = [256, 256]
 nozzle_mm = 0.4
 material = "PLA"
@@ -32,10 +46,16 @@ color = "black"
 [[printers]]
 id = "bambu-02"
 vendor = "bambu"
+model = "x1"                 # camera: native RTSPS (the x1-camera-sim service), not the port-6000 protocol
+simulated = true
 host = "mosquitto"
 port = 1883
 tls = false
 serial = "SIM00000000002"
+access_code_env = "SIM_ACCESS_CODE"
+ftp_host = "simulator"
+ftp_port = 9902
+camera_port = 6002
 bed_mm = [256, 256]
 nozzle_mm = 0.4
 material = "PLA"
@@ -44,7 +64,9 @@ color = "white"
 [[printers]]
 id = "voron-01"
 vendor = "moonraker"
-url = "ws://simulator:7125/websocket"
+model = "klipper"
+simulated = true
+url = "ws://simulator:7125/websocket"   # HTTP API, uploads and the webcam share this host:port
 bed_mm = [300, 300]
 nozzle_mm = 0.4
 material = "PLA"

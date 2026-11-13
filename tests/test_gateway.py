@@ -15,6 +15,7 @@ pytest.importorskip("jwt")
 pytest.importorskip("argon2")
 pytest.importorskip("pydantic_settings")
 
+import httpx  # noqa: E402
 from argon2 import PasswordHasher  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
@@ -278,6 +279,44 @@ def test_printer_shortcut_endpoint(client):
     assert env["deadline"]
     assert client.post("/api/v1/commands/printers/Voron 01/pause", headers=csrf(client)).status_code == 400
     assert client.post("/api/v1/commands/printers/voron-01/explode", headers=csrf(client)).status_code == 400
+
+
+class FailingRelay:
+    """Stands in for go2rtc: every request raises ``exc``."""
+
+    def __init__(self, exc: Exception):
+        self.exc = exc
+
+    async def get(self, *a, **kw):
+        raise self.exc
+
+    def build_request(self, *a, **kw):
+        return None
+
+    async def send(self, *a, **kw):
+        raise self.exc
+
+
+class EmptyFrameRelay:
+    """go2rtc answering 200 with no picture (seen when the camera source fails)."""
+
+    async def get(self, *a, **kw):
+        return httpx.Response(200, content=b"")
+
+
+def test_empty_snapshot_from_the_relay_is_a_502(client):
+    login(client)
+    client.app.state.http = EmptyFrameRelay()
+    assert client.get("/api/v1/cameras/bambu-02/snapshot.jpg").status_code == 502
+
+
+@pytest.mark.parametrize("exc,status", [(httpx.ReadTimeout("slow"), 504), (httpx.ConnectError("refused"), 502)])
+def test_camera_relay_errors_are_502_or_504_not_500(client, exc, status):
+    login(client)
+    client.app.state.http = FailingRelay(exc)
+    assert client.get("/api/v1/cameras/bambu-02/snapshot.jpg").status_code == status
+    assert client.get("/api/v1/cameras/bambu-02/mjpeg").status_code == status
+    assert client.get("/api/v1/cameras").status_code == status
 
 
 def test_websocket_requires_login(client):

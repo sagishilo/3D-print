@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import logging
 import time
@@ -34,6 +35,9 @@ from printfarm.contracts import Envelope, Payload, new_message
 from printfarm.store import Database, OutboxRelay, inbox_claim, outbox_add
 
 TxHandler = Callable[[Any, Envelope, Any, AsyncConnection], Awaitable[None]]
+
+# Callbacks a handler registered with Agent.after_commit(); one list per handler invocation.
+_AFTER_COMMIT: contextvars.ContextVar[list[Callable[[], None]] | None] = contextvars.ContextVar("after_commit", default=None)
 
 
 def on(subject_filter: str, *, from_start: bool = False):
@@ -58,7 +62,7 @@ class Agent:
         self.bus, self.db, self.settings, self.fleet = bus, db, settings, fleet
         self.log = logging.getLogger(f"agent.{self.name}")
         self.relay = OutboxRelay(db, bus, self.name)
-        self._tasks: list[asyncio.Task] = []
+        self._tasks: set[asyncio.Task] = set()
         self._started = time.time()
 
     @property
@@ -82,14 +86,25 @@ class Agent:
         """Seed state, open device connections, start loops."""
 
     def spawn(self, coro) -> asyncio.Task:
+        """Run a background task owned by this agent (cancelled on stop; forgotten once finished)."""
         task = asyncio.create_task(coro)
-        self._tasks.append(task)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
         return task
 
+    def after_commit(self, fn: Callable[[], None]) -> None:
+        """Inside a handler: run ``fn`` once the handler's transaction has committed (never if it rolls back)."""
+        pending = _AFTER_COMMIT.get()
+        if pending is None:  # not inside a handler: nothing to wait for
+            fn()
+        else:
+            pending.append(fn)
+
     async def stop(self) -> None:
-        for t in self._tasks:
+        tasks = list(self._tasks)
+        for t in tasks:
             t.cancel()
-        for t in self._tasks:
+        for t in tasks:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await t
 
@@ -107,12 +122,19 @@ class Agent:
 
         async def handler(env: Envelope) -> None:
             payload = env.payload()
-            async with self.db.tx() as conn:
-                if not await inbox_claim(conn, consumer, env.id):
-                    self.log.debug("duplicate %s %s ignored", env.type, env.id)
-                    return
-                await method(env, payload, conn)
+            pending: list[Callable[[], None]] = []
+            token = _AFTER_COMMIT.set(pending)
+            try:
+                async with self.db.tx() as conn:
+                    if not await inbox_claim(conn, consumer, env.id):
+                        self.log.debug("duplicate %s %s ignored", env.type, env.id)
+                        return
+                    await method(env, payload, conn)
+            finally:
+                _AFTER_COMMIT.reset(token)
             self.relay.wakeup.set()
+            for fn in pending:  # reached only after a successful commit
+                fn()
 
         return handler
 

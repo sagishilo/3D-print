@@ -16,14 +16,37 @@ class PrinterCfg:
     nozzle_mm: float
     material: str
     color: str
-    # bambu (local MQTT)
+    model: str = ""                   # informational: x1 | p1 | a1 | klipper ...
+    # A SIMULATED printer accepts placeholder plate files built from unsliced parts. Never set this for a real printer.
+    simulated: bool = False
+    # bambu (local MQTT on `host`, implicit FTPS for uploads, port-6000 JPEG camera on P1/A1)
     host: str = ""
     port: int = 8883
     serial: str = ""
     access_code_env: str = ""         # name of the env var holding the LAN access code
     tls: bool = True
+    ftp_host: str = ""                # default: host (only the simulator serves FTP elsewhere)
+    ftp_port: int = 990
+    camera_port: int = 6000           # P1/A1 camera; used by the simulator (bambu-cam has its own setting)
+    print_url: str = "ftp:///{file}"  # project_file "url"; {file} = the uploaded file name (verify per firmware)
+    use_ams: bool = False
     # moonraker
-    url: str = ""                     # ws://host:7125/websocket
+    url: str = ""                     # ws://host:7125/websocket (HTTP API on the same host and port)
+    api_key_env: str = ""             # env var with a Moonraker API key, if the printer requires one
+
+    def access_code(self) -> str:
+        return os.getenv(self.access_code_env, "") if self.access_code_env else ""
+
+    def api_key(self) -> str:
+        return os.getenv(self.api_key_env, "") if self.api_key_env else ""
+
+    def http_base(self) -> str:
+        """Moonraker's HTTP API lives on the same host:port as its WebSocket."""
+        from urllib.parse import urlparse
+
+        u = urlparse(self.url)
+        scheme = "https" if u.scheme == "wss" else "http"
+        return f"{scheme}://{u.hostname}:{u.port or (443 if scheme == 'https' else 80)}"
 
 
 @dataclass(frozen=True)
@@ -62,12 +85,22 @@ class FleetCfg:
     batch_window_s: float = 3
     sim_print_seconds: float = 20
     font: str = "Noto Sans Hebrew:style=Bold"
+    # [safety]: every pause is verified against the printer's own reported state
+    pause_confirm_s: float = 10       # wait this long for PAUSED after each pause attempt
+    pause_retries: int = 1            # extra pause attempts before raising "pause unconfirmed"
+    start_confirm_s: float = 120      # a started plate must show up as printing within this time
+    upload_timeout_s: float = 600     # one plate-file upload (FTPS / HTTP)
 
     @classmethod
     def load(cls, path: str | Path) -> FleetCfg:
         raw = tomllib.loads(Path(path).read_text(encoding="utf-8-sig"))  # -sig: tolerate a BOM from Windows editors
         fleet = raw.get("fleet", {})
+        safety = raw.get("safety", {})
         return cls(
+            pause_confirm_s=safety.get("pause_confirm_s", 10),
+            pause_retries=safety.get("pause_retries", 1),
+            start_confirm_s=safety.get("start_confirm_s", 120),
+            upload_timeout_s=safety.get("upload_timeout_s", 600),
             printers=[PrinterCfg(**{**p, "bed_mm": tuple(p["bed_mm"])}) for p in raw.get("printers", [])],
             materials=[MaterialCfg(**m) for m in raw.get("materials", [])],
             spools=[SpoolCfg(**s) for s in raw.get("spools", [])],

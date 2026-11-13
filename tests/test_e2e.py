@@ -86,20 +86,47 @@ async def stack(tmp_path):
         batch_window_s = 1
         [simulator]
         print_seconds = 4
+        [safety]
+        pause_confirm_s = 3
+        pause_retries = 1
+        start_confirm_s = 20
+        upload_timeout_s = 30
         [[printers]]
         id = "bambu-01"
         vendor = "bambu"
+        simulated = true
         host = "{mqtt_host}"
         port = {mqtt_port}
         tls = false
-        serial = "{serial}"
+        serial = "{serial}-1"
+        access_code_env = "SIM_ACCESS_CODE"
+        ftp_host = "127.0.0.1"
+        ftp_port = {free_port()}
+        camera_port = {free_port()}
         bed_mm = [256, 256]
         nozzle_mm = 0.4
         material = "PLA"
         color = "black"
         [[printers]]
+        id = "bambu-02"
+        vendor = "bambu"
+        simulated = true
+        host = "{mqtt_host}"
+        port = {mqtt_port}
+        tls = false
+        serial = "{serial}-2"
+        access_code_env = "SIM_ACCESS_CODE"
+        ftp_host = "127.0.0.1"
+        ftp_port = {free_port()}
+        camera_port = {free_port()}
+        bed_mm = [256, 256]
+        nozzle_mm = 0.4
+        material = "PLA"
+        color = "red"
+        [[printers]]
         id = "voron-01"
         vendor = "moonraker"
+        simulated = true
         url = "ws://127.0.0.1:{ws_port}/websocket"
         bed_mm = [300, 300]
         nozzle_mm = 0.4
@@ -128,14 +155,20 @@ async def stack(tmp_path):
         grams = 1000
         loaded_on = "voron-01"
     """))
-    os.environ.update(NATS_URL=NATS_URL, DATABASE_URL=DB_URL, FLEET_CONFIG=str(cfg), ARTIFACT_DIR=str(tmp_path / "art"))
+    os.environ.update(NATS_URL=NATS_URL, DATABASE_URL=DB_URL, FLEET_CONFIG=str(cfg), ARTIFACT_DIR=str(tmp_path / "art"),
+                      SIM_ACCESS_CODE="12345678")
     settings = Settings()
 
     from printfarm.cli import AGENTS, run_agents
     from printfarm.simulator.printers import run_simulator
 
     stop = asyncio.Event()
-    sim = asyncio.create_task(run_simulator(settings.fleet(), faults={"voron-01": "thermal_runaway"}))
+    faults = {
+        "bambu-01": "upload_flaky",                     # the first upload fails; the agent must retry
+        "voron-01": "thermal_runaway",                  # auto-pause, and the printer obeys
+        "bambu-02": "thermal_runaway+ignore_pause",     # auto-pause, but the printer ignores it
+    }
+    sim = asyncio.create_task(run_simulator(settings.fleet(), faults=faults, bind="127.0.0.1"))
     agents = asyncio.create_task(run_agents(list(AGENTS), settings, stop))
     yield settings
     stop.set()
@@ -173,8 +206,8 @@ async def test_order_to_print_to_inventory(stack):
     db = Database(DB_URL)
     await db.open()
     try:
-        # wait until telemetry saw both printers online and fleet knows it
-        await wait_for(db, "SELECT printer_id FROM fleet.printers WHERE online", (), lambda r: len(r) == 2)
+        # wait until telemetry saw all three printers online and fleet knows it
+        await wait_for(db, "SELECT printer_id FROM fleet.printers WHERE online", (), lambda r: len(r) == 3)
 
         # 1) black nameplates -> bambu-01 over MQTT; 3 units fit one plate
         await _publish(settings, OrderReceived(order_id="ord-black", customer_ref="c1", text="משפחת כהן", quantity=3),
@@ -187,6 +220,12 @@ async def test_order_to_print_to_inventory(stack):
         assert plates[0]["printer_id"] == "bambu-01" and plates[0]["status"] == "finished"
         items = await wait_for(db, "SELECT count(*) AS n FROM fleet.plate_items", (), lambda r: True)
         assert items[0]["n"] == 3  # bin packing put all three units on one plate
+
+        # the plate went to the printer as a file: FTPS upload (first attempt failed, retried), md5 checked by the printer
+        start = await wait_for(db, "SELECT status, attempts, remote_file, md5, bytes, error FROM telemetry.plate_starts "
+                                   "WHERE plate_id = %s", (plates[0]["plate_id"],), lambda r: r and r[0]["status"] == "started")
+        assert start[0]["attempts"] == 2 and start[0]["remote_file"] == f"{plates[0]['plate_id']}.gcode.3mf"
+        assert len(start[0]["md5"]) == 32 and start[0]["bytes"] > 0 and start[0]["error"] is None
 
         # inventory consumed filament and, being below the reorder point, asked for approval (66 > 50 limit)
         spool = await wait_for(db, "SELECT remaining_grams FROM inventory.spools WHERE spool_id = 'SP-1'", (),
@@ -219,14 +258,34 @@ async def test_order_to_print_to_inventory(stack):
         assert (cash[0]["gross_agorot"], cash[0]["net_agorot"], cash[0]["vendor"]) == (23600, 20000, "Test Supplier")
         await wait_for(db, "SELECT status FROM inventory.purchase_orders", (), lambda r: r[0]["status"] == "ordered")
 
-        # 2) white nameplate -> voron-01 over WebSocket; simulated thermal runaway -> auto pause
+        # 2) white nameplate -> voron-01 (HTTP upload, WebSocket control); thermal runaway -> auto pause, CONFIRMED
+        # 3) red nameplate -> bambu-02; thermal runaway -> auto pause, but the printer ignores it -> safety alert
         await _publish(settings, OrderReceived(order_id="ord-white", customer_ref="c2", text="Noa", color="white"),
                        correlationid="ord-white")
-        fails = await wait_for(db, "SELECT printer_id, detector, action_taken FROM telemetry.failures", (),
-                               lambda r: len(r) >= 1, timeout=60)
-        assert fails[0]["printer_id"] == "voron-01"
-        assert fails[0]["detector"] == "thermal_runaway_nozzle"
-        assert fails[0]["action_taken"] == "paused"
+        await _publish(settings, OrderReceived(order_id="ord-red", customer_ref="c3", text="Dana", color="red"),
+                       correlationid="ord-red")
+        fails = await wait_for(db, "SELECT printer_id, detector, action_taken FROM telemetry.failures "
+                                   "WHERE detector = 'thermal_runaway_nozzle' ORDER BY id", (),
+                               lambda r: {x["printer_id"] for x in r} >= {"voron-01", "bambu-02"}, timeout=90)
+        assert all(f["action_taken"] == "pause_sent" for f in fails)
+
+        checks = await wait_for(db, "SELECT printer_id, confirmed, latency_ms, attempts, final_status, requested_by "
+                                    "FROM telemetry.pause_checks ORDER BY id", (),
+                                lambda r: {x["printer_id"] for x in r} >= {"voron-01", "bambu-02"}, timeout=60)
+        voron = next(c for c in checks if c["printer_id"] == "voron-01")
+        assert voron["confirmed"] and voron["final_status"] == "paused" and voron["latency_ms"] is not None
+        assert voron["requested_by"] == "telemetry"
+        bambu2 = next(c for c in checks if c["printer_id"] == "bambu-02")
+        assert not bambu2["confirmed"] and bambu2["attempts"] == 2 and bambu2["final_status"] == "printing"
+        alert = await wait_for(db, "SELECT severity, action_taken, message FROM telemetry.failures "
+                                   "WHERE printer_id = 'bambu-02' AND detector = 'pause_unconfirmed'", (), lambda r: r)
+        assert alert[0]["severity"] == "critical" and "still reports printing" in alert[0]["message"]
+
+        # the white plate also went over HTTP to Moonraker and was started from the uploaded file
+        white = await wait_for(db, "SELECT s.status, s.remote_file FROM telemetry.plate_starts s "
+                                   "JOIN fleet.plates p USING (plate_id) WHERE p.printer_id = 'voron-01'", (),
+                               lambda r: r and r[0]["status"] == "started")
+        assert white[0]["remote_file"].endswith(".gcode")
 
         # every handler ran exactly once per message; nothing was dead-lettered
         async with db.tx() as conn:

@@ -27,6 +27,8 @@ x-agent: &agent
     FLEET_CONFIG: /app/config/${FLEET_FILE:-fleet.sim.toml}
     ARTIFACT_DIR: /app/var/artifacts
     LOG_LEVEL: INFO
+    # LAN access code of the SIMULATED printers (fleet.sim.toml). Not a secret: real codes live in cameras.env.
+    SIM_ACCESS_CODE: "12345678"
   volumes:
     - artifacts:/app/var/artifacts
     - ./config:/app/config:ro
@@ -188,8 +190,9 @@ services:
     restart: *restart
     logging: *logging
 
-  # Simulated Bambu printers (via mosquitto) and a Moonraker printer (ws://simulator:7125/websocket).
-  # Inject failures: SIM_FAULTS="voron-01=thermal_runaway" docker compose --profile sim up -d simulator
+  # Simulated printers: two Bambu P1 (MQTT via mosquitto, FTPS on 9901/9902, port-6000-style cameras on 6001/6002)
+  # and a Klipper/Moonraker printer (HTTP + WebSocket + Crowsnest webcam on simulator:7125).
+  # Inject failures: SIM_FAULTS="voron-01=thermal_runaway,bambu-02=ignore_pause+camera_drop" docker compose --profile sim up -d simulator
   simulator:
     <<: *agent
     profiles: ["sim"]
@@ -199,6 +202,26 @@ services:
       SIM_FAULTS: ${SIM_FAULTS:-}
     depends_on:
       mosquitto: { condition: service_started }
+
+  # The P1/A1 frame-reader pointed at the simulated P1 (the real one, bambu-cam, uses cameras.env).
+  bambu-cam-sim:
+    profiles: ["sim"]
+    build: ./bambu-cam
+    environment:
+      BAMBU_CAMS: bambu-01=simulator:6001
+      BAMBU_CODE_BAMBU_01: "12345678"
+    restart: *restart
+    logging: *logging
+
+  # The simulated X1's native camera: RTSPS on :322, user bblp + access code, path streaming/live/1.
+  x1-camera-sim:
+    profiles: ["sim"]
+    image: bluenviron/mediamtx:1.21.3-ffmpeg
+    volumes:
+      - ./infra/sim/mediamtx-x1.yml:/mediamtx.yml:ro
+      - ./src/printfarm/simulator/assets/sim-printer.pem:/certs/sim-printer.pem:ro
+    restart: *restart
+    logging: *logging
 
   # Operator CLI: docker compose run --rm cli <order|approvals|approve|clear-bed|status|watch>
   cli:

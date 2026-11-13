@@ -394,7 +394,47 @@ class FailureDetected(Event):
     detector: str
     severity: Severity
     message: str
-    action_taken: str            # "paused" | "none"
+    action_taken: str            # "pause_sent" | "none" | "pause_failed: ..."; the result follows as pause.confirmed/unconfirmed
+
+
+class PlateUploaded(Event):
+    """The plate file reached the printer (Bambu: implicit FTPS; Moonraker: HTTP upload)."""
+
+    subject: ClassVar[str] = "evt.printer.plate.uploaded"
+    printer_id: str
+    plate_id: str
+    remote_file: str
+    bytes: int
+    md5: str
+    seconds: float
+
+
+class PauseConfirmed(Event):
+    """The printer itself reported that it stopped printing after a pause request."""
+
+    subject: ClassVar[str] = "evt.printer.pause.confirmed"
+    printer_id: str
+    plate_id: str | None = None
+    reason: str
+    requested_by: str
+    latency_ms: int              # pause sent -> printer reported a non-printing state
+    attempts: int
+    status: PrinterStatus        # normally "paused"; "failed"/"finished"/"idle" if it stopped another way
+
+
+class PauseUnconfirmed(Event):
+    """SAFETY ALERT: a pause was requested but the printer still reports printing (or cannot be reached)."""
+
+    subject: ClassVar[str] = "evt.printer.pause.unconfirmed"
+    printer_id: str
+    plate_id: str | None = None
+    reason: str
+    requested_by: str
+    waited_ms: int
+    attempts: int
+    last_status: PrinterStatus | None = None
+    online: bool
+    printer_reply: str = ""      # what the printer answered to the pause command, if it answered
 
 
 class PrinterConnectivity(Event):

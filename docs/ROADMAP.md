@@ -1,6 +1,6 @@
 # Roadmap: one stack, then dashboard, agents and real printers
 
-Status: **Phases 0–1 done; Phase 2 next.** Agreed decisions: the backend's contracts are canonical; no real printers yet (work against
+Status: **Phases 0–2 done; Phase 3 (dashboard foundation) next.** Agreed decisions: the backend's contracts are canonical; no real printers yet (work against
 the simulators); after alignment comes an early printer-path test, then the dashboard screen by screen; orders move through operator
 gates with per-stage auto-advance switches (off by default).
 
@@ -28,7 +28,7 @@ gates with per-stage auto-advance switches (off by default).
 |---|---|---|
 | 0 | One repository: stack files, merged compose (agents + `sim` profile + `cli`), `fleet.sim.toml` / `fleet.toml`, docs. | tests green |
 | 1 ✅ | One contract and topology: backend contracts canonical; `pf_common` removed; Finance as an agent on CloudEvents; gateway commands → JetStream (validated, audited, 202, idempotent); WebSocket allows only `evt.`/`tlm.`/`dlq.`; new commands/events (payments, PO ordered/received, spool load, resume/cancel/pause-all, config); `PlateFinished` with print time and per-job shares; money in agorot; one migration path. Also fixed: NATS passwords starting with a digit stopped NATS from starting; non-ASCII login/CSRF input crashed the gateway. | full stack runs with `--profile sim`; an order ends in ledger rows; tests green (done) |
-| 2 | Printer path on simulators: FTPS/HTTP upload + start/resume/stop in the adapters, pause verification (`ignore_commands` fault), fake cameras per printer, bambu-cam fixes. | e2e upload→print on both vendors; unconfirmed pause raises an alert |
+| 2 ✅ | Printer path on simulators: plate upload (Bambu implicit FTPS with TLS session reuse, Moonraker HTTP) with retries, start confirmed from printer state, resume/cancel/pause-all, every pause verified (confirmed / unconfirmed alert); plate starts survive restarts; only sliced files reach real printers. Simulators: FTPS server enforcing session reuse, Moonraker HTTP+WS on one port, P1 port-6000 camera, Crowsnest MJPEG, X1 RTSPS (MediaMTX), injectable faults. bambu-cam: stale-frame fix, host:port, `/status`, fail-fast. Also fixed: gateway camera errors gave HTTP 500 / empty 200; the X1 example used `rtsps://`, which rejects the printer's self-signed certificate (`rtspx://`). | e2e upload→print on both vendors; unconfirmed pause raises an alert (done) |
 | 3 | Dashboard foundation: Vite/React/TS app built into the Caddy image, auth flow, app shell, WebSocket with replay, System & Agents screen (heartbeats, lag, DLQ replay, audited toggles). | Playwright: login, agents healthy, toggle, DLQ replay |
 | 4 | Printer Fleet screen: live tiles, cameras, pause/resume/cancel, failure log. | |
 | 5 | Orders v2 + Order Pipeline: priced multi-item orders, saga with LEAD…QC…SHIPPED, drag = dispatch, auto-advance switches. | |

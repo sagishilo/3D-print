@@ -1,0 +1,46 @@
+# SIMULATED Bambu X1 camera (docker compose --profile sim; TEST ONLY).
+# Same URL shape as a real X1 in LAN mode: rtsps://bblp:<access code>@<printer>:322/streaming/live/1
+# The picture is an ffmpeg test pattern published inside this container. The certificate is the simulator's
+# self-signed test certificate, like the self-signed one a real printer presents.
+logLevel: warn
+
+api: false
+metrics: false
+pprof: false
+playback: false
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+
+rtsp: true
+rtspTransports: [tcp]
+rtspEncryption: "strict"          # RTSPS only, like the printer
+rtspsAddress: :322
+rtspServerKey: /certs/sim-printer.pem
+rtspServerCert: /certs/sim-printer.pem
+
+authMethod: internal
+authInternalUsers:
+  # viewers: the printer's LAN user and the simulated access code (SIM_ACCESS_CODE in docker-compose.yml)
+  - user: bblp
+    pass: "12345678"
+    ips: []
+    permissions:
+      - action: read
+        path: streaming/live/1
+  # the test-pattern publisher below, from inside this container only
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: publish
+        path: streaming/live/1
+
+paths:
+  streaming/live/1:
+    runOnInit: >-
+      ffmpeg -hide_banner -loglevel error -re -f lavfi -i testsrc=size=1280x720:rate=15
+      -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -pix_fmt yuv420p
+      -f rtsp -rtsp_transport tcp rtsps://127.0.0.1:322/$MTX_PATH
+    runOnInitRestart: true

@@ -22,7 +22,6 @@ import contextlib
 import itertools
 import json
 import logging
-import os
 import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -33,6 +32,7 @@ from typing import Any
 import aiomqtt
 import websockets
 
+from printfarm.agents.telemetry.transfer import PlateFile, upload_ftps, upload_moonraker
 from printfarm.config import PrinterCfg
 from printfarm.contracts.messages import PrinterState, PrinterStatus
 
@@ -107,7 +107,16 @@ class PrinterAdapter(ABC):
     async def _session(self) -> None: ...
 
     @abstractmethod
-    async def start_print(self, plate_id: str, artifact_uris: list[str]) -> None: ...
+    async def upload(self, plate: PlateFile, timeout: float) -> float:
+        """Transfer the plate file to the printer; returns seconds. Raises UploadError."""
+
+    @abstractmethod
+    async def start_plate(self, plate: PlateFile) -> None:
+        """Tell the printer to print an uploaded plate file (does not wait for it to start)."""
+
+    def last_reply(self, command: str) -> str:
+        """The printer's answer to the most recent ``command`` (empty when the protocol has none)."""
+        return ""
 
     @abstractmethod
     async def pause(self) -> None: ...
@@ -142,6 +151,7 @@ class BambuMqttAdapter(PrinterAdapter):
         super().__init__(*a, **kw)
         self._client: aiomqtt.Client | None = None
         self._seq = itertools.count(1)
+        self._replies: dict[str, str] = {}   # command -> "success" | "failed: <reason>"
 
     def _tls(self) -> ssl.SSLContext | None:
         if not self.cfg.tls:
@@ -154,7 +164,7 @@ class BambuMqttAdapter(PrinterAdapter):
         return ctx
 
     async def _session(self) -> None:
-        code = os.getenv(self.cfg.access_code_env, "") if self.cfg.access_code_env else ""
+        code = self.cfg.access_code()
         async with aiomqtt.Client(
             self.cfg.host, self.cfg.port,
             username="bblp" if code else None, password=code or None,
@@ -162,16 +172,24 @@ class BambuMqttAdapter(PrinterAdapter):
         ) as client:
             self._client = client
             await client.subscribe(f"device/{self.cfg.serial}/report")
-            await self._request({"pushing": {"command": "pushall"}})
+            # Once per connection only: P1-series printers lag if asked for a full report more often than ~5 min.
+            await self._request({"pushing": {"command": "pushall", "version": 1, "push_target": 1}})
             await self._connected()
             async for message in client.messages:
                 try:
                     data = json.loads(message.payload)
                 except ValueError:
                     continue
-                if "print" in data:
-                    _deep_merge(self.raw, data["print"])
-                    self.publish_state()
+                body = data.get("print")
+                if not isinstance(body, dict):
+                    continue
+                if "result" in body and body.get("command") not in (None, "push_status"):
+                    # The printer's answer to one of our commands (it echoes command + sequence_id).
+                    result = str(body["result"]).lower()
+                    self._replies[body["command"]] = result if result == "success" else f"{result}: {body.get('reason', '')}"
+                    continue
+                _deep_merge(self.raw, body)
+                self.publish_state()
         self._client = None
 
     async def _request(self, body: dict) -> None:
@@ -179,27 +197,38 @@ class BambuMqttAdapter(PrinterAdapter):
             raise ConnectionError(f"{self.cfg.id} not connected")
         for v in body.values():
             v.setdefault("sequence_id", str(next(self._seq)))
+            if v.get("command") in self._replies:
+                del self._replies[v["command"]]  # a reply from now on belongs to this request
         await self._client.publish(f"device/{self.cfg.serial}/request", json.dumps(body), qos=1)
 
-    async def start_print(self, plate_id: str, artifact_uris: list[str]) -> None:
-        # Production: the plate .3mf is first uploaded over FTPS (port 990, user bblp)
-        # by the plate compositor; here we reference it by name.
+    def last_reply(self, command: str) -> str:
+        return self._replies.get(command, "")
+
+    async def upload(self, plate: PlateFile, timeout: float) -> float:
+        return await upload_ftps(plate, host=self.cfg.ftp_host or self.cfg.host, port=self.cfg.ftp_port,
+                                 access_code=self.cfg.access_code(), timeout=timeout)
+
+    async def start_plate(self, plate: PlateFile) -> None:
+        # Field set as documented by the community (OpenBambuAPI, "project_file"); ids are "0" for LAN prints.
         await self._request({
             "print": {
-                "command": "project_file", "param": "Metadata/plate_1.gcode",
-                "url": f"ftp:///{plate_id}.3mf", "subtask_name": plate_id,
-                "bed_leveling": True, "use_ams": False, "timelapse": False,
+                "command": "project_file", "param": plate.plate_gcode,
+                "project_id": "0", "profile_id": "0", "task_id": "0", "subtask_id": "0",
+                "subtask_name": plate.plate_id, "url": self.cfg.print_url.format(file=plate.remote_name),
+                "md5": plate.md5, "timelapse": False, "bed_type": "auto", "bed_levelling": True,
+                "flow_cali": False, "vibration_cali": False, "layer_inspect": False,
+                "use_ams": self.cfg.use_ams, "ams_mapping": "",
             }
         })
 
     async def pause(self) -> None:
-        await self._request({"print": {"command": "pause"}})
+        await self._request({"print": {"command": "pause", "param": ""}})
 
     async def resume(self) -> None:
-        await self._request({"print": {"command": "resume"}})
+        await self._request({"print": {"command": "resume", "param": ""}})
 
     async def cancel(self) -> None:
-        await self._request({"print": {"command": "stop"}})
+        await self._request({"print": {"command": "stop", "param": ""}})
 
     def to_state(self) -> PrinterState:
         r = self.raw
@@ -284,9 +313,11 @@ class MoonrakerAdapter(PrinterAdapter):
         await self._ws.send(json.dumps({"jsonrpc": "2.0", "method": method, "params": params or {}, "id": rid}))
         return await asyncio.wait_for(fut, timeout)
 
-    async def start_print(self, plate_id: str, artifact_uris: list[str]) -> None:
-        # Production: POST the plate G-code to /server/files/upload first.
-        await self.call("printer.print.start", {"filename": f"{plate_id}.gcode"})
+    async def upload(self, plate: PlateFile, timeout: float) -> float:
+        return await upload_moonraker(plate, base_url=self.cfg.http_base(), api_key=self.cfg.api_key(), timeout=timeout)
+
+    async def start_plate(self, plate: PlateFile) -> None:
+        await self.call("printer.print.start", {"filename": plate.remote_name})
 
     async def pause(self) -> None:
         await self.call("printer.print.pause")

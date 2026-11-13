@@ -93,7 +93,7 @@ docker compose --profile sim up -d --build
 docker compose ps --format "table {{.Service}}`t{{.Status}}"
 ```
 
-**Expected:** `gateway`, `go2rtc`, `nats` and `postgres` show `Up ... (healthy)`. `caddy`, the agents (`coordinator`, `finance`, `fleet`, `inventory`, `personalization`, `telemetry`) and, with `--profile sim`, `mosquitto` and `simulator` show `Up`. (`migrate` runs once at start and exits, so it isn't listed.)
+**Expected:** `gateway`, `go2rtc`, `nats` and `postgres` show `Up ... (healthy)`. `caddy`, the agents (`coordinator`, `finance`, `fleet`, `inventory`, `personalization`, `telemetry`) and, with `--profile sim`, `mosquitto`, `simulator`, `bambu-cam-sim` and `x1-camera-sim` show `Up`. (`migrate` runs once at start and exits, so it isn't listed.)
 **If one says** `unhealthy` or `Restarting`: show its log, for example `docker compose logs gateway --tail 50`, and send me the last 20 lines. The log contains no secrets.
 
 Health of the core path:
@@ -163,17 +163,19 @@ docker run --rm -v "${PWD}:/work" -w /work python:3.12-slim python scripts/prefl
 **Expected:** every line `PASS`, and the last line `ALL CHECKS PASSED`.
 **If you see** `FAIL ... timed out`: wrong IP, printer off, or the PC and printer are on different networks (guest Wi-Fi blocks this). **If you see** `FAIL ... Connection refused` on Bambu ports: enable **LAN Only Mode** (and LAN live view on X1) on the printer. A printer stays "Not ready" until all its checks pass.
 
-## Step 11: Connect cameras
+## Step 11: Printer access codes and cameras
 
-Create the camera secrets file (a separate file, so go2rtc never sees your other secrets):
+Create the printer access-code file (a separate file, so go2rtc never sees your other secrets). The telemetry agent reads the same codes to control printers and upload plates:
 
 ```powershell
 Copy-Item cameras.env.example cameras.env
 notepad cameras.env
 ```
 
-- **X1:** in `cameras.env`, set `X1C_02_ACCESS_CODE=` to the code shown on the printer screen. In `infra/go2rtc/go2rtc.yaml`, remove the `#` in front of the `x1c-02:` line and fix its IP.
+- **Every Bambu printer:** set `BAMBU_CODE_<ID>=` (e.g. `BAMBU_CODE_X1C_02=`) to the code shown on the printer screen, and point that printer's `access_code_env` in `config/fleet.toml` at it.
+- **X1 camera:** in `infra/go2rtc/go2rtc.yaml`, remove the `#` in front of the `x1c-02:` line and fix its IP. Keep `rtspx://`: the printer's certificate is self-signed, and `rtsps://` would reject it.
 - **Klipper/Crowsnest:** in `go2rtc.yaml`, remove the `#` in front of the `voron-01:` line and fix its IP. No code needed.
+- Delete the `SIMULATED printers` block in `go2rtc.yaml` once you use real printers.
 
 Then:
 
@@ -187,9 +189,9 @@ docker compose restart go2rtc
 ## Step 12: Bambu P1 / A1 cameras (custom frame-reader)
 
 P1 and A1 printers have no RTSP. `bambu-cam` reads their port-6000 camera protocol and serves MJPEG to go2rtc.
-**Status: tested here against a simulated printer, not yet on a real P1/A1.** Try it on one printer first.
+**Status: tested against the printer simulator (including refused logins, dropped and stalled connections), not yet on a real P1/A1.** Try it on one printer first.
 
-1. In `cameras.env`: `BAMBU_CAMS=p1s-01=192.168.50.23` and `BAMBU_CODE_P1S_01=<access code>`.
+1. In `cameras.env`: `BAMBU_CAMS=p1s-01=192.168.50.23` (`host` or `host:port`) and `BAMBU_CODE_P1S_01=<access code>`.
 2. In `go2rtc.yaml`: remove the `#` in front of `p1s-01: http://bambu-cam:8090/p1s-01.mjpeg`.
 3. Start it, with the extra profile:
 
@@ -201,7 +203,25 @@ docker compose logs bambu-cam --tail 20
 
 **Expected** after opening the stream in go2rtc's page: `p1s-01: connected to 192.168.50.23:6000`.
 **If you see** `payload is not a JPEG`: the access code is wrong, or this firmware speaks a different protocol. Send me the log lines.
+Per-camera state (connected, frames, last error): `docker compose exec bambu-cam python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8090/status').read().decode())"`.
 From now on, always start with `docker compose --profile p1a1 up -d`.
+
+### Simulated printers and cameras (`--profile sim`)
+
+Without hardware, `--profile sim` runs three simulated printers that speak the real protocols: `bambu-01` (P1: MQTT, FTPS uploads, port-6000 camera through `bambu-cam-sim`), `bambu-02` (X1: MQTT, FTPS, native RTSPS camera from `x1-camera-sim`) and `voron-01` (Klipper: Moonraker HTTP + WebSocket, Crowsnest webcam). Their access code is `12345678` (not a secret). Plates are uploaded to them and started, and every pause is verified, exactly as with real printers.
+
+To rehearse failures, restart the simulator with faults (combine them per printer with `+`):
+
+```powershell
+$env:SIM_FAULTS = "bambu-01=ignore_pause,voron-01=thermal_runaway"; docker compose --profile sim up -d simulator; Remove-Item Env:SIM_FAULTS
+```
+
+| Fault | What the simulated printer does |
+| --- | --- |
+| `thermal_runaway`, `stall`, `fail` | the nozzle overheats / progress freezes / the print fails mid-way |
+| `ignore_pause`, `ignore_commands` | drops pause (or every command), like firmware that refuses third-party control: you get a **pause unconfirmed** alert |
+| `upload_fail`, `upload_flaky` | refuses uploads (no space) / fails the first upload of each file (the agent retries) |
+| `camera_off`, `camera_auth_fail`, `camera_drop`, `camera_stall` | camera port closed / login refused / connection drops / frames stop |
 
 ## Step 13: The agents and the message bus
 
@@ -251,8 +271,10 @@ Don't back up with `pg_dump ... > file.sql` in Windows PowerShell 5: it saves th
 | Works now (tested end to end) | Still to build |
 | --- | --- |
 | HTTPS via Caddy; admin login with HttpOnly cookies, refresh rotation, logout, 5-try lockout | React frontend (`web/dist` is a placeholder) |
-| Commands: CSRF check, validated against typed contracts, audit log, published durably to JetStream (202 + `command_id`, idempotent retries) | Uploading plate files to real printers and building multi-part plate files (works with the simulators only) |
-| Agents: order sagas, human approvals, payments, audited settings; telemetry with automatic pause on failures; plate packing and scheduling; filament ledger, reorders, PO ordered/received, spools | Real-printer tests, including `bambu-cam` on a real P1/A1 |
+| Commands: CSRF check, validated against typed contracts, audit log, published durably to JetStream (202 + `command_id`, idempotent retries) | Building multi-part plate files automatically (plate compositor); until then a printer only gets an already-sliced plate file |
+| Agents: order sagas, human approvals, payments, audited settings; plate packing and scheduling; filament ledger, reorders, PO ordered/received, spools | Real-printer tests (Phase 9), including `bambu-cam` on a real P1/A1 and whether your Bambu firmware needs Developer Mode for control |
+| Printer control: plate upload (Bambu implicit FTPS with TLS session reuse, Moonraker HTTP), start confirmed from the printer's state, resume/cancel/pause-all; **every pause verified** against the printer's own state, with a critical alert when it does not stop. Tested against simulators only | |
+| Simulated printers for P1 (port-6000 camera), X1 (RTSPS camera) and Klipper (Crowsnest MJPEG), with injectable faults | |
 | Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required | WebSocket replay from JetStream after a reconnect (today: resync through REST) |
 | Live feed (`/ws`): events, telemetry and dead letters only, never commands; 4401 close when not logged in | Finance settings UI and more finance read endpoints (only `/api/v1/finance/summary` exists); edit settings in Postgres for now |
 | Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit), duplicate-safe | Separate NATS permissions per user (both users have full access today) |

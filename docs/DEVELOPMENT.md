@@ -28,13 +28,16 @@ src/printfarm/        the agents (Python package "printfarm")
   bus/                NATS JetStream bus, in-memory bus, retry/DLQ policy
   store/              Postgres pool, migrations, outbox relay, inbox
   agents/             coordinator, telemetry, fleet, inventory, personalization, finance (ledger)
-  simulator/          Bambu (MQTT) + Moonraker (WebSocket) printer simulators
+    telemetry/        adapters (Bambu MQTT, Moonraker WS), transfer (FTPS / HTTP upload), platefiles (what may be
+                      sent to a printer), safety (verified pause), detectors
+  simulator/          printers speaking the real protocols: Bambu (MQTT + implicit FTPS + port-6000 camera),
+                      Moonraker (HTTP + WebSocket + Crowsnest webcam on one port), injectable faults
   cli.py              printfarm command
 gateway/              FastAPI gateway for the dashboard: auth, commands (app/commands.py), camera proxy, WebSocket bridge;
                       imports printfarm.contracts + printfarm.bus, so it shares the agents' subjects and JetStream topology
 bambu-cam/            P1/A1 camera frame-reader for go2rtc
 web/                  dashboard (dist/ is served by Caddy)
-infra/                nats.conf, Caddyfile, go2rtc.yaml
+infra/                nats.conf, Caddyfile, go2rtc.yaml; sim/mediamtx-x1.yml (simulated X1 RTSPS camera)
 config/               fleet.sim.toml (simulated printers), fleet.toml (your printers), mosquitto.conf
 scripts/              init_env.py, check_env.py, preflight.py
 docs/                 plan, architecture, ADRs, design
@@ -80,8 +83,14 @@ printfarm order --text "Noa"
 ## Tests
 
 ```bash
-pytest       # unit tests: contracts, saga, packing, detectors, inventory, nameplates, bus policy, ledger, gateway
+pytest       # unit tests: contracts, saga, packing, detectors, inventory, nameplates, bus policy, ledger, gateway,
+             # plate files, pause verification, uploads + cameras against the simulators, bambu-cam
 ```
+
+The printer-path tests run the real client code against the in-process simulators on `127.0.0.1` (no hardware,
+no Docker): `test_sim_transfer.py` (FTPS incl. the TLS-session-reuse rule, Moonraker upload, webcam faults),
+`test_adapters_sim.py` (the Moonraker adapter: upload, start, verified pause), `test_bambu_cam.py` (frame-reader vs
+the port-6000 camera: refused login, drop, stall) and `test_pause_verify.py` (timing, with a fake clock).
 
 The end-to-end test runs every agent against a real NATS, Postgres and MQTT broker. It **drops** the agent schemas and
 streams it uses, so give it throwaway servers. The simplest way (no Windows firewall prompts, Python 3.12 as in production):
@@ -101,11 +110,14 @@ docker stop pf-e2e-nats pf-e2e-pg pf-e2e-mqtt; docker network rm pf-e2e
 The end-to-end test covers this whole flow:
 
 1. A 3-unit Hebrew nameplate order is modelled and all three units are packed onto **one** plate.
-2. The plate prints on the MQTT (Bambu) simulator.
+2. The plate file is uploaded to the MQTT (Bambu) simulator over implicit FTPS. The first upload fails on purpose and is
+   retried; the printer checks the md5 before it starts, and the plate prints.
 3. Filament is deducted, and the purchase order triggered by low stock goes through human approval.
 4. The ledger allocates the plate's filament to its three jobs, books a recorded payment as income with VAT split, and books the
    confirmed purchase order as a cash expense.
-5. A simulated thermal runaway on the WebSocket (Moonraker) printer is detected and the printer is **paused automatically**.
+5. A simulated thermal runaway on the Moonraker printer (plate uploaded over HTTP) is detected; the printer is **paused
+   automatically and the pause is confirmed** from its own state.
+6. The same runaway on a second Bambu printer that **ignores the pause** raises a critical **pause unconfirmed** alert.
 
 ## Roadmap
 

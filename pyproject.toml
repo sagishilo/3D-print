@@ -14,6 +14,7 @@ dependencies = [
     "psycopg-pool>=3.2",
     "aiomqtt>=2.0",
     "websockets>=12",
+    "httpx>=0.27",               # Moonraker HTTP file upload
     "tzdata>=2024.1",            # IANA time zones for zoneinfo on Windows and slim images (ledger days)
 ]
 
@@ -32,7 +33,7 @@ printfarm = "printfarm.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-printfarm = ["store/migrations/*.sql"]
+printfarm = ["store/migrations/*.sql", "simulator/assets/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

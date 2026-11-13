@@ -11,29 +11,47 @@ part_spacing_mm = 4
 schedule_interval_s = 15
 batch_window_s = 3          # wait this long after new work so parts can share a plate
 
+[safety]
+pause_confirm_s = 10         # every pause must show up in the printer's own state within this time ...
+pause_retries = 1            # ... else one more attempt, then a CRITICAL "pause unconfirmed" alert
+start_confirm_s = 120        # a started plate must be reported as printing within this time, else it is failed
+upload_timeout_s = 600       # one plate-file upload; P1-series FTPS can be slow (~1-2 MB/s)
+
 [personalization]
 font = "Noto Sans Hebrew:style=Bold"
 
 # ---------------------------------------------------------------- printers
-# Bambu Lab (LAN mode, MQTT over TLS on 8883). Uncomment and fill in:
+# Plate files: a printer receives only a SLICED plate file (Bambu: .gcode.3mf exported from the slicer with one
+# sliced plate; Klipper: .gcode). Unsliced parts are refused with a clear reason until the plate compositor exists.
+# Never set `simulated = true` here.
+
+# Bambu Lab (LAN mode: MQTT over TLS on 8883, implicit FTPS on 990 for uploads). Uncomment and fill in:
 # [[printers]]
 # id = "x1c-02"
 # vendor = "bambu"
+# model = "x1"                        # x1 | p1 | a1 (informational; cameras are set up in go2rtc.yaml)
 # host = "192.168.50.21"
 # port = 8883
 # tls = true
 # serial = "00M00A000000000"          # printer screen > Settings > Device
 # access_code_env = "BAMBU_CODE_X1C_02"
+# ftp_port = 990
+# print_url = "ftp:///{file}"         # project_file "url"; verify on your firmware before relying on it
+# use_ams = false
 # bed_mm = [256, 256]
 # nozzle_mm = 0.4
 # material = "PLA"
 # color = "black"
+# Before the first real print, check that the printer accepts third-party control (pause!) on your firmware;
+# newer firmware may need LAN-only mode + Developer Mode. The pause check raises an alert if it does not.
 
-# Klipper / Moonraker:
+# Klipper / Moonraker (WebSocket + HTTP API on the same host:port):
 # [[printers]]
 # id = "voron-01"
 # vendor = "moonraker"
+# model = "klipper"
 # url = "ws://192.168.50.31:7125/websocket"
+# api_key_env = ""                    # only if Moonraker requires an API key (env var name, in cameras.env)
 # bed_mm = [300, 300]
 # nozzle_mm = 0.4
 # material = "PLA"

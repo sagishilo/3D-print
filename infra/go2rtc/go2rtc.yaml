@@ -18,8 +18,14 @@ streams:
   # Delete this line once real cameras work.
   demo: exec:ffmpeg -hide_banner -re -f lavfi -i testsrc=size=640x360:rate=10 -c:v mjpeg -q:v 7 -f mjpeg -
 
+  # --- SIMULATED printers (docker compose --profile sim). Delete this block when you switch to real printers. ---
+  bambu-01: http://bambu-cam-sim:8090/bambu-01.mjpeg     # P1 frame-reader -> simulated port-6000 camera
+  bambu-02: rtspx://bblp:12345678@x1-camera-sim:322/streaming/live/1   # simulated X1 native RTSPS
+  voron-01: http://simulator:7125/webcam/?action=stream  # Crowsnest-style MJPEG from the simulated Klipper printer
+
   # --- Bambu X1 series: native RTSPS (LAN mode + LAN-mode live view enabled on the printer) ---
-  # x1c-02: rtsps://bblp:${X1C_02_ACCESS_CODE}@192.168.50.21:322/streaming/live/1
+  # rtspx:// = RTSPS without certificate verification: the printer's certificate is self-signed, so rtsps:// fails.
+  # x1c-02: rtspx://bblp:${BAMBU_CODE_X1C_02}@192.168.50.21:322/streaming/live/1
 
   # --- Bambu P1 / A1: no RTSP; frames come from the bambu-cam service (custom frame-reader) ---
   # p1s-01: http://bambu-cam:8090/p1s-01.mjpeg
