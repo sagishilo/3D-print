@@ -44,18 +44,18 @@ font = "Noto Sans Hebrew:style=Bold"
 material = "PLA"
 color = "black"
 grams_per_spool = 1000
-cost_per_spool = 22.0
+cost_per_spool_agorot = 8500  # 85.00 ILS gross
 lead_time_days = 5
 safety_stock_days = 3
 baseline_daily_grams = 150
-auto_approve_limit = 50.0    # orders above this need a human approval
+auto_approve_limit_agorot = 20000    # reorders above 200.00 ILS need a human approval
 
 [[materials]]
 material = "PLA"
 color = "white"
 grams_per_spool = 1000
-cost_per_spool = 22.0
+cost_per_spool_agorot = 8500  # 85.00 ILS gross
 lead_time_days = 5
 safety_stock_days = 3
 baseline_daily_grams = 100
-auto_approve_limit = 50.0
+auto_approve_limit_agorot = 20000

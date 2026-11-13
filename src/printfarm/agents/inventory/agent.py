@@ -1,8 +1,16 @@
-"""Inventory Agent: filament ledger, reorder policy, purchase orders (with approval gate)."""
+"""Inventory Agent: filament ledger, reorder policy, purchase orders (with approval gate), spools.
+
+Purchase-order lifecycle:
+    pending_approval --approved--> placed --confirm_po_ordered--> ordered --receive_po--> received
+    pending_approval --rejected--> rejected
+"placed" means the policy (or a human) decided to buy; "ordered" means a human actually ordered it from the
+supplier and recorded the real total, which is what the Finance agent books as an expense.
+"""
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from printfarm.agents.base import Agent, on
 from printfarm.agents.inventory.model import Policy, decide
@@ -11,11 +19,23 @@ from printfarm.contracts.messages import (
     ApprovalDecided,
     ApprovalRequested,
     AvailabilityReply,
+    ConfirmPoOrdered,
     FilamentConsumed,
+    LoadSpool,
     PlateFinished,
+    PoReceived,
+    PurchaseOrdered,
+    ReceivePo,
     ReorderPlaced,
+    SpoolLoaded,
     StockLow,
 )
+
+OPEN_PO_STATUSES = ("pending_approval", "placed", "ordered")  # count towards the stock position
+
+
+def ils(agorot: int) -> str:
+    return f"{agorot / 100:,.2f} ILS"
 
 
 class InventoryAgent(Agent):
@@ -25,15 +45,15 @@ class InventoryAgent(Agent):
         async with self.db.tx() as conn:
             for m in self.fleet.materials:
                 await conn.execute(
-                    "INSERT INTO inventory.materials (material, color, grams_per_spool, cost_per_spool, lead_time_days, "
-                    "safety_stock_days, review_period_days, baseline_daily_grams, auto_approve_limit) "
+                    "INSERT INTO inventory.materials (material, color, grams_per_spool, cost_per_spool_agorot, lead_time_days, "
+                    "safety_stock_days, review_period_days, baseline_daily_grams, auto_approve_limit_agorot) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (material, color) DO UPDATE SET "
-                    "grams_per_spool = EXCLUDED.grams_per_spool, cost_per_spool = EXCLUDED.cost_per_spool, "
+                    "grams_per_spool = EXCLUDED.grams_per_spool, cost_per_spool_agorot = EXCLUDED.cost_per_spool_agorot, "
                     "lead_time_days = EXCLUDED.lead_time_days, safety_stock_days = EXCLUDED.safety_stock_days, "
-                    "review_period_days = EXCLUDED.review_period_days, "
-                    "baseline_daily_grams = EXCLUDED.baseline_daily_grams, auto_approve_limit = EXCLUDED.auto_approve_limit",
-                    (m.material, m.color, m.grams_per_spool, m.cost_per_spool, m.lead_time_days,
-                     m.safety_stock_days, m.review_period_days, m.baseline_daily_grams, m.auto_approve_limit),
+                    "review_period_days = EXCLUDED.review_period_days, baseline_daily_grams = EXCLUDED.baseline_daily_grams, "
+                    "auto_approve_limit_agorot = EXCLUDED.auto_approve_limit_agorot",
+                    (m.material, m.color, m.grams_per_spool, m.cost_per_spool_agorot, m.lead_time_days,
+                     m.safety_stock_days, m.review_period_days, m.baseline_daily_grams, m.auto_approve_limit_agorot),
                 )
             for s in self.fleet.spools:  # seed only; afterwards the ledger is the truth
                 await conn.execute(
@@ -92,15 +112,15 @@ class InventoryAgent(Agent):
                      (SELECT coalesce(sum(remaining_grams), 0) FROM inventory.spools
                        WHERE material = %(m)s AND color = %(c)s AND status <> 'empty') AS on_hand,
                      (SELECT coalesce(sum(spools), 0) FROM inventory.purchase_orders
-                       WHERE material = %(m)s AND color = %(c)s AND status IN ('pending_approval', 'placed')) AS on_order_spools,
+                       WHERE material = %(m)s AND color = %(c)s AND status = ANY(%(open)s)) AS on_order_spools,
                      (SELECT coalesce(-sum(delta_grams), 0) FROM inventory.ledger
                        WHERE material = %(m)s AND color = %(c)s AND delta_grams < 0 AND at > now() - interval '14 days') AS used_14d
                 """,
-                {"m": material, "c": color},
+                {"m": material, "c": color, "open": list(OPEN_PO_STATUSES)},
             )
         ).fetchone()
-        policy = Policy(m["grams_per_spool"], m["cost_per_spool"], m["lead_time_days"], m["safety_stock_days"],
-                        m["review_period_days"], m["baseline_daily_grams"], m["auto_approve_limit"])
+        policy = Policy(m["grams_per_spool"], m["cost_per_spool_agorot"], m["lead_time_days"], m["safety_stock_days"],
+                        m["review_period_days"], m["baseline_daily_grams"], m["auto_approve_limit_agorot"])
         d = decide(policy, stats["on_hand"], stats["on_order_spools"] * m["grams_per_spool"], stats["used_14d"])
         if d is None:
             return
@@ -110,30 +130,33 @@ class InventoryAgent(Agent):
         if d.needs_approval:
             approval_id = f"apr-{uuid.uuid4().hex[:10]}"
             await conn.execute(
-                "INSERT INTO inventory.purchase_orders (po_id, material, color, spools, est_cost, status, approval_id) "
+                "INSERT INTO inventory.purchase_orders (po_id, material, color, spools, est_cost_agorot, status, approval_id) "
                 "VALUES (%s, %s, %s, %s, %s, 'pending_approval', %s)",
-                (po_id, material, color, d.spools, d.est_cost, approval_id),
+                (po_id, material, color, d.spools, d.est_cost_agorot, approval_id),
             )
             await self.emit(
                 conn,
                 ApprovalRequested(
                     approval_id=approval_id, action="inventory.reorder", requested_by=self.name,
-                    summary=f"Order {d.spools} x {material} {color} spools (~{d.est_cost:.2f})",
-                    details={"po_id": po_id, "on_hand_grams": stats["on_hand"], "reorder_point": d.reorder_point},
+                    summary=f"Order {d.spools} x {material} {color} spools (~{ils(d.est_cost_agorot)})",
+                    details={"po_id": po_id, "on_hand_grams": stats["on_hand"], "reorder_point": d.reorder_point,
+                             "est_cost_agorot": d.est_cost_agorot},
                 ),
                 cause=cause, correlationid=po_id,
             )
         else:
             await conn.execute(
-                "INSERT INTO inventory.purchase_orders (po_id, material, color, spools, est_cost, status) "
+                "INSERT INTO inventory.purchase_orders (po_id, material, color, spools, est_cost_agorot, status) "
                 "VALUES (%s, %s, %s, %s, %s, 'placed')",
-                (po_id, material, color, d.spools, d.est_cost),
+                (po_id, material, color, d.spools, d.est_cost_agorot),
             )
-            await self._placed(conn, po_id, material, color, d.spools, d.est_cost, cause)
+            await self._placed(conn, po_id, material, color, d.spools, d.est_cost_agorot, cause)
 
-    async def _placed(self, conn, po_id, material, color, spools, cost, cause) -> None:
-        # Supplier integration (email / supplier API via an MCP tool server) hooks in here.
-        await self.emit(conn, ReorderPlaced(po_id=po_id, material=material, color=color, spools=spools, est_cost=cost),
+    async def _placed(self, conn, po_id, material, color, spools, cost_agorot, cause) -> None:
+        # Supplier integration (email / supplier API via an MCP tool server) hooks in here. Until then a
+        # human orders it and confirms with cmd.inventory.confirm_po_ordered.
+        await self.emit(conn, ReorderPlaced(po_id=po_id, material=material, color=color, spools=spools,
+                                            est_cost_agorot=cost_agorot),
                         cause=cause, correlationid=po_id)
 
     @on("evt.approval.request.decided")
@@ -148,7 +171,83 @@ class InventoryAgent(Agent):
             )
         ).fetchone()
         if po and ev.approved:
-            await self._placed(conn, po["po_id"], po["material"], po["color"], po["spools"], po["est_cost"], env)
+            await self._placed(conn, po["po_id"], po["material"], po["color"], po["spools"], po["est_cost_agorot"], env)
+
+    # ------------------------------------------------------------ purchase orders and spools (operator commands)
+
+    @on("cmd.inventory.confirm_po_ordered")
+    async def confirm_po_ordered(self, env, cmd: ConfirmPoOrdered, conn):
+        ordered_at = cmd.ordered_at or datetime.now(UTC)
+        po = await (
+            await conn.execute(
+                "UPDATE inventory.purchase_orders SET status = 'ordered', supplier = %s, total_agorot = %s, "
+                "vat_invoice = %s, ordered_at = %s WHERE po_id = %s AND status = 'placed' RETURNING *",
+                (cmd.supplier, cmd.total_agorot, cmd.vat_invoice, ordered_at, cmd.po_id),
+            )
+        ).fetchone()
+        if po is None:
+            row = await (await conn.execute("SELECT status FROM inventory.purchase_orders WHERE po_id = %s",
+                                            (cmd.po_id,))).fetchone()
+            self.log.warning("PO %s not confirmed as ordered: status is %s", cmd.po_id, row["status"] if row else "unknown")
+            return
+        await self.emit(
+            conn,
+            PurchaseOrdered(po_id=po["po_id"], material=po["material"], color=po["color"], spools=po["spools"],
+                            supplier=cmd.supplier, total_agorot=cmd.total_agorot, vat_invoice=cmd.vat_invoice,
+                            ordered_at=ordered_at),
+            cause=env, correlationid=po["po_id"],
+        )
+
+    @on("cmd.inventory.receive_po")
+    async def receive_po(self, env, cmd: ReceivePo, conn):
+        po = await (
+            await conn.execute(
+                "UPDATE inventory.purchase_orders SET status = 'received', received_at = now() "
+                "WHERE po_id = %s AND status = 'ordered' RETURNING *",
+                (cmd.po_id,),
+            )
+        ).fetchone()
+        if po is None:
+            self.log.warning("PO %s not received: it is not in status 'ordered'", cmd.po_id)
+            return
+        m = await (await conn.execute("SELECT grams_per_spool FROM inventory.materials WHERE material = %s AND color = %s",
+                                      (po["material"], po["color"]))).fetchone()
+        grams = m["grams_per_spool"] if m else 1000
+        spool_ids = [f"{po['po_id']}-{i:02d}" for i in range(1, po["spools"] + 1)]
+        for sid in spool_ids:
+            await conn.execute(
+                "INSERT INTO inventory.spools (spool_id, material, color, initial_grams, remaining_grams, status, location) "
+                "VALUES (%s, %s, %s, %s, %s, 'stock', %s) ON CONFLICT DO NOTHING",
+                (sid, po["material"], po["color"], grams, grams, cmd.location or None),
+            )
+            await conn.execute(
+                "INSERT INTO inventory.ledger (spool_id, material, color, delta_grams, reason, ref) "
+                "VALUES (%s, %s, %s, %s, 'received', %s)",
+                (sid, po["material"], po["color"], grams, po["po_id"]),
+            )
+        await self.emit(conn, PoReceived(po_id=po["po_id"], material=po["material"], color=po["color"], spool_ids=spool_ids),
+                        cause=env, correlationid=po["po_id"])
+
+    @on("cmd.inventory.load_spool")
+    async def load_spool(self, env, cmd: LoadSpool, conn):
+        spool = await (await conn.execute("SELECT * FROM inventory.spools WHERE spool_id = %s FOR UPDATE",
+                                          (cmd.spool_id,))).fetchone()
+        if spool is None:
+            self.log.warning("unknown spool %s", cmd.spool_id)
+            return
+        if spool["status"] == "empty":
+            self.log.warning("spool %s is empty; not loaded", cmd.spool_id)
+            return
+        if cmd.printer_id:
+            await conn.execute(
+                "UPDATE inventory.spools SET printer_id = %s, status = 'loaded', location = NULL WHERE spool_id = %s",
+                (cmd.printer_id, cmd.spool_id),
+            )
+        else:
+            await conn.execute("UPDATE inventory.spools SET printer_id = NULL, status = 'stock' WHERE spool_id = %s",
+                               (cmd.spool_id,))
+        await self.emit(conn, SpoolLoaded(spool_id=cmd.spool_id, printer_id=cmd.printer_id or None,
+                                          material=spool["material"], color=spool["color"]), cause=env)
 
     # ------------------------------------------------------------ queries
 
@@ -162,6 +261,6 @@ class InventoryAgent(Agent):
                     (q.material, q.color),
                 )
             ).fetchone()
-        # reserved_grams: fleet-side reservations are a phase-2 feature (see 04-state-management.md)
+        # reserved_grams: fleet-side reservations are a later feature (see 03-state-management.md)
         reply = AvailabilityReply(material=q.material, color=q.color, on_hand_grams=row["on_hand"], reserved_grams=0.0)
         return new_message(reply, source=self.source, cause=env)

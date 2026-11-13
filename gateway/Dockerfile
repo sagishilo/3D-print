@@ -1,4 +1,4 @@
-# build context = repo root (so common/ can be copied)
+# build context = repo root (the gateway imports the shared contracts from src/printfarm)
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
@@ -7,9 +7,12 @@ WORKDIR /srv
 COPY gateway/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY common/ /srv/common/
+# printfarm.contracts + printfarm.bus only need pydantic and nats-py (installed above), so skip the agents' extra deps.
+COPY pyproject.toml /srv/pkg/pyproject.toml
+COPY src/ /srv/pkg/src/
+RUN pip install --no-deps /srv/pkg && rm -rf /srv/pkg
+
 COPY gateway/app/ /srv/app/
-ENV PYTHONPATH=/srv/common
 
 RUN useradd --system --uid 10001 pf && chown -R pf /srv
 USER pf

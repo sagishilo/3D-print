@@ -1,8 +1,8 @@
 # PrintFarm Ops: local Docker stack (Windows + Docker Desktop)
 
-One PC runs everything in Docker: **NATS JetStream**, **PostgreSQL**, the **FastAPI gateway**, the **Finance (Ledger) service**, the **go2rtc** camera relay, **Caddy** (HTTPS) and the **agents** (coordinator, personalization, fleet, inventory, telemetry). Optional extras: **bambu-cam** for Bambu P1/A1 cameras (`--profile p1a1`) and **simulated printers** for trying everything without hardware (`--profile sim`).
+One PC runs everything in Docker: **NATS JetStream**, **PostgreSQL**, the **FastAPI gateway**, the **go2rtc** camera relay, **Caddy** (HTTPS) and the **agents**: coordinator, personalization, fleet, inventory, telemetry and **finance** (the ledger). Optional extras: **bambu-cam** for Bambu P1/A1 cameras (`--profile p1a1`) and **simulated printers** for trying everything without hardware (`--profile sim`).
 
-Only Caddy is reachable from your LAN (ports 80/443). NATS, Postgres and go2rtc are bound to `127.0.0.1` (this PC only). The gateway, the Finance service and the agents have no published ports at all.
+Only Caddy is reachable from your LAN (ports 80/443). NATS, Postgres and go2rtc are bound to `127.0.0.1` (this PC only). The gateway and the agents have no published ports at all.
 
 ```
 browser ──HTTPS──> caddy ──> gateway ──> postgres <──── agents ──> printers (LAN: MQTT / Moonraker)
@@ -71,8 +71,9 @@ docker run --rm -it -v "${PWD}:/work" -w /work python:3.12-slim sh -c "pip insta
 docker run --rm -v "${PWD}:/work" -w /work python:3.12-slim python scripts/check_env.py
 ```
 
-**Expected:** seven lines starting `SET`, then `OK       ADMIN_PASSWORD_HASH format`.
+**Expected:** seven lines starting `SET`, then `OK       ADMIN_PASSWORD_HASH format` and `OK       NATS password format`.
 **If any line says** `MISSING` or `INVALID`: delete `.env` (`Remove-Item .env`) and repeat step 3. This is safe only before step 5 has ever run.
+**Only `NATS password format` is INVALID** (an `.env` made by an older version of `init_env.py`): open `.env` and put the letter `n` in front of `NATS_SERVICES_PASSWORD` and `NATS_AGENTS_PASSWORD`. Unlike the Postgres password, this is safe at any time.
 
 ## Step 5: Build and start
 
@@ -92,7 +93,7 @@ docker compose --profile sim up -d --build
 docker compose ps --format "table {{.Service}}`t{{.Status}}"
 ```
 
-**Expected:** `finance`, `gateway`, `go2rtc`, `nats` and `postgres` show `Up ... (healthy)`. `caddy`, the agents (`coordinator`, `fleet`, `inventory`, `personalization`, `telemetry`) and, with `--profile sim`, `mosquitto` and `simulator` show `Up`. (`migrate` runs once at start and exits, so it isn't listed.)
+**Expected:** `gateway`, `go2rtc`, `nats` and `postgres` show `Up ... (healthy)`. `caddy`, the agents (`coordinator`, `finance`, `fleet`, `inventory`, `personalization`, `telemetry`) and, with `--profile sim`, `mosquitto` and `simulator` show `Up`. (`migrate` runs once at start and exits, so it isn't listed.)
 **If one says** `unhealthy` or `Restarting`: show its log, for example `docker compose logs gateway --tail 50`, and send me the last 20 lines. The log contains no secrets.
 
 Health of the core path:
@@ -202,33 +203,39 @@ docker compose logs bambu-cam --tail 20
 **If you see** `payload is not a JPEG`: the access code is wrong, or this firmware speaks a different protocol. Send me the log lines.
 From now on, always start with `docker compose --profile p1a1 up -d`.
 
-## Step 13: Connect your agents
+## Step 13: The agents and the message bus
 
-| Agent runs | NATS URL |
-| --- | --- |
-| On this PC (outside Docker) | `nats://agents:<NATS_AGENTS_PASSWORD>@127.0.0.1:4222` |
-| As a container added to this compose file | `nats://agents:<NATS_AGENTS_PASSWORD>@nats:4222` |
+The agents run as containers in this compose file and connect to NATS as the `agents` user (its password is in `.env`; it is passed to them through their environment, never in code). To run an agent on this PC outside Docker while developing, use `nats://agents:<NATS_AGENTS_PASSWORD>@127.0.0.1:4222` and see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-The agents' password is in `.env`. Pass it to agents through their own environment, never in code. Every subject string lives in `common/pf_common/subjects.py`. Replace the *unconfirmed* names there with your backend's real ones, then run `docker compose up -d --build`.
+Every message is a CloudEvents envelope with a typed payload. All subject names live in one place, `src/printfarm/contracts/messages.py`, used by the agents, the gateway and the ledger alike:
 
-**Rule that must hold:** commands (`print.job.create`) are request/reply and must never be captured by a JetStream stream. That's why the streams list event subjects explicitly instead of using `print.>`.
-
-### Event payloads the Finance service expects (align with the backend)
-
-| Subject | Required fields | Optional |
+| Subject root | Meaning | Kept in |
 | --- | --- | --- |
-| `order.payment.recorded` / `.refunded` | `event_id`, `order_id`, `amount_agorot` (gross) | `method`, `paid_at` (ISO), `receipt_no`, `product_type` |
-| `inventory.po.ordered` | `event_id`, `total_agorot` (gross) | `po_id`, `supplier`, `ordered_at`, `vat_invoice` (default true) |
-| `print.job.completed` | `event_id`, `grams_used`, `print_seconds` | `job_id`, `printer_avg_watts`, `spool_price_per_gram_agorot`, `product_type`, `completed_at` |
+| `evt.*` | something happened (`evt.fleet.plate.finished`) | stream `EVENTS`, 30 days |
+| `cmd.*` | a command for one agent (`cmd.telemetry.pause_print`) | stream `COMMANDS` (work queue) |
+| `tlm.*` | live printer state (`tlm.<printer-id>.state`) | stream `TELEMETRY`, 1 hour, in memory |
+| `qry.*` | a read-only question (request/reply) | never stored |
+| `dlq.*` | a message that failed 5 times | stream `DLQ`, 90 days |
 
-`event_id` must be unique per event: redelivered or duplicated events are then ignored, so nothing is booked twice. A message that fails 5 times goes to `dlq.finance.<subject>` (visible in System → DLQ).
+The dashboard sends commands with `POST /api/v1/commands/<name>` (the list: `GET /api/v1/commands`). The gateway checks the body against the command's contract, writes it to the audit log and publishes it; the answer is `202 Accepted` with a `command_id`, and the outcome arrives as an event on the live feed. With an `Idempotency-Key` header a retried request never runs twice. A command waits in its stream if its agent is down and runs when the agent is back; printer commands expire after 30 seconds instead. The browser's live feed (`/ws`) accepts only `evt.`, `tlm.` and `dlq.` topics, so commands are never forwarded to it.
+
+### What the ledger books
+
+| Message | Booked as | Comes from |
+| --- | --- | --- |
+| `evt.order.payment.recorded` / `.refunded` | income, VAT split (negative for a refund) | dashboard command `payments.record` / `payments.refund` |
+| `evt.inventory.po.ordered` | expense, **cash** (filament purchase) | dashboard command `po.confirm_ordered`, with the real total from the supplier's invoice |
+| `evt.fleet.plate.finished` | filament + electricity per job, **allocated** (product margins only, never in profit) | the Fleet agent, after every plate (failed plates too, as scrap) |
+| `cmd.finance.create_expense` | expense, **cash** or **estimated** | dashboard command `expenses.create` |
+
+Amounts are integers in agorot (`35400` = ₪354.00) and gross (VAT included). Every ledger row is keyed by the id of the message that caused it, so a redelivered message is never booked twice. A message that keeps failing goes to the DLQ (`dlq.message.dead_lettered`) after 5 attempts.
 
 ## Daily operations
 
 | Task | Command |
 | --- | --- |
 | Stop (keeps all data) | `docker compose down` |
-| Start again | `docker compose up -d` (add `--profile p1a1` if used) |
+| Start again | `docker compose up -d` (add `--profile sim` while you use simulated printers, `--profile p1a1` for P1/A1 cameras) |
 | Logs of one service | `docker compose logs finance --tail 50 -f` (Ctrl+C to stop) |
 | Apply code changes | `docker compose up -d --build` |
 | Back up the database | `docker compose exec -T postgres pg_dump -U printfarm -d printfarm -f /tmp/backup.sql` then `docker compose cp postgres:/tmp/backup.sql ".\backup-$(Get-Date -Format yyyyMMdd).sql"` |
@@ -244,10 +251,11 @@ Don't back up with `pg_dump ... > file.sql` in Windows PowerShell 5: it saves th
 | Works now (tested end to end) | Still to build |
 | --- | --- |
 | HTTPS via Caddy; admin login with HttpOnly cookies, refresh rotation, logout, 5-try lockout | React frontend (`web/dist` is a placeholder) |
-| CSRF check on every command; commands → NATS request/reply with audit log; clear errors when no agent answers | Agents themselves (gateway returns 503 "no service is handling …" until they run) |
-| Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required | Real P1/A1 test of `bambu-cam` |
-| WebSocket bridge with subject allow-list (command subjects are never forwarded); 4401 close when not logged in | WebSocket replay from JetStream after a reconnect (today: resync through REST) |
-| Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job grams/kWh = allocated (excluded from profit), duplicate-safe, DLQ after 5 failures | Finance settings UI and more finance read endpoints (only `/api/v1/finance/summary` exists); edit settings in Postgres for now |
-| JetStream streams EVENTS / TELEMETRY / DLQ created automatically | Separate NATS permissions per user (both users have full access today); database migrations tool (Alembic) |
+| Commands: CSRF check, validated against typed contracts, audit log, published durably to JetStream (202 + `command_id`, idempotent retries) | Uploading plate files to real printers and building multi-part plate files (works with the simulators only) |
+| Agents: order sagas, human approvals, payments, audited settings; telemetry with automatic pause on failures; plate packing and scheduling; filament ledger, reorders, PO ordered/received, spools | Real-printer tests, including `bambu-cam` on a real P1/A1 |
+| Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required | WebSocket replay from JetStream after a reconnect (today: resync through REST) |
+| Live feed (`/ws`): events, telemetry and dead letters only, never commands; 4401 close when not logged in | Finance settings UI and more finance read endpoints (only `/api/v1/finance/summary` exists); edit settings in Postgres for now |
+| Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit), duplicate-safe | Separate NATS permissions per user (both users have full access today) |
+| One JetStream topology and one migration path (`migrate` service) shared by every component | Social Listening and Trend Analyst (LLM agents) |
 
 The default finance settings (VAT 18%, 64 agorot/kWh, 150 W, ₪85/kg) are **placeholders**. Set real values with your accountant and from your electricity bill.

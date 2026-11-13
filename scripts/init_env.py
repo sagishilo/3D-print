@@ -26,8 +26,10 @@ hosts = input("This PC's fixed LAN IP (Enter to skip, localhost only): ").strip(
 
 values = {
     "POSTGRES_PASSWORD": secrets.token_hex(24),
-    "NATS_SERVICES_PASSWORD": secrets.token_hex(24),
-    "NATS_AGENTS_PASSWORD": secrets.token_hex(24),
+    # nats.conf substitutes these unquoted, and NATS parses the value: one starting with a digit is read as a
+    # number and the server refuses to start. A leading letter keeps it a plain string.
+    "NATS_SERVICES_PASSWORD": "n" + secrets.token_hex(24),
+    "NATS_AGENTS_PASSWORD": "n" + secrets.token_hex(24),
     "JWT_SECRET": secrets.token_hex(32),
     # single quotes: Docker Compose must not treat the $ signs in the hash as variables
     "ADMIN_PASSWORD_HASH": "'" + PasswordHasher().hash(pw) + "'",

@@ -31,11 +31,11 @@ class MaterialCfg:
     material: str
     color: str
     grams_per_spool: float
-    cost_per_spool: float
+    cost_per_spool_agorot: int        # gross price of one spool, e.g. 8500 = 85.00 ILS
     lead_time_days: float
     safety_stock_days: float
     baseline_daily_grams: float
-    auto_approve_limit: float
+    auto_approve_limit_agorot: int    # reorders costing more than this need a human approval
     review_period_days: float = 14
 
 
@@ -65,7 +65,7 @@ class FleetCfg:
 
     @classmethod
     def load(cls, path: str | Path) -> FleetCfg:
-        raw = tomllib.loads(Path(path).read_text())
+        raw = tomllib.loads(Path(path).read_text(encoding="utf-8-sig"))  # -sig: tolerate a BOM from Windows editors
         fleet = raw.get("fleet", {})
         return cls(
             printers=[PrinterCfg(**{**p, "bed_mm": tuple(p["bed_mm"])}) for p in raw.get("printers", [])],
@@ -91,6 +91,8 @@ class Settings:
     fleet_config: str = field(default_factory=lambda: os.getenv("FLEET_CONFIG", "config/fleet.toml"))
     artifact_dir: str = field(default_factory=lambda: os.getenv("ARTIFACT_DIR", "var/artifacts"))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
+    # The ledger books every entry on the business's local calendar day (month-end and VAT periods).
+    business_tz: str = field(default_factory=lambda: os.getenv("BUSINESS_TZ", "Asia/Jerusalem"))
 
     def fleet(self) -> FleetCfg:
         return FleetCfg.load(self.fleet_config)

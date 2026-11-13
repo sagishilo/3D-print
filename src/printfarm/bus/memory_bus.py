@@ -38,7 +38,8 @@ class MemoryBus:
             if subject_matches(sub.pattern, subj):
                 sub.queue.put_nowait(env)
 
-    async def subscribe(self, consumer, subject_filter, handler, *, max_deliver=DEFAULT_MAX_DELIVER) -> None:
+    async def subscribe(self, consumer, subject_filter, handler, *, max_deliver=DEFAULT_MAX_DELIVER,
+                        from_start=False) -> None:  # no stored history in memory: from_start has nothing to replay
         sub = _Sub(consumer, subject_filter, handler, max_deliver)
         sub.task = asyncio.create_task(self._pump(sub))
         self.subs.append(sub)

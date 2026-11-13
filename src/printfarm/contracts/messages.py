@@ -8,16 +8,20 @@ Naming rules
 * Queries:   ``qry.<owning-agent>.<noun>``                 (core NATS request/reply, not persisted)
 
 A breaking change to a payload means a new class with ``version = 2`` that is
-published side by side with v1 until every consumer has migrated.
+published side by side with v1 until every consumer has migrated. Adding an
+optional field with a default is not a breaking change.
+
+Money is always an integer number of agorot (1/100 shekel) in fields named
+``*_agorot``. Gross amounts include VAT; the Finance agent splits net and VAT.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import ClassVar
+from typing import Any, ClassVar
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from printfarm.contracts.envelope import Kind, Payload
 
@@ -37,6 +41,37 @@ class Severity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"  # the telemetry agent pauses the printer on its own
+
+
+class PaymentMethod(StrEnum):
+    BIT = "bit"
+    PAYBOX = "paybox"
+    BANK_TRANSFER = "bank_transfer"
+    CASH = "cash"
+    CARD = "card"
+    UNKNOWN = "unknown"
+
+
+class ExpenseCategory(StrEnum):
+    FILAMENT = "filament"
+    ELECTRICITY = "electricity"
+    SHIPPING = "shipping"
+    PACKAGING = "packaging"
+    EQUIPMENT = "equipment"
+    SOFTWARE = "software"
+    MARKETING = "marketing"
+    MISC = "misc"
+
+
+class JobShare(BaseModel):
+    """One job's share of a plate: lets Finance allocate filament and electricity per product."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    job_id: str
+    order_id: str
+    product_type: str = "nameplate"
+    grams: float = Field(ge=0)
 
 
 class Event(Payload):
@@ -106,6 +141,69 @@ class ApprovalDecided(Event):
     note: str = ""
 
 
+class RecordPayment(Command):
+    """A customer paid (dashboard: Finance > Record payment). No order id = income without an order, e.g. a market stall."""
+
+    subject: ClassVar[str] = "cmd.coordinator.record_payment"
+    order_id: str | None = None
+    amount_agorot: int = Field(gt=0)            # gross, VAT included
+    method: PaymentMethod = PaymentMethod.UNKNOWN
+    paid_at: datetime | None = None
+    receipt_no: str | None = Field(default=None, max_length=64)   # from the external invoicing system
+    product_type: str | None = None
+    recorded_by: str = ""
+
+
+class RefundPayment(Command):
+    subject: ClassVar[str] = "cmd.coordinator.refund_payment"
+    order_id: str | None = None
+    amount_agorot: int = Field(gt=0)            # gross amount given back, as a positive number
+    method: PaymentMethod = PaymentMethod.UNKNOWN
+    refunded_at: datetime | None = None
+    receipt_no: str | None = Field(default=None, max_length=64)
+    product_type: str | None = None
+    recorded_by: str = ""
+
+
+class PaymentRecorded(Event):
+    subject: ClassVar[str] = "evt.order.payment.recorded"
+    payment_id: str
+    order_id: str | None = None
+    amount_agorot: int                          # gross
+    method: PaymentMethod
+    paid_at: datetime
+    receipt_no: str | None = None
+    product_type: str | None = None
+
+
+class PaymentRefunded(Event):
+    subject: ClassVar[str] = "evt.order.payment.refunded"
+    payment_id: str
+    order_id: str | None = None
+    amount_agorot: int                          # gross, positive; Finance books it as negative income
+    method: PaymentMethod
+    refunded_at: datetime
+    receipt_no: str | None = None
+    product_type: str | None = None
+
+
+class SetConfig(Command):
+    """Change an automation setting (dashboard: System > Config). Audited by the coordinator."""
+
+    subject: ClassVar[str] = "cmd.coordinator.set_config"
+    key: str = Field(pattern=r"^[a-z0-9_]+(\.[a-z0-9_]+)*$", max_length=64)
+    value: Any
+    changed_by: str = ""
+
+
+class ConfigChanged(Event):
+    subject: ClassVar[str] = "evt.system.config.changed"
+    key: str
+    value: Any
+    previous: Any = None
+    changed_by: str = ""
+
+
 # ---------------------------------------------------------------- personalization
 
 
@@ -153,6 +251,7 @@ class EnqueueJob(Command):
     est_minutes: float
     due_by: datetime | None = None
     priority: int = 0
+    product_type: str = "nameplate"
 
 
 class JobQueued(Event):
@@ -180,6 +279,8 @@ class PlateFinished(Event):
     color: str
     succeeded: bool
     grams_used: float           # estimate scaled by progress for failed plates
+    print_seconds: int = 0      # from print start to finish (0 if the start was never observed)
+    job_shares: list[JobShare] = Field(default_factory=list)  # grams_used split by job (failed plates too)
 
 
 class JobStarted(Event):
@@ -227,6 +328,28 @@ class PausePrint(Command):
     subject: ClassVar[str] = "cmd.telemetry.pause_print"
     printer_id: str
     reason: str
+    requested_by: str = ""
+
+
+class ResumePrint(Command):
+    subject: ClassVar[str] = "cmd.telemetry.resume_print"
+    printer_id: str
+    requested_by: str = ""
+
+
+class CancelPrint(Command):
+    subject: ClassVar[str] = "cmd.telemetry.cancel_print"
+    printer_id: str
+    reason: str = ""
+    requested_by: str = ""
+
+
+class PauseAll(Command):
+    """Pause every printer that is printing (dashboard: Pause all printers)."""
+
+    subject: ClassVar[str] = "cmd.telemetry.pause_all"
+    reason: str = ""
+    requested_by: str = ""
 
 
 class PrinterState(Event):
@@ -301,12 +424,70 @@ class StockLow(Event):
 
 
 class ReorderPlaced(Event):
+    """The reorder policy decided to buy (auto-approved or approved by a human). Not yet ordered from a supplier."""
+
     subject: ClassVar[str] = "evt.inventory.reorder.placed"
     po_id: str
     material: str
     color: str
     spools: int
-    est_cost: float
+    est_cost_agorot: int
+
+
+class ConfirmPoOrdered(Command):
+    """A human ordered the PO from the supplier; records the real total (dashboard: Filament > Purchase orders)."""
+
+    subject: ClassVar[str] = "cmd.inventory.confirm_po_ordered"
+    po_id: str
+    supplier: str = Field(min_length=1, max_length=120)
+    total_agorot: int = Field(gt=0)             # gross, as on the supplier's invoice
+    vat_invoice: bool = True                    # False: no tax invoice, VAT can't be reclaimed
+    ordered_at: datetime | None = None
+    confirmed_by: str = ""
+
+
+class PurchaseOrdered(Event):
+    subject: ClassVar[str] = "evt.inventory.po.ordered"
+    po_id: str
+    material: str
+    color: str
+    spools: int
+    supplier: str
+    total_agorot: int
+    vat_invoice: bool
+    ordered_at: datetime
+
+
+class ReceivePo(Command):
+    subject: ClassVar[str] = "cmd.inventory.receive_po"
+    po_id: str
+    location: str = ""                          # shelf, e.g. "B2"
+    received_by: str = ""
+
+
+class PoReceived(Event):
+    subject: ClassVar[str] = "evt.inventory.po.received"
+    po_id: str
+    material: str
+    color: str
+    spool_ids: list[str]
+
+
+class LoadSpool(Command):
+    """Put a spool on a printer, or back on the shelf when printer_id is empty."""
+
+    subject: ClassVar[str] = "cmd.inventory.load_spool"
+    spool_id: str
+    printer_id: str | None = None
+    loaded_by: str = ""
+
+
+class SpoolLoaded(Event):
+    subject: ClassVar[str] = "evt.inventory.spool.loaded"
+    spool_id: str
+    printer_id: str | None = None
+    material: str
+    color: str
 
 
 class AvailabilityQuery(Command):
@@ -323,6 +504,35 @@ class AvailabilityReply(Reply):
     color: str
     on_hand_grams: float
     reserved_grams: float
+
+
+# ---------------------------------------------------------------- finance (ledger)
+
+
+class CreateExpense(Command):
+    """A manual expense (dashboard: Finance > Add expense)."""
+
+    subject: ClassVar[str] = "cmd.finance.create_expense"
+    category: ExpenseCategory
+    gross_agorot: int = Field(gt=0)
+    vat_invoice: bool = False                   # True: a tax invoice exists, so VAT is split out
+    estimated: bool = False                     # True: placeholder until the real bill arrives
+    vendor: str | None = Field(default=None, max_length=120)
+    date: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+    created_by: str = ""
+
+
+class LedgerEntryCreated(Event):
+    """A row was added to the ledger; dashboards refresh their totals."""
+
+    subject: ClassVar[str] = "evt.finance.entry.created"
+    entry_id: int
+    ledger: str                                 # "income" | "expense"
+    entry_kind: str                             # income: auto | manual; expense: cash | estimated | allocated
+    category: str | None = None
+    gross_agorot: int
+    source_event_id: str
 
 
 # ---------------------------------------------------------------- social listening / trends (LLM agents)

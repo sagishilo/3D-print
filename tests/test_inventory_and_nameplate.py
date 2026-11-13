@@ -11,8 +11,8 @@ from printfarm.agents.personalization.nameplate import (
     scad_string,
 )
 
-POLICY = Policy(grams_per_spool=1000, cost_per_spool=22, lead_time_days=5, safety_stock_days=3,
-                review_period_days=14, baseline_daily_grams=150, auto_approve_limit=50)
+POLICY = Policy(grams_per_spool=1000, cost_per_spool_agorot=2200, lead_time_days=5, safety_stock_days=3,
+                review_period_days=14, baseline_daily_grams=150, auto_approve_limit_agorot=5000)
 
 
 def test_no_reorder_above_rop():
@@ -22,7 +22,8 @@ def test_no_reorder_above_rop():
 def test_reorder_below_rop_requires_approval_over_limit():
     d = decide(POLICY, on_hand=1000, on_order_grams=0, grams_last_14d=0)
     assert d.reorder_point == 1200
-    assert d.spools == 3 and d.est_cost == 66 and d.needs_approval
+    assert d.spools == 3 and d.est_cost_agorot == 6600 and d.needs_approval
+    assert isinstance(d.est_cost_agorot, int)
 
 
 def test_open_orders_count_towards_position():

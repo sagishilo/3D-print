@@ -14,6 +14,7 @@ the code.
 | Fleet Manager: queue, MaxRects bin packing, printer assignment | deterministic | ✅ |
 | Inventory: filament ledger, reorder policy, approval-gated POs | deterministic | ✅ |
 | Personalization: headless Hebrew/RTL nameplates (OpenSCAD + slicer CLI) | deterministic | ✅ |
+| Finance (ledger): income, expenses, VAT, per-job cost allocation | deterministic | ✅ |
 | Social Listening: buying intent from human-captured Facebook posts | LLM | 📐 designed (phase 10) |
 | Trend Analyst: market shifts | LLM + stats | 📐 designed (phase 10) |
 
@@ -26,16 +27,14 @@ src/printfarm/        the agents (Python package "printfarm")
   contracts/          envelope (CloudEvents), message models, registry: the single source of every subject name
   bus/                NATS JetStream bus, in-memory bus, retry/DLQ policy
   store/              Postgres pool, migrations, outbox relay, inbox
-  agents/             coordinator, telemetry, fleet, inventory, personalization
+  agents/             coordinator, telemetry, fleet, inventory, personalization, finance (ledger)
   simulator/          Bambu (MQTT) + Moonraker (WebSocket) printer simulators
   cli.py              printfarm command
-gateway/              FastAPI gateway for the dashboard: auth, commands, camera proxy, WebSocket bridge
-finance/              Ledger service (income, expenses, VAT)
-common/pf_common/     shared NATS subject names for gateway + finance (being replaced by printfarm.contracts)
+gateway/              FastAPI gateway for the dashboard: auth, commands (app/commands.py), camera proxy, WebSocket bridge;
+                      imports printfarm.contracts + printfarm.bus, so it shares the agents' subjects and JetStream topology
 bambu-cam/            P1/A1 camera frame-reader for go2rtc
 web/                  dashboard (dist/ is served by Caddy)
 infra/                nats.conf, Caddyfile, go2rtc.yaml
-db/init/              first-start SQL for gateway + finance tables
 config/               fleet.sim.toml (simulated printers), fleet.toml (your printers), mosquitto.conf
 scripts/              init_env.py, check_env.py, preflight.py
 docs/                 plan, architecture, ADRs, design
@@ -81,10 +80,22 @@ printfarm order --text "Noa"
 ## Tests
 
 ```bash
-pytest                                   # unit tests (contracts, saga, packing, detectors, inventory, nameplates, bus policy)
-TEST_NATS_URL=nats://services:<pw>@127.0.0.1:4222 \
-TEST_DATABASE_URL=postgresql://printfarm:<pw>@127.0.0.1:5432/printfarm \
-pytest tests/test_e2e.py                 # full stack: real NATS + Postgres, MQTT + WebSocket simulators
+pytest       # unit tests: contracts, saga, packing, detectors, inventory, nameplates, bus policy, ledger, gateway
+```
+
+The end-to-end test runs every agent against a real NATS, Postgres and MQTT broker. It **drops** the agent schemas and
+streams it uses, so give it throwaway servers. The simplest way (no Windows firewall prompts, Python 3.12 as in production):
+
+```powershell
+docker network create pf-e2e
+docker run -d --rm --name pf-e2e-nats --network pf-e2e nats:2.10.29-alpine -js
+docker run -d --rm --name pf-e2e-pg --network pf-e2e -e POSTGRES_USER=printfarm -e POSTGRES_PASSWORD=e2e -e POSTGRES_DB=printfarm postgres:16.16-alpine
+docker run -d --rm --name pf-e2e-mqtt --network pf-e2e eclipse-mosquitto:2 mosquitto -c /mosquitto-no-auth.conf
+docker run --rm --network pf-e2e -v "${PWD}:/src:ro" `
+  -e TEST_NATS_URL=nats://pf-e2e-nats:4222 -e TEST_DATABASE_URL=postgresql://printfarm:e2e@pf-e2e-pg:5432/printfarm `
+  -e TEST_MQTT_URL=mqtt://pf-e2e-mqtt:1883 python:3.12-slim sh -c `
+  "mkdir /work && tar -C /src --exclude=./.venv --exclude=./.git -cf - . | tar -C /work -xf - && pip install -q /work pytest pytest-asyncio && cd /work && python -m pytest tests/test_e2e.py -v"
+docker stop pf-e2e-nats pf-e2e-pg pf-e2e-mqtt; docker network rm pf-e2e
 ```
 
 The end-to-end test covers this whole flow:
@@ -92,7 +103,9 @@ The end-to-end test covers this whole flow:
 1. A 3-unit Hebrew nameplate order is modelled and all three units are packed onto **one** plate.
 2. The plate prints on the MQTT (Bambu) simulator.
 3. Filament is deducted, and the purchase order triggered by low stock goes through human approval.
-4. A simulated thermal runaway on the WebSocket (Moonraker) printer is detected and the printer is **paused automatically**.
+4. The ledger allocates the plate's filament to its three jobs, books a recorded payment as income with VAT split, and books the
+   confirmed purchase order as a cash expense.
+5. A simulated thermal runaway on the WebSocket (Moonraker) printer is detected and the printer is **paused automatically**.
 
 ## Roadmap
 

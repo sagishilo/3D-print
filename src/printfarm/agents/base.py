@@ -36,11 +36,16 @@ from printfarm.store import Database, OutboxRelay, inbox_claim, outbox_add
 TxHandler = Callable[[Any, Envelope, Any, AsyncConnection], Awaitable[None]]
 
 
-def on(subject_filter: str):
-    """Mark a method as handler: ``async def h(self, env, payload, conn)``."""
+def on(subject_filter: str, *, from_start: bool = False):
+    """Mark a method as handler: ``async def h(self, env, payload, conn)``.
+
+    ``from_start=True``: when the consumer is created for the first time it reads the
+    stream's stored history instead of starting at "now" (e.g. the ledger books past events).
+    """
 
     def deco(fn: TxHandler) -> TxHandler:
         fn.__subject_filter__ = subject_filter  # type: ignore[attr-defined]
+        fn.__from_start__ = from_start  # type: ignore[attr-defined]
         return fn
 
     return deco
@@ -68,7 +73,8 @@ class Agent:
             fn = getattr(type(self), attr)
             filt = getattr(fn, "__subject_filter__", None)
             if filt:
-                await self.bus.subscribe(self.name, filt, self._wrap(getattr(self, attr), filt))
+                await self.bus.subscribe(self.name, filt, self._wrap(getattr(self, attr), filt),
+                                         from_start=getattr(fn, "__from_start__", False))
         self.spawn(self.relay.run())
         self.spawn(self._heartbeat())
 

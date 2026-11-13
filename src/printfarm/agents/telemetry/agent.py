@@ -17,13 +17,16 @@ from printfarm.agents.telemetry.adapters import PrinterAdapter, make_adapter
 from printfarm.agents.telemetry.detectors import DetectorSet, Finding
 from printfarm.contracts import deterministic_id, new_message
 from printfarm.contracts.messages import (
+    CancelPrint,
     FailureDetected,
+    PauseAll,
     PausePrint,
     PrinterConnectivity,
     PrinterState,
     PrinterStatus,
     PrintFinished,
     PrintStarted,
+    ResumePrint,
     Severity,
     StartPrint,
 )
@@ -160,6 +163,40 @@ class TelemetryAgent(Agent):
             return
         await adapter.start_print(cmd.plate_id, cmd.artifact_uris)
 
+    def _adapter_for(self, printer_id: str) -> PrinterAdapter | None:
+        adapter = self.adapters.get(printer_id)
+        if adapter is None:
+            self.log.warning("command for unknown printer %s ignored", printer_id)  # retrying would not help
+        return adapter
+
     @on("cmd.telemetry.pause_print")
     async def pause_print(self, env, cmd: PausePrint, conn):
-        await self.adapters[cmd.printer_id].pause()
+        if adapter := self._adapter_for(cmd.printer_id):
+            self.log.warning("pause %s requested by %s: %s", cmd.printer_id, cmd.requested_by or "?", cmd.reason)
+            await adapter.pause()
+
+    @on("cmd.telemetry.resume_print")
+    async def resume_print(self, env, cmd: ResumePrint, conn):
+        if adapter := self._adapter_for(cmd.printer_id):
+            self.log.info("resume %s requested by %s", cmd.printer_id, cmd.requested_by or "?")
+            await adapter.resume()
+
+    @on("cmd.telemetry.cancel_print")
+    async def cancel_print(self, env, cmd: CancelPrint, conn):
+        if adapter := self._adapter_for(cmd.printer_id):
+            self.log.warning("cancel %s requested by %s: %s", cmd.printer_id, cmd.requested_by or "?", cmd.reason)
+            await adapter.cancel()
+
+    @on("cmd.telemetry.pause_all")
+    async def pause_all(self, env, cmd: PauseAll, conn):
+        printing = [pid for pid, s in self.last.items() if s.status == PrinterStatus.PRINTING]
+        self.log.warning("PAUSE ALL requested by %s (%s): %s", cmd.requested_by or "?", cmd.reason, printing or "none printing")
+        failed = []
+        for pid in printing:
+            try:
+                await self.adapters[pid].pause()
+            except Exception as exc:  # noqa: BLE001 - one unreachable printer must not stop the others
+                failed.append(pid)
+                self.log.error("pause-all: %s failed: %r", pid, exc)
+        if failed:
+            raise RuntimeError(f"pause-all could not reach {failed}")  # retried; pausing twice is harmless

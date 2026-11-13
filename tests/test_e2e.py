@@ -1,11 +1,14 @@
-"""End-to-end: real NATS JetStream + Postgres, in-process MQTT broker, simulated printers, all agents.
+"""End-to-end: real NATS JetStream + Postgres, an MQTT broker, simulated printers, all agents (incl. the ledger).
 
-Runs only when TEST_NATS_URL and TEST_DATABASE_URL are set (each test run
-uses a fresh database schema set and unique stream state is tolerated), e.g.
+Runs only when TEST_NATS_URL and TEST_DATABASE_URL are set. It DROPS the agent schemas and JetStream streams it
+uses, so point it at a throwaway database and NATS server, e.g.
 
     TEST_NATS_URL=nats://localhost:4222 \
     TEST_DATABASE_URL=postgresql://printfarm:printfarm@localhost:5432/printfarm \
     pytest tests/test_e2e.py -v
+
+The Bambu simulator needs an MQTT broker: by default an in-process amqtt broker (dev extra); set
+TEST_MQTT_URL=mqtt://127.0.0.1:1883 to use a running one instead (e.g. mosquitto in Docker).
 """
 
 from __future__ import annotations
@@ -16,12 +19,18 @@ import os
 import socket
 import textwrap
 import time
+from urllib.parse import urlparse
 
 import pytest
 
 NATS_URL = os.getenv("TEST_NATS_URL")
 DB_URL = os.getenv("TEST_DATABASE_URL")
+MQTT_URL = os.getenv("TEST_MQTT_URL")
 pytestmark = pytest.mark.skipif(not (NATS_URL and DB_URL), reason="needs TEST_NATS_URL and TEST_DATABASE_URL")
+
+SCHEMAS = ("messaging", "coordinator", "personalization", "fleet", "telemetry", "inventory", "social", "trend",
+           "finance", "gateway")
+STREAMS = ("EVENTS", "COMMANDS", "TELEMETRY", "DLQ", "KV_printer_status", "KV_heartbeats", "KV_leases", "KV_config")
 
 
 def free_port() -> int:
@@ -49,7 +58,7 @@ async def stack(tmp_path):
 
     # clean slate: drop every agent schema
     async with await psycopg.AsyncConnection.connect(DB_URL, autocommit=True) as c:
-        for schema in ("messaging", "coordinator", "personalization", "fleet", "telemetry", "inventory", "social", "trend"):
+        for schema in SCHEMAS:
             await c.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
         await c.execute("DROP TABLE IF EXISTS public.schema_migrations")
     # clean slate: delete streams and KV so durable consumers start fresh
@@ -57,13 +66,18 @@ async def stack(tmp_path):
 
     nc = await nats.connect(NATS_URL)
     js = nc.jetstream()
-    for name in ("EVENTS", "COMMANDS", "TELEMETRY", "DLQ", "KV_printer_status", "KV_heartbeats", "KV_leases"):
+    for name in STREAMS:
         with contextlib.suppress(Exception):
             await js.delete_stream(name)
     await nc.close()
 
-    mqtt_port, ws_port = free_port(), free_port()
-    broker = await start_mqtt_broker(mqtt_port)
+    ws_port = free_port()
+    if MQTT_URL:
+        broker, mqtt_host, mqtt_port = None, urlparse(MQTT_URL).hostname, urlparse(MQTT_URL).port or 1883
+    else:
+        mqtt_host, mqtt_port = "127.0.0.1", free_port()
+        broker = await start_mqtt_broker(mqtt_port)
+    serial = f"SIM{os.getpid()}"  # unique topic, in case a shared broker has other simulators on it
     cfg = tmp_path / "fleet.toml"
     cfg.write_text(textwrap.dedent(f"""
         [fleet]
@@ -75,10 +89,10 @@ async def stack(tmp_path):
         [[printers]]
         id = "bambu-01"
         vendor = "bambu"
-        host = "127.0.0.1"
+        host = "{mqtt_host}"
         port = {mqtt_port}
         tls = false
-        serial = "SIM1"
+        serial = "{serial}"
         bed_mm = [256, 256]
         nozzle_mm = 0.4
         material = "PLA"
@@ -95,11 +109,11 @@ async def stack(tmp_path):
         material = "PLA"
         color = "black"
         grams_per_spool = 1000
-        cost_per_spool = 22.0
+        cost_per_spool_agorot = 2200
         lead_time_days = 5
         safety_stock_days = 3
         baseline_daily_grams = 150
-        auto_approve_limit = 50.0
+        auto_approve_limit_agorot = 5000
         [[spools]]
         id = "SP-1"
         material = "PLA"
@@ -129,7 +143,8 @@ async def stack(tmp_path):
     sim.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await sim
-    await broker.shutdown()
+    if broker:
+        await broker.shutdown()
 
 
 async def wait_for(db, sql, params, predicate, timeout=60):
@@ -151,7 +166,7 @@ async def wait_for(db, sql, params, predicate, timeout=60):
 
 async def test_order_to_print_to_inventory(stack):
     from printfarm.cli import _publish
-    from printfarm.contracts.messages import DecideApproval, OrderReceived
+    from printfarm.contracts.messages import ConfirmPoOrdered, DecideApproval, OrderReceived, RecordPayment
     from printfarm.store import Database
 
     settings = stack
@@ -179,7 +194,30 @@ async def test_order_to_print_to_inventory(stack):
         assert spool[0]["remaining_grams"] < 650
         appr = await wait_for(db, "SELECT approval_id, status FROM coordinator.approvals", (), lambda r: len(r) == 1)
         await _publish(settings, DecideApproval(approval_id=appr[0]["approval_id"], approved=True, decided_by="test"))
-        await wait_for(db, "SELECT status FROM inventory.purchase_orders", (), lambda r: r and r[0]["status"] == "placed")
+        po = await wait_for(db, "SELECT po_id, status FROM inventory.purchase_orders", (),
+                            lambda r: r and r[0]["status"] == "placed")
+
+        # the ledger spread the plate's filament over its three jobs (allocated: product margins only, not P&L)
+        alloc = await wait_for(db, "SELECT job_id, product_type, gross_agorot FROM finance.expense_entries "
+                                   "WHERE kind = 'allocated' AND category = 'filament'", (),
+                               lambda r: len({x["job_id"] for x in r}) == 3)
+        assert {r["product_type"] for r in alloc} == {"nameplate"} and all(r["gross_agorot"] > 0 for r in alloc)
+
+        # a recorded payment becomes income with VAT split (osek murshe, 18 %)
+        await _publish(settings, RecordPayment(order_id="ord-black", amount_agorot=35400, method="bit", recorded_by="test"),
+                       correlationid="ord-black")
+        income = await wait_for(db, "SELECT gross_agorot, vat_agorot, net_agorot, product_type FROM finance.income_entries",
+                                (), lambda r: len(r) == 1)
+        assert (income[0]["gross_agorot"], income[0]["vat_agorot"], income[0]["net_agorot"]) == (35400, 5400, 30000)
+        assert income[0]["product_type"] == "nameplate"
+
+        # ordering the approved PO from a supplier books the real total as a cash expense
+        await _publish(settings, ConfirmPoOrdered(po_id=po[0]["po_id"], supplier="Test Supplier", total_agorot=23600,
+                                                  confirmed_by="test"))
+        cash = await wait_for(db, "SELECT gross_agorot, net_agorot, vendor FROM finance.expense_entries WHERE kind = 'cash'",
+                              (), lambda r: len(r) == 1)
+        assert (cash[0]["gross_agorot"], cash[0]["net_agorot"], cash[0]["vendor"]) == (23600, 20000, "Test Supplier")
+        await wait_for(db, "SELECT status FROM inventory.purchase_orders", (), lambda r: r[0]["status"] == "ordered")
 
         # 2) white nameplate -> voron-01 over WebSocket; simulated thermal runaway -> auto pause
         await _publish(settings, OrderReceived(order_id="ord-white", customer_ref="c2", text="Noa", color="white"),

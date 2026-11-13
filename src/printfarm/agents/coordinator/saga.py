@@ -85,6 +85,7 @@ def _enqueue(ctx: dict, unit: str) -> EnqueueJob:
         est_grams=model["est_grams"],
         est_minutes=model["est_minutes"],
         due_by=order.get("due_by"),
+        product_type=order.get("product", "nameplate"),
     )
 
 

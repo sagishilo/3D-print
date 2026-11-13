@@ -1,5 +1,5 @@
-# PrintFarm Ops: local stack (NATS JetStream, PostgreSQL, FastAPI gateway, Ledger service, go2rtc, Caddy HTTPS)
-# plus the agents (coordinator, personalization, fleet, inventory, telemetry).
+# PrintFarm Ops: local stack (NATS JetStream, PostgreSQL, FastAPI gateway, go2rtc, Caddy HTTPS)
+# plus the agents (coordinator, personalization, fleet, inventory, telemetry, finance = the ledger).
 #
 # Start:            docker compose up -d --build
 # With simulators:  docker compose --profile sim up -d --build      (no real printers needed)
@@ -65,8 +65,7 @@ services:
       POSTGRES_USER: printfarm
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
     volumes:
-      - pg-data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro   # runs only on the very first start (empty volume)
+      - pg-data:/var/lib/postgresql/data          # tables are created by the one-shot "migrate" service
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
@@ -118,21 +117,8 @@ services:
     depends_on:
       nats: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }   # gateway.* tables
       go2rtc: { condition: service_started }
-    restart: *restart
-    logging: *logging
-
-  finance:
-    build:
-      context: .
-      dockerfile: finance/Dockerfile
-    environment:
-      DATABASE_URL: postgresql://printfarm:${POSTGRES_PASSWORD}@postgres:5432/printfarm
-      NATS_URL: nats://services:${NATS_SERVICES_PASSWORD}@nats:4222
-    depends_on:
-      nats: { condition: service_healthy }
-      postgres: { condition: service_healthy }
-      gateway: { condition: service_healthy }   # gateway creates the JetStream streams first
     restart: *restart
     logging: *logging
 
@@ -179,6 +165,10 @@ services:
   inventory:
     <<: *agent
     command: ["agent", "inventory"]
+
+  finance:                      # the ledger: income, expenses, VAT, per-job cost allocation
+    <<: *agent
+    command: ["agent", "finance"]
 
   telemetry:
     <<: *agent

@@ -1,4 +1,7 @@
-"""NATS JetStream implementation of the bus.
+"""NATS JetStream implementation of the bus, and the ONLY place the JetStream topology is defined.
+
+Agents, the gateway and the Finance agent all connect through ``NatsBus.connect``, so
+every process agrees on the same streams; nothing else may create or update streams.
 
 Streams (created idempotently on connect)
 -----------------------------------------
@@ -7,11 +10,14 @@ COMMANDS   cmd.>   file,   work-queue retention, 7 days                       ->
 TELEMETRY  tlm.>   memory, 1 hour, 3600 msgs per printer                       -> live dashboards / replay
 DLQ        dlq.>   file,   90 days                                             -> operator inspection
 
+Queries (``qry.>``) are core NATS request/reply and are never stored in a stream.
+
 KV buckets
 ----------
 printer_status  latest canonical PrinterState per printer (written by telemetry)
 heartbeats      agent liveness, 30 s TTL
 leases          single-writer locks (e.g. one scheduler instance), 60 s TTL
+config          automation settings (written by the coordinator on cmd.coordinator.set_config)
 """
 
 from __future__ import annotations
@@ -60,6 +66,7 @@ KV_BUCKETS = [
     KeyValueConfig(bucket="printer_status", history=1),
     KeyValueConfig(bucket="heartbeats", history=1, ttl=30),
     KeyValueConfig(bucket="leases", history=1, ttl=60),
+    KeyValueConfig(bucket="config", history=10),
 ]
 
 
@@ -95,7 +102,8 @@ class NatsBus:
         await self.js.publish(env.nats_subject(), env.to_bytes(), headers={"Nats-Msg-Id": env.id})
 
     async def subscribe(
-        self, consumer: str, subject_filter: str, handler: Handler, *, max_deliver: int = DEFAULT_MAX_DELIVER
+        self, consumer: str, subject_filter: str, handler: Handler, *, max_deliver: int = DEFAULT_MAX_DELIVER,
+        from_start: bool = False,
     ) -> None:
         durable = durable_name(consumer, subject_filter)
         is_command = subject_filter.startswith("cmd.")
@@ -105,8 +113,9 @@ class NatsBus:
             ack_wait=60,
             # +1: the final delivery is the one that dead-letters and acks.
             max_deliver=max_deliver + 1,
-            # A brand-new event consumer starts at "now"; a durable resumes where it left off.
-            deliver_policy=DeliverPolicy.ALL if is_command else DeliverPolicy.NEW,
+            # A brand-new event consumer starts at "now" unless it asks for the stored history
+            # (from_start, e.g. the ledger); a durable always resumes where it left off.
+            deliver_policy=DeliverPolicy.ALL if is_command or from_start else DeliverPolicy.NEW,
             filter_subject=subject_filter,
         )
         psub = await self.js.pull_subscribe(subject_filter, durable=durable, config=cfg)

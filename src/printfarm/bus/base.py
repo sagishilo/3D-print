@@ -33,7 +33,8 @@ class Bus(Protocol):
     async def publish(self, env: Envelope) -> None: ...
 
     async def subscribe(
-        self, consumer: str, subject_filter: str, handler: Handler, *, max_deliver: int = DEFAULT_MAX_DELIVER
+        self, consumer: str, subject_filter: str, handler: Handler, *, max_deliver: int = DEFAULT_MAX_DELIVER,
+        from_start: bool = False,
     ) -> None: ...
 
     async def request(self, env: Envelope, timeout: float = 2.0) -> Envelope: ...

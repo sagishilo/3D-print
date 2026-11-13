@@ -113,6 +113,9 @@ class PrinterAdapter(ABC):
     async def pause(self) -> None: ...
 
     @abstractmethod
+    async def resume(self) -> None: ...
+
+    @abstractmethod
     async def cancel(self) -> None: ...
 
     @abstractmethod
@@ -191,6 +194,9 @@ class BambuMqttAdapter(PrinterAdapter):
 
     async def pause(self) -> None:
         await self._request({"print": {"command": "pause"}})
+
+    async def resume(self) -> None:
+        await self._request({"print": {"command": "resume"}})
 
     async def cancel(self) -> None:
         await self._request({"print": {"command": "stop"}})
@@ -284,6 +290,9 @@ class MoonrakerAdapter(PrinterAdapter):
 
     async def pause(self) -> None:
         await self.call("printer.print.pause")
+
+    async def resume(self) -> None:
+        await self.call("printer.print.resume")
 
     async def cancel(self) -> None:
         await self.call("printer.print.cancel")

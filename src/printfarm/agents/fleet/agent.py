@@ -13,6 +13,7 @@ from printfarm.contracts.messages import (
     JobCompleted,
     JobFailed,
     JobQueued,
+    JobShare,
     JobStarted,
     MarkBedCleared,
     PlateFinished,
@@ -46,10 +47,11 @@ class FleetAgent(Agent):
     async def enqueue(self, env, cmd: EnqueueJob, conn):
         cur = await conn.execute(
             "INSERT INTO fleet.jobs (job_id, order_id, correlationid, artifact_uri, material, color, footprint_w, "
-            "footprint_d, est_grams, est_minutes, due_by, priority, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued') ON CONFLICT DO NOTHING",
+            "footprint_d, est_grams, est_minutes, due_by, priority, product_type, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued') ON CONFLICT DO NOTHING",
             (cmd.job_id, cmd.order_id, env.correlationid, cmd.artifact_uri, cmd.material, cmd.color,
-             cmd.footprint_mm[0], cmd.footprint_mm[1], cmd.est_grams, cmd.est_minutes, cmd.due_by, cmd.priority),
+             cmd.footprint_mm[0], cmd.footprint_mm[1], cmd.est_grams, cmd.est_minutes, cmd.due_by, cmd.priority,
+             cmd.product_type),
         )
         if cur.rowcount:
             await self.emit(conn, JobQueued(job_id=cmd.job_id, order_id=cmd.order_id), cause=env)
@@ -106,11 +108,26 @@ class FleetAgent(Agent):
             (self.fleet.auto_clear_bed or not ev.succeeded and ev.progress == 0, ev.printer_id),
         )
         grams = plate["est_grams"] * (1.0 if ev.succeeded else ev.progress)
+        on_plate = await (
+            await conn.execute(
+                "SELECT job_id, order_id, product_type, est_grams FROM fleet.jobs WHERE plate_id = %s ORDER BY job_id",
+                (ev.plate_id,),
+            )
+        ).fetchall()
+        planned = sum(j["est_grams"] for j in on_plate)
+        shares = [
+            JobShare(job_id=j["job_id"], order_id=j["order_id"], product_type=j["product_type"],
+                     grams=round(grams * j["est_grams"] / planned, 2) if planned else 0.0)
+            for j in on_plate
+        ]
+        started, finished = plate["started_at"], plate["finished_at"]
+        print_seconds = int((finished - started).total_seconds()) if started and finished else 0
         await self.emit(
             conn,
             PlateFinished(
                 plate_id=ev.plate_id, printer_id=ev.printer_id, material=plate["material"], color=plate["color"],
-                succeeded=ev.succeeded, grams_used=round(grams, 1),
+                succeeded=ev.succeeded, grams_used=round(grams, 1), print_seconds=max(print_seconds, 0),
+                job_shares=shares,
             ),
             cause=env,
         )
