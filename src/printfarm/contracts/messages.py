@@ -726,12 +726,133 @@ class PoReceived(Event):
 
 
 class LoadSpool(Command):
-    """Put a spool on a printer, or back on the shelf when printer_id is empty."""
+    """Put a spool on a printer (``slot``: AMS slot / tool), or back on the shelf (``location``) when printer_id is
+    empty."""
 
     subject: ClassVar[str] = "cmd.inventory.load_spool"
     spool_id: str
     printer_id: str | None = None
+    slot: str = Field(default="", max_length=40)
+    location: str = Field(default="", max_length=40)
     loaded_by: str = ""
+
+
+class RegisterSpool(Command):
+    """A spool that did not come through a purchase order (gift, market, first stock-take)."""
+
+    subject: ClassVar[str] = "cmd.inventory.register_spool"
+    spool_id: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,40}$")
+    material: str = Field(min_length=1, max_length=20)
+    color: str = Field(min_length=1, max_length=30)
+    brand: str = Field(default="", max_length=40)
+    initial_grams: float = Field(gt=0, le=10_000)
+    remaining_grams: float | None = Field(default=None, ge=0, le=10_000)    # None = a full spool
+    location: str = Field(default="", max_length=40)
+    tag: str = Field(default="", max_length=80)                              # QR label / RFID id
+    registered_by: str = ""
+
+
+class AdjustSpool(Command):
+    """Correct a spool's remaining filament after weighing it (net grams), or mark it empty."""
+
+    subject: ClassVar[str] = "cmd.inventory.adjust_spool"
+    spool_id: str
+    remaining_grams: float = Field(ge=0, le=10_000)
+    reason: str = Field(default="weighed", max_length=120)
+    adjusted_by: str = ""
+
+
+class SetReorderRule(Command):
+    """Dashboard: Filament > Reorder rules. Fields left out keep their value."""
+
+    subject: ClassVar[str] = "cmd.inventory.set_reorder_rule"
+    material: str
+    color: str
+    min_stock_grams: float | None = Field(default=None, ge=0, le=1_000_000)
+    mode: str | None = Field(default=None, pattern=r"^(auto|manual)$")
+    supplier: str | None = Field(default=None, max_length=120)
+    lead_time_days: float | None = Field(default=None, ge=0, le=120)
+    changed_by: str = ""
+
+
+class RequestReorder(Command):
+    """A person orders now ("Order now" in the reorder list). spools = None: what the rule suggests."""
+
+    subject: ClassVar[str] = "cmd.inventory.request_reorder"
+    material: str
+    color: str
+    spools: int | None = Field(default=None, ge=1, le=100)
+    requested_by: str = ""
+
+
+class UpdatePo(Command):
+    """Change the quantity of a purchase order still waiting for approval."""
+
+    subject: ClassVar[str] = "cmd.inventory.update_po"
+    po_id: str
+    spools: int = Field(ge=1, le=100)
+    updated_by: str = ""
+
+
+class AcknowledgeInventoryAlert(Command):
+    subject: ClassVar[str] = "cmd.inventory.ack_alert"
+    alert_id: str
+    acknowledged_by: str = ""
+
+
+class SpoolRegistered(Event):
+    subject: ClassVar[str] = "evt.inventory.spool.registered"
+    spool_id: str
+    material: str
+    color: str
+    brand: str
+    remaining_grams: float
+
+
+class SpoolAdjusted(Event):
+    subject: ClassVar[str] = "evt.inventory.spool.adjusted"
+    spool_id: str
+    material: str
+    color: str
+    delta_grams: float
+    remaining_grams: float
+    reason: str
+    by: str
+
+
+class ReorderRuleChanged(Event):
+    subject: ClassVar[str] = "evt.inventory.rule.changed"
+    material: str
+    color: str
+    min_stock_grams: float
+    mode: str
+    supplier: str
+    lead_time_days: float
+    by: str
+
+
+class InventoryAlertRaised(Event):
+    """Below minimum stock, a loaded spool too short for a scheduled plate, or a spool run empty."""
+
+    subject: ClassVar[str] = "evt.inventory.alert.raised"
+    alert_id: str
+    alert_kind: str              # low_stock | spool_short | spool_empty ("kind" is the envelope's)
+    severity: str
+    material: str
+    color: str
+    message: str
+    spool_id: str | None = None
+    printer_id: str | None = None
+    plate_id: str | None = None
+    needed_grams: float | None = None
+    available_grams: float | None = None
+
+
+class InventoryAlertResolved(Event):
+    subject: ClassVar[str] = "evt.inventory.alert.resolved"
+    alert_id: str
+    alert_kind: str
+    by: str                      # "auto" when the condition cleared
 
 
 class SpoolLoaded(Event):

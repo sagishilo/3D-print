@@ -5,6 +5,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
 import { useApprovals } from '@/stores/approvals'
+import { useInventory } from '@/stores/inventory'
 import { useLive } from '@/stores/live'
 import { usePrinters } from '@/stores/printers'
 import { useSystem } from '@/stores/system'
@@ -27,6 +28,7 @@ function refreshShell() {
   void system.loadAgents()
   void system.loadDlq()
   void approvals.load().catch(() => undefined)
+  void useInventory().loadAlerts()
 }
 
 function onVisibility() {

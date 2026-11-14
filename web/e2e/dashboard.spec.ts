@@ -285,3 +285,41 @@ test.describe('order pipeline', () => {
     await shot(page, '22-orders-drawer')
   })
 })
+
+test.describe('filament', () => {
+  test('scan-register a spool, a minimum that raises and clears an alert, weigh a spool', async ({ page }) => {
+    const label = `QR-${Date.now()}`
+    await signIn(page, '/filament')
+    await expect(page.getByRole('heading', { name: /Filament Inventory/ })).toBeVisible()
+    const rules = page.getByTestId('reorder-rules')
+    await expect(rules.getByTestId('rule-PLA-white')).toBeVisible()
+    await shot(page, '30-filament')
+
+    // an unknown label opens the registration with the label as the spool id
+    await page.getByTestId('scan').fill(label)
+    await page.getByRole('button', { name: 'Find' }).click()
+    const dialog = page.getByTestId('spool-dialog')
+    await dialog.getByTestId('reg-color').fill('navy')
+    await dialog.getByRole('button', { name: 'Register spool' }).click()
+    await expect(page.getByTestId(`spool-${label}`)).toContainText('PLA · navy')
+
+    // a minimum far above the stock raises a "below minimum" alert; putting it back clears it on its own
+    const white = rules.getByTestId('rule-PLA-white')
+    await white.getByRole('button', { name: 'Edit' }).click()
+    await white.getByTestId('rule-min').fill('99999')
+    await white.getByRole('button', { name: 'Save' }).click()
+    const alerts = page.getByTestId('inventory-alerts')
+    await expect(alerts).toContainText('PLA white: ', { timeout: 20_000 })
+    await shot(page, '31-filament-alert')
+    await white.getByRole('button', { name: 'Edit' }).click()
+    await white.getByTestId('rule-min').fill('1000')
+    await white.getByRole('button', { name: 'Save' }).click()
+    await expect(alerts.getByText(/PLA white: .* below the minimum of 99999 g/)).toBeHidden({ timeout: 20_000 })
+
+    // weigh the new spool
+    await page.getByTestId(`spool-${label}`).click()
+    await dialog.getByTestId('weigh-grams').fill('640')
+    await dialog.getByRole('button', { name: 'Save weight' }).click()
+    await expect(page.getByTestId(`spool-${label}`)).toContainText('640 g', { timeout: 20_000 })
+  })
+})

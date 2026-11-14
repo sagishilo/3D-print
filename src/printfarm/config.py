@@ -60,6 +60,9 @@ class MaterialCfg:
     baseline_daily_grams: float
     auto_approve_limit_agorot: int    # reorders costing more than this need a human approval
     review_period_days: float = 14
+    min_stock_grams: float = 0        # dashboard alert below this; the reorder rule keeps stock above it
+    reorder_mode: str = "auto"        # auto: orders under the limit go out on their own; manual: always ask
+    supplier: str = ""
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,9 @@ class SpoolCfg:
     grams: float
     remaining_grams: float | None = None
     loaded_on: str | None = None
+    brand: str = ""
+    slot: str | None = None           # where on the printer, e.g. "AMS 1 · slot 1"
+    location: str | None = None       # shelf, while not loaded
 
 
 @dataclass(frozen=True)

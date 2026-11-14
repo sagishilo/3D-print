@@ -28,14 +28,7 @@ export const NAV: NavItem[] = [
   { to: '/live', label: 'Live floor', icon: 'live', group: 'Make' },
   { to: '/orders', label: 'Order Pipeline', icon: 'columns', group: 'Make' },
   { to: '/fleet', label: 'Printer Fleet', icon: 'monitor', group: 'Make' },
-  {
-    to: '/filament',
-    label: 'Filament',
-    icon: 'disc',
-    group: 'Make',
-    phase: 6,
-    blurb: 'Spools, reorder rules and purchase orders (approve, confirm ordered, receive).',
-  },
+  { to: '/filament', label: 'Filament', icon: 'disc', group: 'Make' },
   {
     to: '/finance',
     label: 'Finance',

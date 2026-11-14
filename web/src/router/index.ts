@@ -21,6 +21,7 @@ export const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/live' },
       { path: 'live', name: 'live', component: () => import('@/views/LiveView.vue'), meta: { title: 'Live floor' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline' } },
+      { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Filament' } },
       { path: 'fleet', name: 'fleet', component: () => import('@/views/FleetView.vue'), meta: { title: 'Printer Fleet' } },
       { path: 'system', name: 'system', component: () => import('@/views/SystemView.vue'), meta: { title: 'System & Agents' } },
       ...later,

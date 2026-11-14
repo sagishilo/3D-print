@@ -200,12 +200,15 @@ async def wait_for(db, sql, params, predicate, timeout=60):
 async def test_order_to_print_to_inventory(stack):
     from printfarm.cli import _publish
     from printfarm.contracts.messages import (
+        AdjustSpool,
         ConfirmPoOrdered,
         CreateOrder,
         DecideApproval,
         OrderReceived,
         RecordPayment,
+        RegisterSpool,
         SetConfig,
+        SetReorderRule,
         ShipOrder,
     )
     from printfarm.contracts.orders import OrderLine
@@ -282,6 +285,26 @@ async def test_order_to_print_to_inventory(stack):
                               (), lambda r: len(r) == 1)
         assert (cash[0]["gross_agorot"], cash[0]["net_agorot"], cash[0]["vendor"]) == (23600, 20000, "Test Supplier")
         await wait_for(db, "SELECT status FROM inventory.purchase_orders", (), lambda r: r[0]["status"] == "ordered")
+
+        # filament: the plate's reservation was released and its grams booked on the loaded spool
+        black_plate = plates[0]["plate_id"]
+        booked = await wait_for(db, "SELECT spool_id, delta_grams FROM inventory.ledger WHERE ref = %s", (black_plate,),
+                                lambda r: r)
+        assert booked[0]["spool_id"] == "SP-1" and booked[0]["delta_grams"] < 0
+        await wait_for(db, "SELECT count(*) AS n FROM inventory.reservations WHERE plate_id = %s", (black_plate,),
+                       lambda r: r[0]["n"] == 0)
+        # a minimum above the stock raises a low-stock alert; weighing a fresh spool in clears it again
+        await _publish(settings, SetReorderRule(material="PLA", color="black", min_stock_grams=5000, changed_by="test"))
+        await wait_for(db, "SELECT kind FROM inventory.alerts WHERE kind = 'low_stock' AND resolved_at IS NULL", (),
+                       lambda r: r)
+        await _publish(settings, RegisterSpool(spool_id="SP-E2E", material="PLA", color="black", initial_grams=5000,
+                                               registered_by="test"))
+        await wait_for(db, "SELECT resolved_by FROM inventory.alerts WHERE kind = 'low_stock'", (),
+                       lambda r: r and r[0]["resolved_by"] == "auto")
+        # weighing the loaded spool at 0 g raises "spool empty"
+        await _publish(settings, AdjustSpool(spool_id="SP-1", remaining_grams=0, adjusted_by="test"))
+        await wait_for(db, "SELECT spool_id FROM inventory.alerts WHERE kind = 'spool_empty' AND resolved_at IS NULL",
+                       (), lambda r: r and r[0]["spool_id"] == "SP-1")
 
         # 2) white nameplate -> voron-01 (HTTP upload, WebSocket control); thermal runaway -> auto pause, CONFIRMED
         # 3) red nameplate -> bambu-02; thermal runaway -> auto pause, but the printer ignores it -> safety alert

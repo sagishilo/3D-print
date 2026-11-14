@@ -5,12 +5,14 @@ import { RouterLink } from 'vue-router'
 import Icon from '@/components/ui/Icon.vue'
 import { GROUPS, NAV } from '@/nav'
 import { usePrinters } from '@/stores/printers'
+import { useInventory } from '@/stores/inventory'
 import { useSystem } from '@/stores/system'
 
 defineEmits<{ navigate: [] }>()
 
 const system = useSystem()
 const printers = usePrinters()
+const inventory = useInventory()
 
 const badges = computed<Record<string, { n: number; tone: string }>>(() => {
   const systemIssues = system.unhealthy + system.dlqTotal
@@ -19,6 +21,7 @@ const badges = computed<Record<string, { n: number; tone: string }>>(() => {
     '/system': { n: systemIssues, tone: 'danger' },
     '/live': { n: printerIssues, tone: 'danger' },
     '/fleet': { n: printerIssues, tone: 'danger' },
+    '/filament': { n: inventory.openAlerts.length, tone: 'warn' },
   }
 })
 

@@ -161,6 +161,18 @@ export function describe(env: Envelope): Described {
       return out(`${round(d.grams)} g ${d.material} ${d.color} used · ${round(d.remaining_grams)} g left on ${d.spool_id}`, 'idle', 'stock')
     case 'inventory.spool.loaded':
       return out(`Spool ${d.spool_id} ${d.printer_id ? `loaded on ${d.printer_id}` : 'back on the shelf'}`, 'idle', 'stock')
+    case 'inventory.spool.registered':
+      return out(`Spool ${d.spool_id} registered · ${d.brand ? `${d.brand} ` : ''}${d.material} ${d.color}, ${round(d.remaining_grams)} g`, 'idle', 'stock')
+    case 'inventory.spool.adjusted':
+      return out(`Spool ${d.spool_id} weighed: ${round(d.remaining_grams)} g (${d.delta_grams >= 0 ? '+' : ''}${round(d.delta_grams)} g, ${d.by})`, 'idle', 'stock')
+    case 'inventory.rule.changed':
+      return out(`Reorder rule ${d.material} ${d.color}: min ${round(d.min_stock_grams)} g, ${d.mode}, ${d.supplier || 'no supplier'} (${d.by})`, 'accent', 'stock')
+    case 'inventory.alert.raised':
+      return out(d.message, d.severity === 'critical' ? 'danger' : d.severity === 'warning' ? 'warn' : 'idle', 'stock', {
+        printerId: d.printer_id ?? undefined,
+      })
+    case 'inventory.alert.resolved':
+      return out(`Filament alert closed (${String(d.alert_kind).replaceAll('_', ' ')}, ${d.by})`, 'ok', 'stock')
     case 'finance.entry.created':
       return out(`Ledger: ${d.ledger} (${d.entry_kind}) ${shekels(d.gross_agorot)}`, 'idle', 'money')
     case 'system.config.changed':

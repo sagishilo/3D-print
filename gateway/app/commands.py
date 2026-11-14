@@ -16,6 +16,8 @@ from datetime import UTC, datetime, timedelta
 from printfarm.contracts import Envelope, Payload, new_message
 from printfarm.contracts.config_keys import CONFIG_KEYS
 from printfarm.contracts.messages import (
+    AcknowledgeInventoryAlert,
+    AdjustSpool,
     AdvanceOrder,
     CalibratePrinter,
     CancelOrder,
@@ -32,9 +34,13 @@ from printfarm.contracts.messages import (
     RecordPayment,
     RecordQc,
     RefundPayment,
+    RegisterSpool,
+    RequestReorder,
     ResumePrint,
     SetConfig,
+    SetReorderRule,
     ShipOrder,
+    UpdatePo,
 )
 
 
@@ -44,6 +50,13 @@ class CommandSpec:
     actor_field: str | None = None                       # filled with the logged-in user
     deadline_s: float | None = None                      # agents drop the command if it is older than this
     fill: Callable[[dict, str], None] | None = None      # server-side defaults: (data, command_id) -> None
+
+
+def _new_spool(data: dict, command_id: str) -> None:
+    # A scanned label is the spool's id; otherwise one derived from the command id (a retry registers it once).
+    tag = str(data.get("tag") or "").strip()
+    data.setdefault("spool_id", tag if tag and all(c.isalnum() or c in "_.-" for c in tag) and len(tag) <= 40
+                    else f"SP-{command_id[:8].upper()}")
 
 
 def _new_order(data: dict, command_id: str) -> None:
@@ -87,6 +100,12 @@ COMMANDS: dict[str, CommandSpec] = {
     "po.confirm_ordered": CommandSpec(ConfirmPoOrdered, "confirmed_by"),
     "po.receive": CommandSpec(ReceivePo, "received_by"),
     "spools.load": CommandSpec(LoadSpool, "loaded_by"),
+    "spools.register": CommandSpec(RegisterSpool, "registered_by", fill=_new_spool),
+    "spools.adjust": CommandSpec(AdjustSpool, "adjusted_by"),
+    "inventory.rule": CommandSpec(SetReorderRule, "changed_by"),
+    "inventory.reorder": CommandSpec(RequestReorder, "requested_by"),
+    "inventory.ack_alert": CommandSpec(AcknowledgeInventoryAlert, "acknowledged_by"),
+    "po.update": CommandSpec(UpdatePo, "updated_by"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting),
 }
 

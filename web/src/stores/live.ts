@@ -10,6 +10,7 @@ import type { FeedItem, PrinterState, Tone } from '@/lib/types'
 
 import { useApprovals } from './approvals'
 import { useAuth } from './auth'
+import { useInventory } from './inventory'
 import { useOrders } from './orders'
 import { usePrinters } from './printers'
 import { useSystem } from './system'
@@ -72,6 +73,8 @@ export const useLive = defineStore('live', () => {
     if (d.kind === 'printer.pause.confirmed') toasts.ok('Printer paused', d.text)
     if (d.kind.startsWith('approval.')) void useApprovals().load()
     if (d.kind.startsWith('order.') || d.kind.startsWith('fleet.') || d.kind.startsWith('personalization.')) useOrders().reloadSoon()
+    if (d.kind.startsWith('inventory.') || d.kind === 'fleet.plate.scheduled' || d.kind === 'fleet.plate.finished') useInventory().reloadSoon()
+    if (d.kind === 'inventory.alert.raised' && data.severity !== 'info') toasts.push({ tone: 'warn', title: 'Filament', text: d.text }, 10000)
     if (d.kind === 'order.move.rejected') toasts.error(`Order ${data.order_id} not moved`, String(data.reason))
     if (d.kind === 'message.dead_lettered') void useSystem().loadDlq()
     if (d.kind === 'system.config.changed') void useSystem().loadSettings()

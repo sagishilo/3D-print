@@ -82,6 +82,9 @@ lead_time_days = 5
 safety_stock_days = 3
 baseline_daily_grams = 150
 auto_approve_limit_agorot = 20000    # reorders above 200.00 ILS need a human approval
+min_stock_grams = 1000               # dashboard alert below this; the reorder rule keeps stock above it
+reorder_mode = "auto"                # "manual": every reorder waits for your approval
+supplier = "Bambu Store"
 
 [[materials]]
 material = "PLA"
@@ -92,6 +95,9 @@ lead_time_days = 5
 safety_stock_days = 3
 baseline_daily_grams = 100
 auto_approve_limit_agorot = 20000
+min_stock_grams = 1000
+reorder_mode = "manual"
+supplier = "Bambu Store"
 
 # ---------------------------------------------------------------- initial spools (seed only)
 [[spools]]
@@ -101,6 +107,8 @@ color = "black"
 grams = 1000
 remaining_grams = 650
 loaded_on = "bambu-01"
+brand = "Bambu"
+slot = "AMS 1 · slot 1"
 
 [[spools]]
 id = "SP-0002"
@@ -109,6 +117,8 @@ color = "black"
 grams = 1000
 remaining_grams = 400
 loaded_on = "voron-01"
+brand = "Polymaker"
+slot = "T0"
 
 [[spools]]
 id = "SP-0003"
@@ -116,6 +126,8 @@ material = "PLA"
 color = "white"
 grams = 1000
 loaded_on = "bambu-02"
+brand = "Bambu"
+slot = "AMS 1 · slot 2"
 
 [[spools]]
 id = "SP-0004"
