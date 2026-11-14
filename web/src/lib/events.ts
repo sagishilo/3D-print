@@ -173,6 +173,8 @@ export function describe(env: Envelope): Described {
       })
     case 'inventory.alert.resolved':
       return out(`Filament alert closed (${String(d.alert_kind).replaceAll('_', ' ')}, ${d.by})`, 'ok', 'stock')
+    case 'finance.settings.changed':
+      return out(`Finance settings changed by ${d.by}: ${d.business_type}, VAT ${Math.round(d.vat_rate * 100)}%${d.confirmed ? ' (confirmed)' : ''}`, 'accent', 'money')
     case 'finance.entry.created':
       return out(`Ledger: ${d.ledger} (${d.entry_kind}) ${shekels(d.gross_agorot)}`, 'idle', 'money')
     case 'system.config.changed':

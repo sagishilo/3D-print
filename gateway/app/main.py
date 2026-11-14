@@ -10,7 +10,6 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import date
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -23,7 +22,7 @@ from pydantic import ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
 
-from . import approvals, auth, cameras, inventory, live, orders, printers, system
+from . import approvals, auth, cameras, finance, inventory, live, orders, printers, system
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
@@ -50,7 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan)
-for module in (auth, live, system, printers, cameras, approvals, orders, inventory):
+for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance):
     app.include_router(module.router)
 
 
@@ -134,30 +133,3 @@ async def printer_command(printer_id: str, action: str, request: Request, claims
     if action == "pause":
         body.setdefault("reason", "paused from the dashboard")
     return await _dispatch(request, PRINTER_ACTIONS[action], body, claims)
-
-
-# ---------------------------------------------------------------- finance (read side)
-FINANCE_SUMMARY_SQL = """
-  WITH bounds AS (SELECT %(first)s::date AS a, (%(first)s::date + interval '1 month')::date AS b)
-  SELECT
-    (SELECT coalesce(sum(net_agorot), 0) FROM finance.income_entries, bounds
-       WHERE entry_date >= a AND entry_date < b) AS revenue_net,
-    (SELECT coalesce(sum(net_agorot), 0) FROM finance.expense_entries, bounds
-       WHERE entry_date >= a AND entry_date < b AND kind IN ('cash', 'estimated')) AS expenses_net,
-    (SELECT coalesce(sum(net_agorot), 0) FROM finance.expense_entries, bounds
-       WHERE entry_date >= a AND entry_date < b AND kind = 'allocated') AS allocated_cost_net
-"""
-
-
-@app.get("/api/v1/finance/summary")
-async def finance_summary(request: Request, month: str | None = None, _c: dict = Depends(auth.require_auth)):
-    try:
-        first = date.fromisoformat(f"{month}-01") if month else date.today().replace(day=1)
-    except ValueError:
-        raise HTTPException(400, "month must look like 2026-11") from None
-    row = await request.app.state.db.fetchrow(FINANCE_SUMMARY_SQL, {"first": first})
-    rev, exp = int(row["revenue_net"]), int(row["expenses_net"])
-    return {"month": first.isoformat()[:7], "revenue_net_agorot": rev, "expenses_net_agorot": exp,
-            "profit_net_agorot": rev - exp, "margin_pct": round((rev - exp) / rev * 100, 1) if rev else None,
-            "allocated_cost_net_agorot": int(row["allocated_cost_net"]),
-            "note": "allocated = per-job filament/electricity; used for product margins, excluded from profit"}

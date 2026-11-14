@@ -708,6 +708,7 @@ class PurchaseOrdered(Event):
     total_agorot: int
     vat_invoice: bool
     ordered_at: datetime
+    grams_per_spool: float | None = None        # lets Finance price filament per gram from what was really paid
 
 
 class ReceivePo(Command):
@@ -894,6 +895,28 @@ class CreateExpense(Command):
     date: datetime | None = None
     note: str | None = Field(default=None, max_length=500)
     created_by: str = ""
+
+
+class UpdateFinanceSettings(Command):
+    """Finance > Settings. ``confirm``: the values were checked with the accountant (until then they are placeholders)."""
+
+    subject: ClassVar[str] = "cmd.finance.update_settings"
+    business_type: str = Field(pattern=r"^(murshe|patur)$")
+    vat_rate: float = Field(ge=0, le=0.5)
+    electricity_agorot_per_kwh: float = Field(gt=0, le=1000)
+    default_printer_watts: float = Field(gt=0, le=5000)
+    default_filament_agorot_per_gram: float = Field(gt=0, le=1000)
+    turnover_ceiling_agorot: int | None = Field(default=None, ge=0)
+    confirm: bool = False
+    updated_by: str = ""
+
+
+class FinanceSettingsChanged(Event):
+    subject: ClassVar[str] = "evt.finance.settings.changed"
+    business_type: str
+    vat_rate: float
+    confirmed: bool
+    by: str
 
 
 class LedgerEntryCreated(Event):

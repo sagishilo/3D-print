@@ -4,6 +4,9 @@
     evt.inventory.po.ordered                -> finance.expense_entries kind='cash'      (filament purchase, P&L)
     evt.fleet.plate.finished                -> finance.expense_entries kind='allocated' (per-job grams + kWh, margins only)
     cmd.finance.create_expense              -> finance.expense_entries kind='cash' | 'estimated'
+    cmd.finance.update_settings             -> finance.settings (VAT, business type, tariffs; confirmed by whom)
+Per-job filament is priced from the latest purchase order of that filament (finance.filament_prices), the
+settings' default only for a filament never bought through a PO.
 
 Exactly-once booking comes from two layers: the agent inbox (per consumer) and a UNIQUE source_event_id on every
 row (per bus message), which also protects against re-reading history under a new consumer name.
@@ -11,15 +14,19 @@ row (per bus message), which also protects against re-reading history under a ne
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from printfarm.agents.base import Agent, on
 from printfarm.agents.finance.ledger import FinanceSettings, business_day, plate_allocations, split_vat
 from printfarm.contracts.messages import (
     CreateExpense,
+    FinanceSettingsChanged,
     LedgerEntryCreated,
     PaymentRecorded,
     PaymentRefunded,
     PlateFinished,
     PurchaseOrdered,
+    UpdateFinanceSettings,
 )
 
 
@@ -77,13 +84,26 @@ class FinanceAgent(Agent):
         if row:
             await self._booked(conn, env, entry_id=row["id"], ledger="expense", entry_kind="cash", category="filament",
                                gross=ev.total_agorot, source_event_id=env.id)
+        if ev.grams_per_spool and ev.spools > 0:
+            # What a gram of this filament really cost (net: reclaimable VAT is not a cost), for per-job costs.
+            await conn.execute(
+                "INSERT INTO finance.filament_prices (material, color, agorot_per_gram, po_id, at) VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (material, color) DO UPDATE SET agorot_per_gram = EXCLUDED.agorot_per_gram, "
+                "po_id = EXCLUDED.po_id, at = EXCLUDED.at WHERE finance.filament_prices.at <= EXCLUDED.at",
+                (ev.material, ev.color, Decimal(net) / Decimal(str(ev.spools * ev.grams_per_spool)), ev.po_id,
+                 ev.ordered_at),
+            )
 
     @on("evt.fleet.plate.finished", from_start=True)
     async def plate_finished(self, env, ev: PlateFinished, conn):
         s = await self._settings(conn)
+        price = await (await conn.execute(
+            "SELECT agorot_per_gram FROM finance.filament_prices WHERE material = %s AND color = %s",
+            (ev.material, ev.color))).fetchone()
         allocations = plate_allocations(
             grams_used=ev.grams_used, print_seconds=ev.print_seconds, shares=ev.job_shares, material=ev.material,
             color=ev.color, succeeded=ev.succeeded, s=s,
+            price_per_gram_agorot=Decimal(price["agorot_per_gram"]) if price else None,
         )
         day = self._day(env.time)
         for a in allocations:
@@ -100,6 +120,24 @@ class FinanceAgent(Agent):
             if row:
                 await self._booked(conn, env, entry_id=row["id"], ledger="expense", entry_kind="allocated",
                                    category=a.category, gross=a.amount_agorot, source_event_id=source_id)
+
+    @on("cmd.finance.update_settings")
+    async def update_settings(self, env, cmd: UpdateFinanceSettings, conn):
+        who = cmd.updated_by or "unknown"
+        await conn.execute(
+            "UPDATE finance.settings SET business_type = %s, vat_rate = %s, electricity_agorot_per_kwh = %s, "
+            "default_printer_watts = %s, default_filament_agorot_per_gram = %s, turnover_ceiling_agorot = %s, "
+            "updated_by = %s, updated_at = now(), "
+            "confirmed_by = CASE WHEN %s THEN %s ELSE confirmed_by END, "
+            "confirmed_at = CASE WHEN %s THEN now() ELSE confirmed_at END WHERE id = 1",
+            (cmd.business_type, Decimal(str(cmd.vat_rate)), Decimal(str(cmd.electricity_agorot_per_kwh)),
+             Decimal(str(cmd.default_printer_watts)), Decimal(str(cmd.default_filament_agorot_per_gram)),
+             cmd.turnover_ceiling_agorot, who, cmd.confirm, who, cmd.confirm),
+        )
+        self.log.warning("finance settings changed by %s (%s, VAT %.2f%%)%s", who, cmd.business_type, cmd.vat_rate * 100,
+                         " and confirmed" if cmd.confirm else "")
+        await self.emit(conn, FinanceSettingsChanged(business_type=cmd.business_type, vat_rate=cmd.vat_rate,
+                                                     confirmed=cmd.confirm, by=who), cause=env)
 
     @on("cmd.finance.create_expense")
     async def create_expense(self, env, cmd: CreateExpense, conn):

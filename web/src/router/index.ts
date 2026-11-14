@@ -23,6 +23,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline' } },
       { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Filament' } },
       { path: 'fleet', name: 'fleet', component: () => import('@/views/FleetView.vue'), meta: { title: 'Printer Fleet' } },
+      { path: 'finance', name: 'finance', component: () => import('@/views/FinanceView.vue'), meta: { title: 'Finance' } },
       { path: 'system', name: 'system', component: () => import('@/views/SystemView.vue'), meta: { title: 'System & Agents' } },
       ...later,
     ],

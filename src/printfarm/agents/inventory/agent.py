@@ -429,11 +429,12 @@ class InventoryAgent(Agent):
                                             (cmd.po_id,))).fetchone()
             self.log.warning("PO %s not confirmed as ordered: status is %s", cmd.po_id, row["status"] if row else "unknown")
             return
+        m = await self._material(conn, po["material"], po["color"])
         await self.emit(
             conn,
             PurchaseOrdered(po_id=po["po_id"], material=po["material"], color=po["color"], spools=po["spools"],
                             supplier=cmd.supplier, total_agorot=cmd.total_agorot, vat_invoice=cmd.vat_invoice,
-                            ordered_at=ordered_at),
+                            ordered_at=ordered_at, grams_per_spool=m["grams_per_spool"] if m else None),
             cause=env, correlationid=po["po_id"],
         )
 

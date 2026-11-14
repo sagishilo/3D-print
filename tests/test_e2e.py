@@ -210,6 +210,7 @@ async def test_order_to_print_to_inventory(stack):
         SetConfig,
         SetReorderRule,
         ShipOrder,
+        UpdateFinanceSettings,
     )
     from printfarm.contracts.orders import OrderLine
     from printfarm.store import Database
@@ -284,6 +285,16 @@ async def test_order_to_print_to_inventory(stack):
         cash = await wait_for(db, "SELECT gross_agorot, net_agorot, vendor FROM finance.expense_entries WHERE kind = 'cash'",
                               (), lambda r: len(r) == 1)
         assert (cash[0]["gross_agorot"], cash[0]["net_agorot"], cash[0]["vendor"]) == (23600, 20000, "Test Supplier")
+        # what a gram really cost (net) is now the price of later per-job filament
+        price = await wait_for(db, "SELECT agorot_per_gram, po_id FROM finance.filament_prices WHERE material = 'PLA' "
+                                   "AND color = 'black'", (), lambda r: r)
+        assert price[0]["po_id"] == po[0]["po_id"] and float(price[0]["agorot_per_gram"]) > 0
+        await _publish(settings, UpdateFinanceSettings(business_type="murshe", vat_rate=0.18, electricity_agorot_per_kwh=70,
+                                                       default_printer_watts=120, default_filament_agorot_per_gram=9,
+                                                       confirm=True, updated_by="test"))
+        fs = await wait_for(db, "SELECT confirmed_by, electricity_agorot_per_kwh FROM finance.settings", (),
+                            lambda r: r[0]["confirmed_by"] == "test")
+        assert float(fs[0]["electricity_agorot_per_kwh"]) == 70
         await wait_for(db, "SELECT status FROM inventory.purchase_orders", (), lambda r: r[0]["status"] == "ordered")
 
         # filament: the plate's reservation was released and its grams booked on the loaded spool

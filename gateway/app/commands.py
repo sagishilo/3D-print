@@ -40,6 +40,7 @@ from printfarm.contracts.messages import (
     SetConfig,
     SetReorderRule,
     ShipOrder,
+    UpdateFinanceSettings,
     UpdatePo,
 )
 
@@ -101,6 +102,7 @@ COMMANDS: dict[str, CommandSpec] = {
     "po.receive": CommandSpec(ReceivePo, "received_by"),
     "spools.load": CommandSpec(LoadSpool, "loaded_by"),
     "spools.register": CommandSpec(RegisterSpool, "registered_by", fill=_new_spool),
+    "finance.settings": CommandSpec(UpdateFinanceSettings, "updated_by"),
     "spools.adjust": CommandSpec(AdjustSpool, "adjusted_by"),
     "inventory.rule": CommandSpec(SetReorderRule, "changed_by"),
     "inventory.reorder": CommandSpec(RequestReorder, "requested_by"),

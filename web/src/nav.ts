@@ -29,14 +29,7 @@ export const NAV: NavItem[] = [
   { to: '/orders', label: 'Order Pipeline', icon: 'columns', group: 'Make' },
   { to: '/fleet', label: 'Printer Fleet', icon: 'monitor', group: 'Make' },
   { to: '/filament', label: 'Filament', icon: 'disc', group: 'Make' },
-  {
-    to: '/finance',
-    label: 'Finance',
-    icon: 'bars',
-    group: 'Business',
-    phase: 7,
-    blurb: 'Income, expenses, VAT, product margins and receivables from the ledger.',
-  },
+  { to: '/finance', label: 'Finance', icon: 'bars', group: 'Business' },
   { to: '/system', label: 'System & Agents', icon: 'gear', group: 'Admin' },
 ]
 

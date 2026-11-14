@@ -323,3 +323,52 @@ test.describe('filament', () => {
     await expect(page.getByTestId(`spool-${label}`)).toContainText('640 g', { timeout: 20_000 })
   })
 })
+
+test.describe('finance', () => {
+  test('payment and expense are booked with VAT, settings confirmed, ledger exported', async ({ page }) => {
+    const receipt = `RC-${Date.now()}`
+    await signIn(page, '/finance')
+    await expect(page.getByRole('heading', { name: 'Finance & Accounting' })).toBeVisible()
+
+    // income without an order (a market stall): 708.00 gross = 600.00 net + 108.00 VAT at 18 %
+    await page.getByTestId('record-payment').click()
+    const pay = page.getByTestId('payment-dialog')
+    await pay.getByTestId('money-amount').fill('708')
+    await pay.getByLabel('Method').selectOption('cash')
+    await pay.getByLabel('Receipt no.').fill(receipt)
+    await pay.getByRole('button', { name: 'Record payment' }).click()
+    await page.getByRole('tab', { name: 'Income' }).click()
+    const row = page.locator('tr', { hasText: receipt })
+    await expect(row).toContainText('₪708.00', { timeout: 20_000 })
+    await expect(row).toContainText('₪108.00')
+    await expect(row).toContainText('₪600.00')
+
+    // an expense with a tax invoice: its VAT is reclaimed (input VAT)
+    await page.getByTestId('add-expense').click()
+    const exp = page.getByTestId('expense-dialog')
+    await exp.getByTestId('expense-category').selectOption('shipping')
+    await exp.getByTestId('money-amount').fill('236')
+    await exp.getByLabel('Vendor').fill('Israel Post')
+    await exp.getByRole('button', { name: 'Add expense' }).click()
+    await page.getByRole('tab', { name: 'Expenses' }).click()
+    await expect(page.locator('tr', { hasText: 'Israel Post' }).first()).toContainText('₪200.00', { timeout: 20_000 })
+
+    await page.getByRole('tab', { name: 'Overview' }).click()
+    await expect(page.getByTestId('expense-mix')).toContainText('Shipping')
+    await shot(page, '40-finance')
+    await page.getByRole('tab', { name: 'VAT' }).click()
+    await expect(page.getByTestId('vat')).toContainText('Nov–Dec')
+    await shot(page, '41-finance-vat')
+
+    // the CSV the accountant gets
+    const csv = await page.request.get('/api/v1/finance/export.csv?ledger=income')
+    expect(await csv.text()).toContain(`708.00,108.00,600.00,${receipt}`)
+
+    // confirming the settings removes the placeholder warning
+    await page.getByRole('tab', { name: 'Settings' }).click()
+    await page.getByTestId('set-confirm').check()
+    await page.getByRole('button', { name: 'Save settings' }).click()
+    await expect(page.getByTestId('placeholder-banner')).toBeHidden({ timeout: 20_000 })
+    await expect(page.getByTestId('finance-settings')).toContainText('confirmed by admin')
+  })
+})
