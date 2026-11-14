@@ -83,7 +83,7 @@ docker compose --profile sim up -d --build
 
 `--profile sim` adds simulated printers, so you can try the whole system before any real printer is connected. Once your printers are set up (step 10), start without it: `docker compose up -d --build`.
 
-**Expected:** the first run downloads images and builds the gateway, finance and agent images (5–10 minutes; the agent image includes OpenSCAD). It ends with lines such as `Container printfarm-caddy-1  Started`.
+**Expected:** the first run downloads images and builds the gateway, finance and agent images and the dashboard (5–10 minutes; the agent image includes OpenSCAD, and the dashboard is built with Node.js inside Docker, so nothing extra is installed on this PC). It ends with lines such as `Container printfarm-caddy-1  Started`.
 **If you see** `required variable ... is missing a value`: `.env` is missing or incomplete. Go back to step 4.
 **If you see** `port is already allocated` for 80 or 443: another program (IIS, Skype or another web server) is using that port. Stop it, or tell me and I'll move Caddy to 8443.
 
@@ -124,7 +124,8 @@ Chrome and Edge use the Windows store. **Firefox** has its own: go to Settings �
 - iPhone: open the file → install the profile → Settings → General → About → Certificate Trust Settings → turn it on.
 
 Open `https://localhost` (or `https://<PC-IP>` on another device).
-**Expected:** a dark page titled "PrintFarm Ops: stack is running", with no certificate warning. It's a placeholder until the React app is built into `web/dist`.
+**Expected:** the PrintFarm Ops **Sign in** page, with no certificate warning. Sign in as `admin` with the password you chose in step 3. You land on the **Live floor** (see "The dashboard" below).
+**If it says** "Wrong username or password. 4 attempts left": after 5 wrong tries from the same device the login locks for 15 minutes.
 
 ## Step 8: See the camera path working (no printer needed)
 
@@ -223,6 +224,15 @@ $env:SIM_FAULTS = "bambu-01=ignore_pause,voron-01=thermal_runaway"; docker compo
 | `upload_fail`, `upload_flaky` | refuses uploads (no space) / fails the first upload of each file (the agent retries) |
 | `camera_off`, `camera_auth_fail`, `camera_drop`, `camera_stall` | camera port closed / login refused / connection drops / frames stop |
 
+## The dashboard
+
+After signing in (step 7), the sidebar has the screens of the design. Two work today; the others say which roadmap phase brings them.
+
+- **Live floor**: one tile per printer with its camera (live MJPEG; the tile shows the frame age, and STALLED / RECONNECTING / OFFLINE when the camera has a problem), state, temperatures and progress, and Pause / Resume. **History** on a tile replays that printer's last 15–60 minutes of telemetry (temperatures, progress, failure and pause markers; scrub or play it back). The **Live events** list below shows every event as it happens; **Replay** loads stored events (up to 7 days back). Safety alerts (a pause the printer did not confirm, a critical failure) appear as a red banner and stay until you acknowledge them.
+- **System & Agents**: agent health (heartbeat, version, messages waiting), the servers (gateway, NATS, Postgres, go2rtc), printer connections, NATS clients and streams, the **dead letter queue** (inspect a message that failed 5 times, then Replay or Discard it; both are recorded in the audit log), and the **automation toggles** (failure auto-pause, auto-reorder; each change is recorded with who made it, and the agents apply it within about 5 seconds). Toggles for later phases are shown but disabled.
+
+The top bar shows whether the live feed is connected ("Live · 0.4 s ago"), the approvals inbox, and **Pause all printers**. If the connection drops (Wi-Fi, a PC restart), the dashboard reconnects by itself and catches up on every event it missed. Camera video is not recorded: History replays the printer's telemetry and events, not video.
+
 ## Step 13: The agents and the message bus
 
 The agents run as containers in this compose file and connect to NATS as the `agents` user (its password is in `.env`; it is passed to them through their environment, never in code). To run an agent on this PC outside Docker while developing, use `nats://agents:<NATS_AGENTS_PASSWORD>@127.0.0.1:4222` and see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
@@ -270,13 +280,14 @@ Don't back up with `pg_dump ... > file.sql` in Windows PowerShell 5: it saves th
 
 | Works now (tested end to end) | Still to build |
 | --- | --- |
-| HTTPS via Caddy; admin login with HttpOnly cookies, refresh rotation, logout, 5-try lockout | React frontend (`web/dist` is a placeholder) |
+| HTTPS via Caddy; admin login with HttpOnly cookies, refresh rotation, logout, 5-try lockout | Dashboard screens for Printer Fleet, Order Pipeline, Filament, Finance, Instant Catalog, Social & Trends (Phases 4–10) |
+| Dashboard (Vue 3, built into the Caddy image): sign-in, app shell, Live floor (cameras, telemetry replay, event replay, safety alerts), System & Agents (agent health, NATS, servers, dead-letter replay/discard, audited automation toggles); works on phones | |
 | Commands: CSRF check, validated against typed contracts, audit log, published durably to JetStream (202 + `command_id`, idempotent retries) | Building multi-part plate files automatically (plate compositor); until then a printer only gets an already-sliced plate file |
 | Agents: order sagas, human approvals, payments, audited settings; plate packing and scheduling; filament ledger, reorders, PO ordered/received, spools | Real-printer tests (Phase 9), including `bambu-cam` on a real P1/A1 and whether your Bambu firmware needs Developer Mode for control |
 | Printer control: plate upload (Bambu implicit FTPS with TLS session reuse, Moonraker HTTP), start confirmed from the printer's state, resume/cancel/pause-all; **every pause verified** against the printer's own state, with a critical alert when it does not stop. Tested against simulators only | |
 | Simulated printers for P1 (port-6000 camera), X1 (RTSPS camera) and Klipper (Crowsnest MJPEG), with injectable faults | |
-| Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required | WebSocket replay from JetStream after a reconnect (today: resync through REST) |
-| Live feed (`/ws`): events, telemetry and dead letters only, never commands; 4401 close when not logged in | Finance settings UI and more finance read endpoints (only `/api/v1/finance/summary` exists); edit settings in Postgres for now |
+| Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required; X1 (H.264) cameras transcoded to MJPEG on demand | Recording camera video |
+| Live feed (`/ws`): events, telemetry and dead letters only, never commands; resumes after a reconnect from the last event seen, replays stored history; refuses other sites (4403) and visitors without a session (4401) | Finance settings UI and more finance read endpoints (only `/api/v1/finance/summary` exists); edit settings in Postgres for now |
 | Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit), duplicate-safe | Separate NATS permissions per user (both users have full access today) |
 | One JetStream topology and one migration path (`migrate` service) shared by every component | Social Listening and Trend Analyst (LLM agents) |
 

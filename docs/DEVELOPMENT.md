@@ -33,10 +33,12 @@ src/printfarm/        the agents (Python package "printfarm")
   simulator/          printers speaking the real protocols: Bambu (MQTT + implicit FTPS + port-6000 camera),
                       Moonraker (HTTP + WebSocket + Crowsnest webcam on one port), injectable faults
   cli.py              printfarm command
-gateway/              FastAPI gateway for the dashboard: auth, commands (app/commands.py), camera proxy, WebSocket bridge;
+gateway/              FastAPI gateway for the dashboard: auth, commands (app/commands.py), live feed /ws with resume and
+                      replay (app/live.py), System & Agents API (app/system.py), printers + telemetry history, cameras;
                       imports printfarm.contracts + printfarm.bus, so it shares the agents' subjects and JetStream topology
 bambu-cam/            P1/A1 camera frame-reader for go2rtc
-web/                  dashboard (dist/ is served by Caddy)
+web/                  dashboard: Vue 3 + TypeScript + Vite (src/), unit tests (tests/), browser tests (e2e/);
+                      web/Dockerfile builds it into the Caddy image
 infra/                nats.conf, Caddyfile, go2rtc.yaml; sim/mediamtx-x1.yml (simulated X1 RTSPS camera)
 config/               fleet.sim.toml (simulated printers), fleet.toml (your printers), mosquitto.conf
 scripts/              init_env.py, check_env.py, preflight.py
@@ -103,7 +105,7 @@ docker run -d --rm --name pf-e2e-mqtt --network pf-e2e eclipse-mosquitto:2 mosqu
 docker run --rm --network pf-e2e -v "${PWD}:/src:ro" `
   -e TEST_NATS_URL=nats://pf-e2e-nats:4222 -e TEST_DATABASE_URL=postgresql://printfarm:e2e@pf-e2e-pg:5432/printfarm `
   -e TEST_MQTT_URL=mqtt://pf-e2e-mqtt:1883 python:3.12-slim sh -c `
-  "mkdir /work && tar -C /src --exclude=./.venv --exclude=./.git -cf - . | tar -C /work -xf - && pip install -q /work pytest pytest-asyncio && cd /work && python -m pytest tests/test_e2e.py -v"
+  "mkdir /work && tar -C /src --exclude=./.venv --exclude=./.git --exclude=./web/node_modules -cf - . | tar -C /work -xf - && pip install -q /work pytest pytest-asyncio && cd /work && python -m pytest tests/test_e2e.py -v"
 docker stop pf-e2e-nats pf-e2e-pg pf-e2e-mqtt; docker network rm pf-e2e
 ```
 
@@ -118,6 +120,46 @@ The end-to-end test covers this whole flow:
 5. A simulated thermal runaway on the Moonraker printer (plate uploaded over HTTP) is detected; the printer is **paused
    automatically and the pause is confirmed** from its own state.
 6. The same runaway on a second Bambu printer that **ignores the pause** raises a critical **pause unconfirmed** alert.
+
+## Dashboard (`web/`)
+
+Vue 3 (Composition API, `<script setup>`), Pinia stores, Vue Router, TypeScript, Vite. The design reference is
+[design/PrintFarm Ops Dashboard.html](design/); its colours and fonts are the tokens in `web/src/styles/tokens.css`
+(fonts are bundled: the console works on a LAN without internet). Node.js 22 or newer is needed only for development;
+the production build runs inside Docker (`web/Dockerfile`, Node 24 build stage, then `caddy:2.11.9-alpine`).
+
+```
+src/lib/        api.ts (cookies, CSRF header, refresh-once on 401, idempotency keys), live.ts (the /ws client:
+                resume cursors per stream, de-duplication, 4401 → refresh, backoff, replay), mjpeg.ts (camera frames
+                over fetch, stall detection), events.ts (one plain-language line per event type), format.ts
+src/stores/     auth, live (the feed + safety alerts), printers, system, approvals, toasts, confirm
+src/components/ shell/ (sidebar, top bar, approvals drawer), live/ (camera, printer tile, telemetry replay, event feed),
+                system/ (agents, servers, printers, NATS, dead letters, settings), ui/ (icons, pills, tabs, switches)
+src/views/      LoginView, LiveView, SystemView, ComingSoonView (screens of later phases)
+```
+
+Work on it against a running stack (the dev server forwards `/api` and `/ws` to it; the WebSocket Origin is rewritten,
+so the gateway's origin check accepts the dev server):
+
+```bash
+cd web
+npm ci
+npm run dev                  # http://localhost:5173 → https://localhost; PRINTFARM_URL=https://<host> for another stack
+npm test                     # unit tests (Vitest + jsdom): API client, live feed client, MJPEG parser, events, stores,
+                             # components, router guard
+npm run build                # type-check (vue-tsc) + production build into web/dist (Docker does this for you)
+```
+
+Browser tests (Playwright) drive the Edge or Chrome installed on the PC (no browser download) against a running
+simulator stack. One of them injects a dead letter through `docker compose exec`, so it needs the compose project name:
+
+```powershell
+$env:PRINTFARM_PASSWORD = "<admin password>"; $env:PRINTFARM_COMPOSE_PROJECT = "printfarm"
+npx playwright test           # sign-in, live floor (all three cameras live, telemetry + event replay), System & Agents,
+                              # an audited toggle, dead-letter replay, phone layout
+```
+
+Set `PW_SCREENSHOTS=<folder>` to save a full-page screenshot of every screen, and `PW_CHANNEL=chrome` to use Chrome.
 
 ## Roadmap
 

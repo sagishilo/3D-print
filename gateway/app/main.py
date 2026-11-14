@@ -1,18 +1,20 @@
-"""PrintFarm Ops FastAPI gateway (BFF): REST, commands, camera proxy, WebSocket bridge.
+"""PrintFarm Ops FastAPI gateway (BFF): REST, commands, camera proxy, live feed.
 
 Commands: ``POST /api/v1/commands/{name}`` validates the body against the command's contract (``commands.py``) and
 publishes it to JetStream with ``Nats-Msg-Id`` = Idempotency-Key. The stream's acknowledgement means "durably
-accepted"; the result arrives later as an event over ``/ws``. The gateway never waits for an agent to act.
+accepted"; the result arrives later as an event over ``/ws`` (``live.py``). The gateway never waits for an agent.
+
+Routers: auth (login/refresh), live (/ws), system (agents, NATS, DLQ, settings), printers, cameras, approvals.
 """
-import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime
+from datetime import date
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from nats.errors import NoRespondersError
 from nats.errors import TimeoutError as NatsTimeout
 from nats.js.errors import NoStreamResponseError
@@ -21,31 +23,35 @@ from pydantic import ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
 
-from . import auth
-from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, WS_MAX_TOPICS, build_command, command_id_from, ws_topic_allowed
+from . import approvals, auth, cameras, live, printers, system
+from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("pf.gateway")
-CAMERA_ID = PRINTER_ID  # go2rtc stream names are the printer ids
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.started = time.monotonic()
+    app.state.ws_clients = 0
     app.state.db = Db(settings.database_url)
     await app.state.db.open()
     app.state.bus = await NatsBus.connect(settings.nats_url, name="gateway")  # also ensures the shared JetStream topology
     app.state.http = httpx.AsyncClient(base_url=settings.go2rtc_url, timeout=httpx.Timeout(10, read=None))
+    app.state.nats_http = httpx.AsyncClient(base_url=settings.nats_monitor_url, timeout=3)
     log.info("gateway ready")
     yield
+    await app.state.nats_http.aclose()
     await app.state.http.aclose()
     await app.state.bus.close()
     await app.state.db.close()
 
 
 app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan)
-app.include_router(auth.router)
+for module in (auth, live, system, printers, cameras, approvals):
+    app.include_router(module.router)
 
 
 @app.get("/health")
@@ -130,63 +136,6 @@ async def printer_command(printer_id: str, action: str, request: Request, claims
     return await _dispatch(request, PRINTER_ACTIONS[action], body, claims)
 
 
-# ---------------------------------------------------------------- cameras (go2rtc)
-def _relay_error(cam_id: str, exc: httpx.HTTPError) -> HTTPException:
-    """A camera that sends nothing is a 504, an unreachable relay a 502 - never an unhandled 500."""
-    if isinstance(exc, httpx.TimeoutException):
-        return HTTPException(504, f"camera {cam_id} sent no frame in time")
-    return HTTPException(502, f"camera relay unreachable ({type(exc).__name__})")
-
-
-@app.get("/api/v1/cameras/{cam_id}/mjpeg")
-async def camera_mjpeg(cam_id: str, request: Request, _c: dict = Depends(auth.require_auth)):
-    if not CAMERA_ID.match(cam_id):
-        raise HTTPException(400, "bad camera id")
-    client: httpx.AsyncClient = request.app.state.http
-    try:
-        upstream = await client.send(client.build_request("GET", "/api/stream.mjpeg", params={"src": cam_id},
-                                                          timeout=httpx.Timeout(10, read=None)), stream=True)
-    except httpx.HTTPError as exc:
-        raise _relay_error(cam_id, exc) from exc
-    if upstream.status_code != 200:
-        await upstream.aclose()
-        raise HTTPException(502, f"go2rtc returned {upstream.status_code} for {cam_id}")
-
-    async def body():
-        try:
-            async for chunk in upstream.aiter_raw():
-                if await request.is_disconnected():  # tab closed: stop, so go2rtc stops reading the camera
-                    break
-                yield chunk
-        finally:
-            await upstream.aclose()
-
-    return StreamingResponse(body(), media_type=upstream.headers.get("content-type", "multipart/x-mixed-replace"),
-                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
-
-@app.get("/api/v1/cameras/{cam_id}/snapshot.jpg")
-async def camera_snapshot(cam_id: str, request: Request, _c: dict = Depends(auth.require_auth)):
-    if not CAMERA_ID.match(cam_id):
-        raise HTTPException(400, "bad camera id")
-    try:
-        r = await request.app.state.http.get("/api/frame.jpeg", params={"src": cam_id}, timeout=10)
-    except httpx.HTTPError as exc:
-        raise _relay_error(cam_id, exc) from exc
-    if r.status_code != 200 or not r.content.startswith(b"\xff\xd8"):  # go2rtc can answer 200 with an empty body
-        raise HTTPException(502, f"no frame from {cam_id}")
-    return StreamingResponse(iter([r.content]), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
-
-
-@app.get("/api/v1/cameras")
-async def cameras(request: Request, _c: dict = Depends(auth.require_auth)):
-    try:
-        r = await request.app.state.http.get("/api/streams", timeout=5)
-    except httpx.HTTPError as exc:
-        raise _relay_error("list", exc) from exc
-    return {"cameras": sorted(r.json().keys()) if r.status_code == 200 else []}
-
-
 # ---------------------------------------------------------------- finance (read side)
 FINANCE_SUMMARY_SQL = """
   WITH bounds AS (SELECT %(first)s::date AS a, (%(first)s::date + interval '1 month')::date AS b)
@@ -212,53 +161,3 @@ async def finance_summary(request: Request, month: str | None = None, _c: dict =
             "profit_net_agorot": rev - exp, "margin_pct": round((rev - exp) / rev * 100, 1) if rev else None,
             "allocated_cost_net_agorot": int(row["allocated_cost_net"]),
             "note": "allocated = per-job filament/electricity; used for product margins, excluded from profit"}
-
-
-# ---------------------------------------------------------------- live events
-@app.websocket("/ws")
-async def ws(socket: WebSocket):
-    claims = auth.ws_claims(socket)
-    if not claims:
-        await socket.accept()            # accept first so the browser receives the 4401 code
-        await socket.close(code=4401)    # client reacts: POST /auth/refresh, then reconnect
-        return
-    await socket.accept()
-    nc = socket.app.state.bus.nc
-    subs, seq, queue = [], 0, asyncio.Queue(maxsize=1000)
-
-    async def on_msg(msg):
-        try:
-            data = json.loads(msg.data)
-        except json.JSONDecodeError:
-            data = {"raw": msg.data.decode(errors="replace")}
-        if queue.full():
-            queue.get_nowait()  # drop oldest; client resyncs via REST if it falls behind
-        queue.put_nowait((msg.subject, data))
-
-    async def pump():
-        nonlocal seq
-        while True:
-            subject, data = await queue.get()
-            seq += 1
-            await socket.send_json({"topic": subject, "type": "event", "seq": seq,
-                                    "ts": datetime.now(UTC).isoformat(), "data": data})
-
-    sender = asyncio.create_task(pump())
-    try:
-        while True:
-            msg = await socket.receive_json()
-            if msg.get("op") == "sub":
-                accepted, refused = [], []
-                for topic in msg.get("topics", [])[:WS_MAX_TOPICS]:
-                    if ws_topic_allowed(topic) and len(subs) < WS_MAX_TOPICS:
-                        subs.append(await nc.subscribe(topic, cb=on_msg))
-                        accepted.append(topic)
-                    else:
-                        refused.append(topic)
-                await socket.send_json({"type": "subscribed", "topics": accepted, "refused": refused})
-    except WebSocketDisconnect:
-        pass
-    finally:
-        sender.cancel()
-        for s in subs:
-            await s.unsubscribe()

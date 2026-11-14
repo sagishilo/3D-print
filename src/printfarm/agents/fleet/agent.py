@@ -32,11 +32,12 @@ class FleetAgent(Agent):
         async with self.db.tx() as conn:
             for p in self.fleet.printers:
                 await conn.execute(
-                    "INSERT INTO fleet.printers (printer_id, vendor, bed_w, bed_d, nozzle_mm, material, color) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (printer_id) DO UPDATE SET "
+                    "INSERT INTO fleet.printers (printer_id, vendor, bed_w, bed_d, nozzle_mm, material, color, model, simulated) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (printer_id) DO UPDATE SET "
                     "vendor = EXCLUDED.vendor, bed_w = EXCLUDED.bed_w, bed_d = EXCLUDED.bed_d, "
-                    "nozzle_mm = EXCLUDED.nozzle_mm, material = EXCLUDED.material, color = EXCLUDED.color",
-                    (p.id, p.vendor, p.bed_mm[0], p.bed_mm[1], p.nozzle_mm, p.material, p.color),
+                    "nozzle_mm = EXCLUDED.nozzle_mm, material = EXCLUDED.material, color = EXCLUDED.color, "
+                    "model = EXCLUDED.model, simulated = EXCLUDED.simulated",
+                    (p.id, p.vendor, p.bed_mm[0], p.bed_mm[1], p.nozzle_mm, p.material, p.color, p.model, p.simulated),
                 )
         self._kick = asyncio.Event()
         self.spawn(self._scheduler_loop())
@@ -64,7 +65,10 @@ class FleetAgent(Agent):
 
     # ------------------------------------------------------------ printer lifecycle (from telemetry)
 
-    @on("evt.printer.connection.changed")
+    # from_start: on a fresh install every agent starts at once, and telemetry reports its printers online before
+    # this consumer exists. Reading the stored history on first start (in order, the last event wins) keeps
+    # fleet.printers.online right; otherwise the scheduler would wait for a reconnect that never comes.
+    @on("evt.printer.connection.changed", from_start=True)
     async def connectivity(self, env, ev: PrinterConnectivity, conn):
         await conn.execute(
             "UPDATE fleet.printers SET online = %s, updated_at = now() WHERE printer_id = %s", (ev.online, ev.printer_id)

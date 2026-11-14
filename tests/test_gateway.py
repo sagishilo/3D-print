@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-from contextlib import asynccontextmanager
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -16,29 +10,20 @@ pytest.importorskip("argon2")
 pytest.importorskip("pydantic_settings")
 
 import httpx  # noqa: E402
-from argon2 import PasswordHasher  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
-
-PASSWORD = "correct horse battery staple"
-os.environ.update(
-    DATABASE_URL="postgresql://test@localhost/test",
-    JWT_SECRET="test-secret-" + "x" * 40,
-    ADMIN_USERNAME="admin",
-    ADMIN_PASSWORD_HASH=PasswordHasher().hash(PASSWORD),
-    COOKIE_SECURE="false",  # the test client talks plain http
+from gateway_support import (  # noqa: E402 - sets the gateway's environment and sys.path, then re-exports its helpers
+    COMMANDS,
+    KEY,
+    build_command,
+    command_id_from,
+    csrf,
+    gateway_client,
+    login,
+    ws_topic_allowed,
 )
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gateway"))
-
-from app import auth  # noqa: E402
-from app import main as gateway  # noqa: E402
-from app.commands import COMMANDS, build_command, command_id_from, ws_topic_allowed  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 from starlette.websockets import WebSocketDisconnect  # noqa: E402
 
 from printfarm.contracts import REGISTRY, Kind, subject_matches  # noqa: E402
-
-KEY = "test-key-0001"
-
 
 # ---------------------------------------------------------------- catalog (pure)
 
@@ -67,8 +52,21 @@ def test_invalid_bodies_are_rejected_before_the_bus():
         build_command("payments.record", {"amount_agorot": -5}, "admin", KEY)
     with pytest.raises(ValidationError):
         build_command("payments.record", {"amount_agorot": 100, "bogus": 1}, "admin", KEY)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         build_command("config.set", {"key": "Not A Key!", "value": True}, "admin", KEY)
+
+
+def test_only_live_known_settings_can_be_set():
+    env = build_command("config.set", {"key": "safety.auto_pause", "value": False}, "admin", KEY)
+    assert env.payload().changed_by == "admin" and env.nats_subject() == "cmd.coordinator.set_config"
+    with pytest.raises(ValueError, match="unknown setting"):
+        build_command("config.set", {"key": "made.up", "value": True}, "admin", KEY)
+    with pytest.raises(ValueError, match="arrives in phase 9"):
+        build_command("config.set", {"key": "fleet.quiet_hours", "value": True}, "admin", KEY)
+    with pytest.raises(ValueError, match="takes a bool value"):
+        build_command("config.set", {"key": "safety.auto_pause", "value": "off"}, "admin", KEY)
+    with pytest.raises(ValueError, match="unknown setting"):
+        build_command("config.set", {"key": ["safety.auto_pause"], "value": True}, "admin", KEY)
 
 
 def test_printer_commands_expire_and_others_do_not():
@@ -117,96 +115,13 @@ def test_no_command_or_query_subject_is_reachable_over_the_websocket():
             assert not subject_matches(broad, subject)
 
 
-# ---------------------------------------------------------------- endpoints (fakes for Postgres and NATS)
-
-
-class FakeDb:
-    def __init__(self):
-        self.tokens: set[str] = set()
-        self.audit: dict[str, dict] = {}
-
-    async def execute(self, sql, params=()):
-        if sql.startswith("INSERT INTO gateway.refresh_tokens"):
-            self.tokens.add(params[0])
-        elif sql.startswith("INSERT INTO gateway.audit_log"):
-            self.audit.setdefault(params[0], {"actor": params[1], "subject": params[2], "outcome": "pending"})
-        elif sql.startswith("UPDATE gateway.audit_log"):
-            self.audit[params[1]]["outcome"] = params[0]
-        elif sql.startswith("UPDATE gateway.refresh_tokens"):
-            self.tokens.discard(params[0])
-        return 1
-
-    async def fetchrow(self, sql, params=()):
-        if sql.startswith("UPDATE gateway.refresh_tokens") and "RETURNING" in sql:
-            if params[0] in self.tokens:
-                self.tokens.discard(params[0])
-                return {"id": 1}
-            return None
-        return None
-
-    async def fetchval(self, sql, params=()):
-        return 1
-
-
-class FakeAck:
-    def __init__(self, seq: int, duplicate: bool):
-        self.stream, self.seq, self.duplicate = "COMMANDS", seq, duplicate
-
-
-class FakeJs:
-    def __init__(self):
-        self.published: list[tuple[str, dict]] = []
-        self._ids: set[str] = set()
-
-    async def publish(self, subject, payload, headers=None, timeout=None):
-        msg_id = headers["Nats-Msg-Id"]
-        duplicate = msg_id in self._ids
-        self._ids.add(msg_id)
-        if not duplicate:
-            self.published.append((subject, json.loads(payload)))
-        return FakeAck(len(self.published), duplicate)
-
-
-class FakeSub:
-    async def unsubscribe(self):
-        pass
-
-
-class FakeNc:
-    is_connected = True
-
-    def __init__(self):
-        self.subscribed: list[str] = []
-
-    async def subscribe(self, subject, cb=None):
-        self.subscribed.append(subject)
-        return FakeSub()
-
-
-class FakeBus:
-    def __init__(self):
-        self.js, self.nc = FakeJs(), FakeNc()
+# ---------------------------------------------------------------- endpoints (fakes in gateway_support.py)
 
 
 @pytest.fixture
 def client():
-    @asynccontextmanager
-    async def fake_lifespan(app):
-        app.state.db, app.state.bus, app.state.http = FakeDb(), FakeBus(), None
-        yield
-
-    gateway.app.router.lifespan_context = fake_lifespan
-    auth._failures.clear()
-    with TestClient(gateway.app) as c:
+    with gateway_client() as c:
         yield c
-
-
-def login(c, password=PASSWORD):
-    return c.post("/api/v1/auth/login", json={"username": "admin", "password": password})
-
-
-def csrf(c) -> dict:
-    return {"x-csrf-token": c.cookies.get("pf_csrf")}
 
 
 def test_login_lockout_after_five_failures(client):
@@ -247,7 +162,9 @@ def test_command_is_validated_published_and_audited(client):
     subject, env = client.app.state.bus.js.published[-1]
     assert subject == "cmd.coordinator.record_payment"
     assert env["id"] == KEY and env["data"]["recorded_by"] == "admin" and env["data"]["amount_agorot"] == 35400
-    assert client.app.state.db.audit[KEY] == {"actor": "admin", "subject": subject, "outcome": "published"}
+    audit = client.app.state.db.audit[KEY]
+    assert (audit["actor"], audit["subject"], audit["outcome"]) == ("admin", subject, "published")
+    assert audit["payload"]["amount_agorot"] == 35400
 
 
 def test_retry_with_the_same_key_is_not_published_twice(client):
@@ -332,4 +249,4 @@ def test_websocket_refuses_command_topics(client):
         reply = ws.receive_json()
     assert reply["topics"] == ["evt.>", "tlm.*.state"]
     assert reply["refused"] == ["cmd.>", "print.job.>"]
-    assert client.app.state.bus.nc.subscribed == ["evt.>", "tlm.*.state"]
+    assert client.app.state.bus.js.subscribed == ["evt.>", "tlm.*.state"]  # JetStream ordered consumers, not core subs

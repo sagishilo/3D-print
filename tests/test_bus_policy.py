@@ -59,3 +59,12 @@ async def test_expired_command_is_not_executed():
     await bus.drain()
     assert seen == []
     await bus.close()
+
+
+def test_fleet_reads_connection_history_when_its_consumer_is_new():
+    # Every agent starts at once on a fresh install and telemetry reports its printers online before the fleet's
+    # consumer exists; starting at "now" would leave every printer offline for the scheduler (Phase 3 finding).
+    from printfarm.agents.fleet.agent import FleetAgent
+
+    assert FleetAgent.connectivity.__subject_filter__ == "evt.printer.connection.changed"
+    assert FleetAgent.connectivity.__from_start__ is True

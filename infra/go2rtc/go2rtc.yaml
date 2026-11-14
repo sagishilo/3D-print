@@ -8,7 +8,9 @@ api:
   origin: ""               # no cross-origin access to the go2rtc API
 
 rtsp:
-  listen: ""               # RTSP output not needed (browser gets MJPEG via the gateway)
+  # Internal only: ffmpeg reads H.264 cameras (X1) from here to transcode them to MJPEG for the dashboard,
+  # so each camera is opened once. Not published outside the container.
+  listen: "127.0.0.1:8554"
 
 webrtc:
   listen: ""               # WebRTC output off (MJPEG path chosen; Docker Desktop NAT would block it anyway)
@@ -20,12 +22,17 @@ streams:
 
   # --- SIMULATED printers (docker compose --profile sim). Delete this block when you switch to real printers. ---
   bambu-01: http://bambu-cam-sim:8090/bambu-01.mjpeg     # P1 frame-reader -> simulated port-6000 camera
-  bambu-02: rtspx://bblp:12345678@x1-camera-sim:322/streaming/live/1   # simulated X1 native RTSPS
+  bambu-02:                                               # simulated X1 native RTSPS (H.264)
+    - rtspx://bblp:12345678@x1-camera-sim:322/streaming/live/1
+    - ffmpeg:bambu-02#video=mjpeg#width=960                 # dashboard tiles are MJPEG: transcode on demand
   voron-01: http://simulator:7125/webcam/?action=stream  # Crowsnest-style MJPEG from the simulated Klipper printer
 
   # --- Bambu X1 series: native RTSPS (LAN mode + LAN-mode live view enabled on the printer) ---
   # rtspx:// = RTSPS without certificate verification: the printer's certificate is self-signed, so rtsps:// fails.
-  # x1c-02: rtspx://bblp:${BAMBU_CODE_X1C_02}@192.168.50.21:322/streaming/live/1
+  # The X1 sends H.264; the second line transcodes it to MJPEG (960 px wide) only while a tile is watching.
+  # x1c-02:
+  #   - rtspx://bblp:${BAMBU_CODE_X1C_02}@192.168.50.21:322/streaming/live/1
+  #   - ffmpeg:x1c-02#video=mjpeg#width=960
 
   # --- Bambu P1 / A1: no RTSP; frames come from the bambu-cam service (custom frame-reader) ---
   # p1s-01: http://bambu-cam:8090/p1s-01.mjpeg

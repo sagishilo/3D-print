@@ -22,17 +22,24 @@ import contextlib
 import contextvars
 import json
 import logging
+import os
+import socket
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from psycopg import AsyncConnection
 
+from printfarm import __version__
 from printfarm.bus.base import Bus, durable_name
 from printfarm.config import FleetCfg, Settings
 from printfarm.contracts import Envelope, Payload, new_message
+from printfarm.contracts.config_keys import CONFIG_DEFAULTS
 from printfarm.store import Database, OutboxRelay, inbox_claim, outbox_add
+
+HEARTBEAT_S = 10
+SETTINGS_REFRESH_S = 5
 
 TxHandler = Callable[[Any, Envelope, Any, AsyncConnection], Awaitable[None]]
 
@@ -64,6 +71,9 @@ class Agent:
         self.relay = OutboxRelay(db, bus, self.name)
         self._tasks: set[asyncio.Task] = set()
         self._started = time.time()
+        # Automation settings cache (see setting()). Subclasses must not reuse names set here: an instance attribute
+        # hides a method of the same name (tests/test_agent_base.py).
+        self._automation: dict[str, object] = dict(CONFIG_DEFAULTS)
 
     @property
     def source(self) -> str:
@@ -72,6 +82,7 @@ class Agent:
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
+        await self._refresh_automation()
         await self.on_start()
         for attr in dir(type(self)):
             fn = getattr(type(self), attr)
@@ -81,6 +92,24 @@ class Agent:
                                          from_start=getattr(fn, "__from_start__", False))
         self.spawn(self.relay.run())
         self.spawn(self._heartbeat())
+        self.spawn(self._automation_loop())
+
+    def setting(self, key: str) -> Any:
+        """An automation setting (contracts/config_keys.py). No I/O: safe on the hot path; refreshed every few seconds."""
+        return self._automation.get(key, CONFIG_DEFAULTS.get(key))
+
+    async def _refresh_automation(self) -> None:
+        for key in CONFIG_DEFAULTS:
+            try:
+                raw = await asyncio.wait_for(self.bus.kv_get("config", key), 2)
+            except Exception:  # noqa: BLE001 - keep the last known value when NATS is briefly unavailable
+                continue
+            self._automation[key] = json.loads(raw) if raw is not None else CONFIG_DEFAULTS[key]
+
+    async def _automation_loop(self) -> None:
+        while True:
+            await asyncio.sleep(SETTINGS_REFRESH_S)
+            await self._refresh_automation()
 
     async def on_start(self) -> None:
         """Seed state, open device connections, start loops."""
@@ -109,11 +138,14 @@ class Agent:
                 await t
 
     async def _heartbeat(self) -> None:
+        """Liveness in the KV bucket "heartbeats" (30 s TTL): the dashboard's agent table reads it."""
         while True:
-            beat = {"agent": self.name, "at": datetime.now().isoformat(), "uptime_s": int(time.time() - self._started)}
+            beat = {"agent": self.name, "version": __version__, "at": datetime.now(UTC).isoformat(),
+                    "uptime_s": int(time.time() - self._started), "host": socket.gethostname(), "pid": os.getpid(),
+                    "interval_s": HEARTBEAT_S}
             with contextlib.suppress(Exception):
                 await self.bus.kv_put("heartbeats", self.name, json.dumps(beat).encode())
-            await asyncio.sleep(10)
+            await asyncio.sleep(HEARTBEAT_S)
 
     # ------------------------------------------------------------ messaging
 

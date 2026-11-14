@@ -25,7 +25,7 @@
 		reverse_proxy gateway:8000
 	}
 
-	# the React build (web/dist); index.html fallback for client-side routes
+	# the dashboard (Vue build baked into this image at /srv/web); index.html for client-side routes
 	handle {
 		root * /srv/web
 		try_files {path} /index.html

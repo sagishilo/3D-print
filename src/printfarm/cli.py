@@ -47,18 +47,18 @@ def agent_class(name: str):
     }[name]
 
 
-async def _connect(settings: Settings):
+async def _connect(settings: Settings, name: str = "printfarm-cli"):
     from printfarm.bus.nats_bus import NatsBus
     from printfarm.store import Database
 
-    bus = await NatsBus.connect(settings.nats_url)
+    bus = await NatsBus.connect(settings.nats_url, name=name)  # the name shows up in the dashboard's NATS connections
     db = Database(settings.database_url)
     await db.open()
     return bus, db
 
 
 async def run_agents(names: list[str], settings: Settings, stop: asyncio.Event | None = None) -> None:
-    bus, db = await _connect(settings)
+    bus, db = await _connect(settings, name=f"agent:{'+'.join(names)}")
     await db.migrate()
     fleet = settings.fleet()
     agents = [agent_class(n)(bus, db, settings, fleet) for n in names]

@@ -112,6 +112,10 @@ services:
       DATABASE_URL: postgresql://printfarm:${POSTGRES_PASSWORD}@postgres:5432/printfarm
       NATS_URL: nats://services:${NATS_SERVICES_PASSWORD}@nats:4222
       GO2RTC_URL: http://go2rtc:1984
+      NATS_MONITOR_URL: http://nats:8222     # System screen: connections, message rates, JetStream totals
+      # Browser origins allowed to open the live feed (/ws): https://<each SITE_HOSTS entry> + EXTRA_ORIGINS
+      SITE_HOSTS: ${SITE_HOSTS:-localhost}
+      EXTRA_ORIGINS: ${EXTRA_ORIGINS:-}
       JWT_SECRET: ${JWT_SECRET:?set in .env}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?run scripts/init_env.py}
@@ -124,8 +128,10 @@ services:
     restart: *restart
     logging: *logging
 
+  # HTTPS front door + the dashboard (built from web/ into the image: caddy 2.11.9 + the Vue build).
   caddy:
-    image: caddy:2.11.9-alpine
+    build:
+      context: ./web
     environment:
       SITE_HOSTS: ${SITE_HOSTS:-localhost}
     ports:
@@ -133,7 +139,6 @@ services:
       - "443:443"
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./web/dist:/srv/web:ro
       - caddy-data:/data         # holds the local CA; keep it, or every device must re-trust a new one
       - caddy-config:/config
     depends_on:

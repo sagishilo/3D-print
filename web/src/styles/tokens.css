@@ -1,0 +1,37 @@
+/* Design tokens, taken from docs/design/PrintFarm Ops Dashboard.html (dark operator console). */
+:root {
+  color-scheme: dark;
+
+  --bg: #0b0d10;
+  --surface: #12151a;
+  --surface-2: #181c22;
+  --border: #252b34;
+  --text: #e6e9ee;
+  --muted: #8b95a3;
+  --accent: #4c8dff;
+  --accent-hover: #7aabff;
+  --ok: #3fb950;
+  --warn: #e3a008;
+  --danger: #f85149;
+  --idle: #6e7681;
+  --danger-bg: rgba(248, 81, 73, 0.1);
+  --warn-bg: rgba(227, 160, 8, 0.1);
+  --accent-bg: rgba(76, 141, 255, 0.1);
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+
+  --font: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  --gutter: 28px;
+  --sidebar: 236px;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --gutter: 16px;
+  }
+}

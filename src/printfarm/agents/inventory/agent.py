@@ -10,6 +10,7 @@ supplier and recorded the real total, which is what the Finance agent books as a
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from printfarm.agents.base import Agent, on
@@ -124,6 +125,8 @@ class InventoryAgent(Agent):
         d = decide(policy, stats["on_hand"], stats["on_order_spools"] * m["grams_per_spool"], stats["used_14d"])
         if d is None:
             return
+        if not self.setting("inventory.auto_reorder") and not d.needs_approval:
+            d = replace(d, needs_approval=True)  # automation switched off on the dashboard: a human decides
         await self.emit(conn, StockLow(material=material, color=color, on_hand_grams=stats["on_hand"],
                                        reorder_point_grams=d.reorder_point), cause=cause)
         po_id = f"po-{uuid.uuid4().hex[:10]}"

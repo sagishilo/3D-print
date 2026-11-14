@@ -117,9 +117,12 @@ class TelemetryAgent(Agent):
     async def _handle_finding(self, pid: str, s: PrinterState, f: Finding) -> None:
         action = "none"
         if f.severity == Severity.CRITICAL and s.status == PrinterStatus.PRINTING:
-            # The pause task is created before any DB work below, so it is sent within one event-loop turn.
-            self.pause_verified(pid, reason=f"{f.detector}: {f.message}", requested_by="telemetry")
-            action = "pause_sent"
+            if self.setting("safety.auto_pause"):
+                # The pause task is created before any DB work below, so it is sent within one event-loop turn.
+                self.pause_verified(pid, reason=f"{f.detector}: {f.message}", requested_by="telemetry")
+                action = "pause_sent"
+            else:
+                action = "none (auto-pause is switched off)"
         self.log.error("printer %s %s: %s -> %s", pid, f.detector, f.message, action)
         async with self.db.tx() as conn:
             await conn.execute(

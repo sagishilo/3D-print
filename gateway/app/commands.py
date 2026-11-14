@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from printfarm.contracts import Envelope, Payload, new_message
+from printfarm.contracts.config_keys import CONFIG_KEYS
 from printfarm.contracts.messages import (
     CancelPrint,
     ConfirmPoOrdered,
@@ -46,6 +47,22 @@ def _new_order(data: dict, command_id: str) -> None:
     data.setdefault("customer_ref", "walk-in")
 
 
+_SETTINGS = {k.key: k for k in CONFIG_KEYS}
+
+
+def _known_setting(data: dict, command_id: str) -> None:
+    # Only the dashboard's own settings, with a value of the default's type, and none that arrives in a later phase:
+    # the config bucket never holds keys or values no agent understands.
+    key = data.get("key")
+    spec = _SETTINGS.get(key) if isinstance(key, str) else None
+    if spec is None:
+        raise ValueError(f"unknown setting {key!r}")
+    if spec.phase is not None:
+        raise ValueError(f"{spec.key} arrives in phase {spec.phase}")
+    if type(data.get("value")) is not type(spec.default):
+        raise ValueError(f"{spec.key} takes a {type(spec.default).__name__} value")
+
+
 COMMANDS: dict[str, CommandSpec] = {
     "orders.create": CommandSpec(OrderReceived, fill=_new_order),
     "approvals.decide": CommandSpec(DecideApproval, "decided_by"),
@@ -60,7 +77,7 @@ COMMANDS: dict[str, CommandSpec] = {
     "po.confirm_ordered": CommandSpec(ConfirmPoOrdered, "confirmed_by"),
     "po.receive": CommandSpec(ReceivePo, "received_by"),
     "spools.load": CommandSpec(LoadSpool, "loaded_by"),
-    "config.set": CommandSpec(SetConfig, "changed_by"),
+    "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting),
 }
 
 # POST /api/v1/commands/printers/{printer_id}/{action}

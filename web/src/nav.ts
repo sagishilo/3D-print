@@ -1,0 +1,64 @@
+// Sidebar navigation (groups as in the design). Screens with a `phase` are not built yet and say so.
+export interface NavItem {
+  to: string
+  label: string
+  icon: string
+  group: 'Sell' | 'Make' | 'Business' | 'Admin'
+  phase?: number
+  blurb?: string
+}
+
+export const NAV: NavItem[] = [
+  {
+    to: '/social',
+    label: 'Social & Trends',
+    icon: 'activity',
+    group: 'Sell',
+    phase: 10,
+    blurb: 'Buying-intent posts captured by group members, AI-drafted replies you approve and post yourself, and demand trends.',
+  },
+  {
+    to: '/catalog',
+    label: 'Instant Catalog',
+    icon: 'grid',
+    group: 'Sell',
+    phase: 8,
+    blurb: 'Sliced 3MF templates and generators, ranked by demand, queued as print batches.',
+  },
+  { to: '/live', label: 'Live floor', icon: 'live', group: 'Make' },
+  {
+    to: '/orders',
+    label: 'Order Pipeline',
+    icon: 'columns',
+    group: 'Make',
+    phase: 5,
+    blurb: 'Orders from lead to shipped; dragging a card to the next stage dispatches the job.',
+  },
+  {
+    to: '/fleet',
+    label: 'Printer Fleet',
+    icon: 'monitor',
+    group: 'Make',
+    phase: 4,
+    blurb: 'Every printer with controls, failure banners and the event log. Live cameras and printer state are on the Live floor today.',
+  },
+  {
+    to: '/filament',
+    label: 'Filament',
+    icon: 'disc',
+    group: 'Make',
+    phase: 6,
+    blurb: 'Spools, reorder rules and purchase orders (approve, confirm ordered, receive).',
+  },
+  {
+    to: '/finance',
+    label: 'Finance',
+    icon: 'bars',
+    group: 'Business',
+    phase: 7,
+    blurb: 'Income, expenses, VAT, product margins and receivables from the ledger.',
+  },
+  { to: '/system', label: 'System & Agents', icon: 'gear', group: 'Admin' },
+]
+
+export const GROUPS = ['Sell', 'Make', 'Business', 'Admin'] as const
