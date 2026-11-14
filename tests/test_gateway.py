@@ -75,10 +75,25 @@ def test_printer_commands_expire_and_others_do_not():
 
 
 def test_new_order_id_is_derived_from_the_command_id():
-    a = build_command("orders.create", {"text": "Noa"}, "admin", "retry-key-123")
-    b = build_command("orders.create", {"text": "Noa"}, "admin", "retry-key-123")
-    assert a.payload().order_id == b.payload().order_id == "ord-retry-key-"
-    assert a.correlationid == a.payload().order_id
+    body = {"customer_name": "Noa", "order_id": "chosen-by-client", "items": [{"text": "Noa", "quantity": 2}]}
+    a = build_command("orders.create", body, "admin", "retry-key-123")
+    b = build_command("orders.create", body, "admin", "retry-key-123")
+    assert a.payload().order_id == b.payload().order_id == "ord-retry-ke"   # a retry creates the same order
+    assert a.correlationid == a.payload().order_id and a.payload().created_by == "admin"
+    assert a.nats_subject() == "cmd.coordinator.create_order"
+
+
+def test_order_commands_validate_items_and_prices():
+    with pytest.raises(ValidationError):   # no items
+        build_command("orders.create", {"customer_name": "Noa", "items": []}, "admin", KEY)
+    with pytest.raises(ValidationError):   # a nameplate needs its text
+        build_command("orders.create", {"customer_name": "Noa", "items": [{"quantity": 1}]}, "admin", KEY)
+    with pytest.raises(ValidationError):   # discount above the items' total
+        build_command("orders.create", {"customer_name": "Noa", "items": [{"text": "a"}], "discount_agorot": 10**6},
+                      "admin", KEY)
+    env = build_command("orders.qc", {"order_id": "ord-1", "passed": False, "failed_units": ["1.2"],
+                                      "inspected_by": "mallory"}, "admin", KEY)
+    assert env.payload().inspected_by == "admin" and env.nats_subject() == "cmd.coordinator.record_qc"
 
 
 def test_idempotency_key_rules():

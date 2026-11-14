@@ -14,6 +14,19 @@ export interface Described {
   safety?: boolean // a safety alert: shown as a persistent warning
 }
 
+const STAGE_LABEL: Record<string, string> = {
+  LEAD: 'Lead',
+  RECEIVED: 'Received',
+  PERSONALIZING: 'Personalization',
+  SCHEDULING: 'Scheduling',
+  PRINTING: 'Printing',
+  QC: 'QC',
+  SHIPPED: 'Shipped',
+  NEEDS_ATTENTION: 'Needs attention',
+  CANCELLED: 'Cancelled',
+}
+export const stageLabel = (s: unknown): string => (s ? (STAGE_LABEL[String(s)] ?? String(s)) : 'new')
+
 /** "io.printfarm.printer.pause.confirmed.v1" -> "printer.pause.confirmed" */
 export function kindOf(type: string): string {
   return type.replace(/^io\.printfarm\./, '').replace(/\.v\d+$/, '')
@@ -38,6 +51,38 @@ export function describe(env: Envelope): Described {
       return out(`Order ${d.order_id} received · ${d.quantity}× ${d.product} “${d.text}” (${d.color})`, 'accent', 'order')
     case 'order.order.completed':
       return out(`Order ${d.order_id} completed`, 'ok', 'order')
+    case 'order.order.created':
+      return out(`Order ${d.order_id} from ${d.customer_name} · ${d.units} unit(s), ${shekels(d.total_agorot)} (${d.channel})`, 'accent', 'order')
+    case 'order.stage.changed':
+      return out(
+        `Order ${d.order_id}: ${stageLabel(d.from_state)} → ${stageLabel(d.to_state)} (${d.by})${d.reason ? ` · ${d.reason}` : ''}`,
+        d.to_state === 'NEEDS_ATTENTION' ? 'warn' : d.to_state === 'CANCELLED' ? 'idle' : 'accent',
+        'order',
+      )
+    case 'order.order.updated': {
+      const what: Record<string, string> = {
+        'personalization.model.ready': 'a nameplate is ready',
+        'personalization.model.failed': 'a nameplate failed',
+        'fleet.job.started': 'a unit started printing',
+        'fleet.job.completed': 'a unit is printed',
+        'fleet.job.failed': 'a unit failed and is queued again',
+        'order.qc.recorded': 'quality check recorded',
+      }
+      return out(`Order ${d.order_id}: ${what[d.cause] ?? String(d.cause).replaceAll('.', ' ')}`, 'idle', 'order')
+    }
+    case 'order.move.rejected':
+      return out(`Order ${d.order_id}: not moved to ${stageLabel(d.to_state)} · ${d.reason}`, 'warn', 'order')
+    case 'order.qc.recorded':
+      return out(
+        `Order ${d.order_id} ${d.passed ? 'passed QC' : `failed QC (${d.failed_units?.length ?? 0} unit(s) reprinted)`}` +
+          `${d.reason ? ` · ${d.reason}` : ''} (${d.by})`,
+        d.passed ? 'ok' : 'warn',
+        'order',
+      )
+    case 'order.order.shipped':
+      return out(`Order ${d.order_id} shipped${d.carrier ? ` with ${d.carrier}` : ''} · ${shekels(d.total_agorot)}`, 'ok', 'order')
+    case 'order.order.cancelled':
+      return out(`Order ${d.order_id} cancelled${d.reason ? `: ${d.reason}` : ''} (${d.by})`, 'idle', 'order')
     case 'order.order.needs_attention':
       return out(`Order ${d.order_id} needs attention: ${d.reason}`, 'warn', 'order')
     case 'order.payment.recorded':

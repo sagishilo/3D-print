@@ -134,10 +134,11 @@ src/lib/        api.ts (cookies, CSRF header, refresh-once on 401, idempotency k
                 over fetch, stall detection), events.ts (one plain-language line per event type), format.ts
 src/stores/     auth, live (the feed + safety alerts), printers, system, approvals, toasts, confirm
 src/lib/fleet.ts batch-action planning (which printers an action applies to, and why not), severities, hardware labels
+src/lib/orders.ts board columns, allowed drops (mirrors the saga), pricing preview (mirrors contracts/orders.py)
 src/components/ shell/ (sidebar, top bar, approvals drawer), live/ (camera, printer tile, telemetry replay, event feed),
                 fleet/ (printer details drawer, hardware, calibration, event log), system/ (agents, servers, printers,
                 NATS, dead letters, settings), ui/ (icons, pills, tabs, switches)
-src/views/      LoginView, LiveView, FleetView, SystemView, ComingSoonView (screens of later phases)
+src/views/      LoginView, LiveView, OrdersView, FleetView, SystemView, ComingSoonView (screens of later phases)
 ```
 
 Work on it against a running stack (the dev server forwards `/api` and `/ws` to it; the WebSocket Origin is rewritten,

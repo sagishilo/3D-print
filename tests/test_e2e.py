@@ -199,7 +199,16 @@ async def wait_for(db, sql, params, predicate, timeout=60):
 
 async def test_order_to_print_to_inventory(stack):
     from printfarm.cli import _publish
-    from printfarm.contracts.messages import ConfirmPoOrdered, DecideApproval, OrderReceived, RecordPayment
+    from printfarm.contracts.messages import (
+        ConfirmPoOrdered,
+        CreateOrder,
+        DecideApproval,
+        OrderReceived,
+        RecordPayment,
+        SetConfig,
+        ShipOrder,
+    )
+    from printfarm.contracts.orders import OrderLine
     from printfarm.store import Database
 
     settings = stack
@@ -209,12 +218,28 @@ async def test_order_to_print_to_inventory(stack):
         # wait until telemetry saw all three printers online and fleet knows it
         await wait_for(db, "SELECT printer_id FROM fleet.printers WHERE online", (), lambda r: len(r) == 3)
 
-        # 1) black nameplates -> bambu-01 over MQTT; 3 units fit one plate
-        await _publish(settings, OrderReceived(order_id="ord-black", customer_ref="c1", text="משפחת כהן", quantity=3),
+        # the order pipeline's auto-advance switches on (off by default: every stage would wait for a person)
+        for key in ("orders.auto_personalize", "orders.auto_schedule", "orders.auto_qc_pass"):
+            await _publish(settings, SetConfig(key=key, value=True, changed_by="test"))
+        await wait_for(db, "SELECT count(*) AS n FROM coordinator.config_changes", (), lambda r: r[0]["n"] == 3)
+        await asyncio.sleep(6)  # agents re-read settings every 5 s
+
+        # 1) a two-line order of black nameplates -> bambu-01 over MQTT; its 3 units fit one plate
+        await _publish(settings, CreateOrder(
+            order_id="ord-black", customer_name="Cohen family", channel="whatsapp", created_by="test",
+            items=[OrderLine(text="משפחת כהן", quantity=2, unit_price_agorot=12000),
+                   OrderLine(text="כהן", quantity=1, unit_price_agorot=11400)]), correlationid="ord-black")
+        await wait_for(db, "SELECT state, context -> 'qc' ->> 'status' AS qc FROM coordinator.sagas WHERE saga_id = %s",
+                              ("ord-black",), lambda r: r and r[0]["state"] == "QC" and r[0]["qc"] == "passed")
+        total = await wait_for(db, "SELECT total_agorot FROM coordinator.orders WHERE order_id = 'ord-black'", (), lambda r: r)
+        assert total[0]["total_agorot"] == 35400
+        models = await wait_for(db, "SELECT item_id FROM personalization.artifacts WHERE order_id = 'ord-black' "
+                                    "ORDER BY item_id", (), lambda r: len(r) == 2)
+        assert [m["item_id"] for m in models] == ["1", "2"]          # one nameplate per order line
+        await _publish(settings, ShipOrder(order_id="ord-black", carrier="Israel Post", shipped_by="test"),
                        correlationid="ord-black")
-        rows = await wait_for(db, "SELECT state FROM coordinator.sagas WHERE saga_id = %s", ("ord-black",),
-                              lambda r: r and r[0]["state"] == "COMPLETED")
-        assert rows[0]["state"] == "COMPLETED"
+        await wait_for(db, "SELECT state FROM coordinator.sagas WHERE saga_id = %s", ("ord-black",),
+                       lambda r: r[0]["state"] == "SHIPPED")
 
         plates = await wait_for(db, "SELECT plate_id, printer_id, status FROM fleet.plates", (), lambda r: len(r) == 1)
         assert plates[0]["printer_id"] == "bambu-01" and plates[0]["status"] == "finished"

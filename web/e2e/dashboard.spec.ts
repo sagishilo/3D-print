@@ -227,3 +227,61 @@ test.describe('printer fleet', () => {
     await shot(page, '14-fleet-log')
   })
 })
+
+// Drop just under a column's header: columns grow as tall as the longest one, so their centre can be off screen and
+// a drag that has to scroll the page loses its HTML5 drop.
+const DROP_AT_HEADER = { targetPosition: { x: 40, y: 24 } }
+
+test.describe('order pipeline', () => {
+  test('a two-line order goes from intake over the board to shipped and paid', async ({ page }) => {
+    test.setTimeout(300_000)
+    const customer = `E2E ${Date.now()}`
+    await signIn(page, '/orders')
+    await expect(page.getByRole('heading', { name: 'Order Pipeline' })).toBeVisible()
+
+    await page.getByTestId('new-order-button').click()
+    const dialog = page.getByTestId('new-order')
+    await dialog.getByTestId('customer-name').fill(customer)
+    await dialog.getByTestId('line-1').locator('input').first().fill('Noa')
+    await dialog.getByRole('button', { name: 'Add item' }).click()
+    await dialog.getByTestId('line-2').locator('input').first().fill('Dan')
+    await expect(dialog.getByTestId('order-total')).toContainText('₪90.00') // 2 × ₪45 default price
+    await shot(page, '20-orders-new')
+    await dialog.getByRole('button', { name: 'Create order' }).click()
+
+    // the switches are off by default: the order waits in "Order received"
+    const card = (stage: string) => page.getByTestId(`column-${stage}`).locator('article', { hasText: customer })
+    await expect(card('RECEIVED')).toBeVisible()
+
+    // a drop the pipeline does not allow is refused, with the reason
+    await card('RECEIVED').dragTo(page.getByTestId('column-PRINTING'), DROP_AT_HEADER)
+    await expect(page.getByRole('alert').filter({ hasText: 'printing starts when a printer takes the plate' })).toBeVisible()
+
+    // dropping into Personalization dispatches one nameplate job per line
+    await card('RECEIVED').dragTo(page.getByTestId('column-PERSONALIZING'), DROP_AT_HEADER)
+    await expect(card('PERSONALIZING')).toContainText('drag to scheduling', { timeout: 90_000 })
+    await expect(page.getByTestId('nameplates')).toContainText('“Dan”')
+    await shot(page, '21-orders-board')
+
+    // dropping into Slicing / scheduling sends the units to the fleet; printers take it from there
+    await card('PERSONALIZING').dragTo(page.getByTestId('column-SCHEDULING'), DROP_AT_HEADER)
+    await expect(card('QC')).toBeVisible({ timeout: 180_000 })
+
+    await card('QC').click()
+    const drawer = page.getByTestId('order-drawer')
+    const itemRows = drawer.locator('table').first().locator('tbody tr')
+    await expect(itemRows).toHaveCount(2)
+    await expect(itemRows.nth(1)).toBeInViewport() // not clipped by the scrolling panel
+    await expect(itemRows.nth(1)).toContainText('Dan')
+    await drawer.getByTestId('qc-pass').click()
+    await drawer.getByLabel('Carrier').fill('Israel Post')
+    await drawer.getByTestId('ship').click()
+    await expect(card('SHIPPED')).toBeVisible({ timeout: 30_000 })
+
+    await drawer.getByTestId('pay-amount').fill('90')
+    await drawer.getByRole('button', { name: 'Record payment' }).click()
+    await expect(drawer.locator('.sum')).toContainText(/Balance\s*₪0\.00/, { timeout: 30_000 })
+    await expect(drawer.locator('.history')).toContainText('Shipped')
+    await shot(page, '22-orders-drawer')
+  })
+})

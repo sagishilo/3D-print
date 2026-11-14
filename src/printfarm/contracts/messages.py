@@ -21,9 +21,10 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from printfarm.contracts.envelope import Kind, Payload
+from printfarm.contracts.orders import CHANNELS, OrderLine, price_order
 
 # ---------------------------------------------------------------- shared types
 
@@ -105,6 +106,135 @@ class OrderReceived(Event):
 class OrderCompleted(Event):
     subject: ClassVar[str] = "evt.order.order.completed"
     order_id: str
+
+
+# ---------------------------------------------------------------- orders v2 (Order Pipeline; contracts/orders.py)
+
+
+class CreateOrder(Command):
+    """A new order with line items (dashboard: New manual order). ``as_lead``: not confirmed yet."""
+
+    subject: ClassVar[str] = "cmd.coordinator.create_order"
+    order_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,40}$")   # safe in job ids and file names
+    customer_name: str = Field(min_length=1, max_length=80)
+    customer_ref: str = Field(default="", max_length=80)       # phone / e-mail / handle
+    channel: str = "manual"
+    items: list[OrderLine] = Field(min_length=1, max_length=20)
+    discount_agorot: int = Field(default=0, ge=0)
+    shipping_agorot: int = Field(default=0, ge=0)
+    due_by: datetime | None = None
+    notes: str = Field(default="", max_length=500)
+    as_lead: bool = False
+    created_by: str = ""
+
+    @model_validator(mode="after")
+    def _priced(self) -> CreateOrder:
+        if self.channel not in CHANNELS:
+            raise ValueError(f"unknown channel {self.channel!r}")
+        price_order(list(self.items), discount_agorot=self.discount_agorot, shipping_agorot=self.shipping_agorot)
+        return self
+
+
+class AdvanceOrder(Command):
+    """Move an order to another stage (dashboard: drag a card). Refused moves come back as evt.order.move.rejected.
+    ``texts`` replaces item texts when retrying a failed nameplate ({item_id: text})."""
+
+    subject: ClassVar[str] = "cmd.coordinator.advance_order"
+    order_id: str
+    to_state: str
+    texts: dict[str, str] = {}
+    requested_by: str = ""
+
+
+class RecordQc(Command):
+    """Quality check of a printed order. A failure reprints ``failed_units`` (all units when empty)."""
+
+    subject: ClassVar[str] = "cmd.coordinator.record_qc"
+    order_id: str
+    passed: bool
+    failed_units: list[str] = []
+    reason: str = Field(default="", max_length=300)
+    inspected_by: str = ""
+
+
+class ShipOrder(Command):
+    subject: ClassVar[str] = "cmd.coordinator.ship_order"
+    order_id: str
+    carrier: str = Field(default="", max_length=60)
+    tracking: str = Field(default="", max_length=80)
+    shipped_by: str = ""
+
+
+class CancelOrder(Command):
+    subject: ClassVar[str] = "cmd.coordinator.cancel_order"
+    order_id: str
+    reason: str = Field(default="", max_length=300)
+    cancelled_by: str = ""
+
+
+class OrderCreated(Event):
+    subject: ClassVar[str] = "evt.order.order.created"
+    order_id: str
+    customer_name: str
+    channel: str
+    items: list[OrderLine]
+    total_agorot: int
+    units: int
+    state: str
+
+
+class OrderStageChanged(Event):
+    subject: ClassVar[str] = "evt.order.stage.changed"
+    order_id: str
+    from_state: str | None
+    to_state: str
+    by: str                      # the operator, or "auto" when a switch or a printer moved it
+    reason: str = ""
+
+
+class OrderUpdated(Event):
+    """An order's progress changed without a stage change (a nameplate ready, a unit printed): screens refresh."""
+
+    subject: ClassVar[str] = "evt.order.order.updated"
+    order_id: str
+    state: str
+    cause: str                   # the message that changed it, e.g. "personalization.model.ready"
+
+
+class OrderMoveRejected(Event):
+    subject: ClassVar[str] = "evt.order.move.rejected"
+    order_id: str
+    from_state: str
+    to_state: str
+    reason: str
+    requested_by: str = ""
+
+
+class OrderQcRecorded(Event):
+    subject: ClassVar[str] = "evt.order.qc.recorded"
+    order_id: str
+    passed: bool
+    failed_units: list[str] = []
+    reason: str = ""
+    by: str = ""
+
+
+class OrderShipped(Event):
+    """Feeds receivables (Phase 7): what the customer owes for this order."""
+
+    subject: ClassVar[str] = "evt.order.order.shipped"
+    order_id: str
+    total_agorot: int
+    carrier: str = ""
+    tracking: str = ""
+    by: str = ""
+
+
+class OrderCancelled(Event):
+    subject: ClassVar[str] = "evt.order.order.cancelled"
+    order_id: str
+    reason: str = ""
+    by: str = ""
 
 
 class OrderNeedsAttention(Event):
@@ -211,6 +341,7 @@ class ConfigChanged(Event):
 class GenerateNameplate(Command):
     subject: ClassVar[str] = "cmd.personalization.generate_nameplate"
     order_id: str
+    item_id: str = ""            # orders v2: one nameplate per order line ("" = a v1 single-item order)
     text: str = Field(max_length=40)
     material: str
     color: str
@@ -223,6 +354,7 @@ class GenerateNameplate(Command):
 class ModelReady(Event):
     subject: ClassVar[str] = "evt.personalization.model.ready"
     order_id: str
+    item_id: str = ""
     artifact_uri: str            # where the printable file lives
     source_uri: str              # parametric source (.scad) for re-generation
     footprint_mm: tuple[float, float]
@@ -234,6 +366,7 @@ class ModelReady(Event):
 class ModelFailed(Event):
     subject: ClassVar[str] = "evt.personalization.model.failed"
     order_id: str
+    item_id: str = ""
     reason: str
 
 
@@ -253,6 +386,13 @@ class EnqueueJob(Command):
     due_by: datetime | None = None
     priority: int = 0
     product_type: str = "nameplate"
+
+
+class CancelOrderJobs(Command):
+    """Drop an order's jobs that are still queued (cancelled order). Jobs already on a plate are left alone."""
+
+    subject: ClassVar[str] = "cmd.fleet.cancel_jobs"
+    order_id: str
 
 
 class JobQueued(Event):

@@ -26,14 +26,7 @@ export const NAV: NavItem[] = [
     blurb: 'Sliced 3MF templates and generators, ranked by demand, queued as print batches.',
   },
   { to: '/live', label: 'Live floor', icon: 'live', group: 'Make' },
-  {
-    to: '/orders',
-    label: 'Order Pipeline',
-    icon: 'columns',
-    group: 'Make',
-    phase: 5,
-    blurb: 'Orders from lead to shipped; dragging a card to the next stage dispatches the job.',
-  },
+  { to: '/orders', label: 'Order Pipeline', icon: 'columns', group: 'Make' },
   { to: '/fleet', label: 'Printer Fleet', icon: 'monitor', group: 'Make' },
   {
     to: '/filament',

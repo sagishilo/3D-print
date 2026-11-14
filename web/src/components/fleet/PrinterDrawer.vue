@@ -202,6 +202,10 @@ function took(start: string, end: string | null): string {
   flex-direction: column;
   gap: 14px;
 }
+/* In a scrolling flex column, a child that scrolls itself (the tables' wrappers) would shrink and clip its rows. */
+.drawer > * {
+  flex-shrink: 0;
+}
 .head {
   display: flex;
   align-items: center;

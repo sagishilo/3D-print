@@ -11,6 +11,7 @@ from printfarm.agents.fleet.packing import JobSpec, build_plate
 from printfarm.contracts.messages import (
     CalibrationFinished,
     CalibrationStarted,
+    CancelOrderJobs,
     EnqueueJob,
     JobCompleted,
     JobFailed,
@@ -59,6 +60,14 @@ class FleetAgent(Agent):
         if cur.rowcount:
             await self.emit(conn, JobQueued(job_id=cmd.job_id, order_id=cmd.order_id), cause=env)
         self._kick.set()
+
+    @on("cmd.fleet.cancel_jobs")
+    async def cancel_jobs(self, env, cmd: CancelOrderJobs, conn):
+        """A cancelled order: its queued jobs are never scheduled. Jobs already on a plate print as planned."""
+        rows = await (await conn.execute(
+            "UPDATE fleet.jobs SET status = 'cancelled', updated_at = now() WHERE order_id = %s AND status = 'queued' "
+            "RETURNING job_id", (cmd.order_id,))).fetchall()
+        self.log.info("order %s cancelled: %d queued job(s) dropped", cmd.order_id, len(rows))
 
     @on("cmd.fleet.mark_bed_cleared")
     async def bed_cleared(self, env, cmd: MarkBedCleared, conn):

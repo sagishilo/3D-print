@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
 
-from . import approvals, auth, cameras, live, printers, system
+from . import approvals, auth, cameras, live, orders, printers, system
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan)
-for module in (auth, live, system, printers, cameras, approvals):
+for module in (auth, live, system, printers, cameras, approvals, orders):
     app.include_router(module.router)
 
 

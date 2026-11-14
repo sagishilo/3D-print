@@ -16,21 +16,25 @@ from datetime import UTC, datetime, timedelta
 from printfarm.contracts import Envelope, Payload, new_message
 from printfarm.contracts.config_keys import CONFIG_KEYS
 from printfarm.contracts.messages import (
+    AdvanceOrder,
     CalibratePrinter,
+    CancelOrder,
     CancelPrint,
     ConfirmPoOrdered,
     CreateExpense,
+    CreateOrder,
     DecideApproval,
     LoadSpool,
     MarkBedCleared,
-    OrderReceived,
     PauseAll,
     PausePrint,
     ReceivePo,
     RecordPayment,
+    RecordQc,
     RefundPayment,
     ResumePrint,
     SetConfig,
+    ShipOrder,
 )
 
 
@@ -44,8 +48,7 @@ class CommandSpec:
 
 def _new_order(data: dict, command_id: str) -> None:
     # Deterministic from the command id, so a retried request creates the same order, not a second one.
-    data.setdefault("order_id", f"ord-{command_id[:10]}")
-    data.setdefault("customer_ref", "walk-in")
+    data["order_id"] = f"ord-{command_id[:8]}"
 
 
 _SETTINGS = {k.key: k for k in CONFIG_KEYS}
@@ -65,7 +68,11 @@ def _known_setting(data: dict, command_id: str) -> None:
 
 
 COMMANDS: dict[str, CommandSpec] = {
-    "orders.create": CommandSpec(OrderReceived, fill=_new_order),
+    "orders.create": CommandSpec(CreateOrder, "created_by", fill=_new_order),
+    "orders.advance": CommandSpec(AdvanceOrder, "requested_by"),
+    "orders.qc": CommandSpec(RecordQc, "inspected_by"),
+    "orders.ship": CommandSpec(ShipOrder, "shipped_by"),
+    "orders.cancel": CommandSpec(CancelOrder, "cancelled_by"),
     "approvals.decide": CommandSpec(DecideApproval, "decided_by"),
     "printers.pause": CommandSpec(PausePrint, "requested_by", deadline_s=30),
     "printers.resume": CommandSpec(ResumePrint, "requested_by", deadline_s=30),
