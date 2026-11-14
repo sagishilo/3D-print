@@ -228,3 +228,67 @@ def test_approvals_inbox(client):
     body = client.get("/api/v1/approvals").json()
     assert body["pending"] == 1 and body["approvals"][0]["approval_id"] == "apr-1"
     assert client.get("/api/v1/approvals?status=bogus").status_code == 400
+
+
+# ---------------------------------------------------------------- Phase 4: printer details, fleet log, calibration
+
+
+def test_calibrate_command_expires_and_names_the_operator():
+    from gateway_support import build_command
+
+    env = build_command("printers.calibrate", {"printer_id": "voron-01", "routine": "bed_level",
+                                               "bed_clear_confirmed": True, "requested_by": "mallory"}, "admin", "cal-key-0001")
+    assert env.nats_subject() == "cmd.telemetry.calibrate" and env.deadline is not None
+    assert env.payload().requested_by == "admin" and env.payload().bed_clear_confirmed is True
+
+
+def test_printer_details_list_supported_routines_and_history(client):
+    st = state(client)
+    st.db.rows["FROM fleet.printers WHERE printer_id"] = [
+        {"printer_id": "voron-01", "vendor": "moonraker", "model": "klipper", "simulated": True, "bed_w": 300,
+         "bed_d": 300, "nozzle_mm": 0.4, "material": "PLA", "color": "black", "online": True, "busy": False,
+         "bed_clear": True, "calibrating": True, "updated_at": "2026-11-14T09:00:00+00:00"}]
+    st.db.rows["status = 'running'"] = [{"calibration_id": "c1", "printer_id": "voron-01", "routine": "bed_level",
+                                         "requested_by": "admin", "started_at": "2026-11-14T09:00:00+00:00"}]
+    st.db.rows["FROM telemetry.failures"] = [{"detector": "thermal_runaway_nozzle", "severity": "critical"}]
+    st.db.rows["count(*) AS prints"] = [{"prints": 4, "succeeded": 3, "failed": 1, "print_seconds": 5400}]
+    body = client.get("/api/v1/printers/voron-01").json()
+    assert body["printer"]["calibration"]["routine"] == "bed_level" and body["printer"]["protocol"] == "Klipper"
+    assert [r["key"] for r in body["routines"]] == ["home", "bed_level", "vibration", "nozzle_pid", "bed_pid"]
+    assert body["routines"][3]["default_temp"] == 220 and body["routines"][0]["heater"] is None
+    assert body["failures"][0]["severity"] == "critical"
+    assert body["stats"] == {"prints_7d": 4, "succeeded_7d": 3, "failed_7d": 1, "print_hours_7d": 1.5}
+    st.db.rows.pop("FROM fleet.printers WHERE printer_id")
+    assert client.get("/api/v1/printers/nope").status_code == 404
+    assert client.get("/api/v1/printers/Bad%20Id").status_code == 400
+
+
+def _ev(seq, kind, time, **data):
+    return fake_msg(f"evt.{kind}", "EVENTS", seq, {"type": f"io.printfarm.{kind}.v1", "time": time,
+                                                     "source": "/agents/telemetry", "data": data})
+
+
+def _stored(*msgs):
+    """As JetStream delivers them: each message says how many are still pending after it."""
+    for i, m in enumerate(msgs):
+        m.metadata.num_pending = len(msgs) - i - 1
+    return list(msgs)
+
+
+def test_fleet_log_merges_printer_and_plate_events_by_severity(client):
+    js = state(client).bus.js
+    js.stored["evt.printer.>"] = _stored(
+        _ev(1, "printer.connection.changed", "2026-11-14T08:00:00Z", printer_id="p1", online=False),
+        _ev(2, "printer.failure.detected", "2026-11-14T08:05:00Z", printer_id="p2", severity="critical",
+            detector="thermal_runaway_nozzle"),
+        _ev(4, "printer.calibration.finished", "2026-11-14T08:20:00Z", printer_id="p1", succeeded=False, started=False),
+        _ev(5, "printer.pause.confirmed", "2026-11-14T08:30:00Z", printer_id="p2"))
+    js.stored["evt.fleet.plate.>"] = _stored(_ev(3, "fleet.plate.finished", "2026-11-14T08:10:00Z", printer_id="p1",
+                                                 succeeded=False))
+    items = client.get("/api/v1/printers/log").json()["items"]
+    assert [i["seq"] for i in items] == [5, 4, 3, 2, 1]   # newest first, both subjects
+    assert [i["severity"] for i in items] == ["info", "info", "warning", "critical", "warning"]  # refused = info
+    warn = client.get("/api/v1/printers/log?min_severity=warning&printer=p1").json()["items"]
+    assert [i["seq"] for i in warn] == [3, 1] and warn[0]["printer_id"] == "p1"
+    assert client.get("/api/v1/printers/log?hours=500").status_code == 422
+    assert client.get("/api/v1/printers/log?printer=Bad%20Id").status_code == 400

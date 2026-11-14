@@ -165,3 +165,65 @@ test.describe('phone', () => {
     await shot(page, '8-phone-system')
   })
 })
+
+test.describe('printer fleet', () => {
+  test('details: hardware readings and a calibration run from start to finish', async ({ page }) => {
+    await signIn(page, '/fleet')
+    await expect(page.getByRole('heading', { name: 'Printer Fleet' })).toBeVisible()
+    await expect(page.getByTestId('printer-voron-01')).toBeVisible()
+    await shot(page, '10-fleet')
+
+    await page.getByRole('button', { name: 'Details of bambu-02' }).click()
+    const drawer = page.getByTestId('printer-drawer')
+    await expect(drawer).toBeVisible()
+    await drawer.getByRole('tab', { name: 'Hardware' }).click()
+    await expect(drawer.getByTestId('hw-connection')).toContainText('01.08.05.00')
+    await expect(drawer.getByTestId('hw-ams')).toContainText('PETG')
+    await shot(page, '11-fleet-hardware')
+    await drawer.getByRole('button', { name: 'Close details' }).click()
+
+    await page.getByRole('button', { name: 'Details of voron-01' }).click()
+    await drawer.getByRole('tab', { name: 'Calibration' }).click()
+    await drawer.getByTestId('routine-home').getByRole('button', { name: 'Run' }).click()
+    const dialog = page.getByRole('dialog', { name: /Home all axes on voron-01/ })
+    const start = dialog.getByRole('button', { name: 'Start home all axes' })
+    await expect(start).toBeDisabled()
+    await dialog.getByTestId('confirm-check').check()
+    await start.click()
+    // this run must be seen running, then finished: only then is the newest row this run's result
+    const banner = drawer.getByRole('status').filter({ hasText: 'Home all axes running' })
+    await expect(banner).toBeVisible()
+    await expect(banner).toBeHidden({ timeout: 30_000 })
+    const newest = drawer.locator('table.runs tbody tr').first()
+    await expect(newest).toContainText('Home all axes')
+    await expect(newest).toContainText('Done')
+    await shot(page, '12-fleet-calibration')
+    await drawer.getByRole('tab', { name: 'History' }).click()
+    await expect(drawer.getByRole('heading', { name: 'Verified pauses' })).toBeVisible()
+  })
+
+  test('batch actions apply to the printers in a fitting state', async ({ page }) => {
+    await signIn(page, '/fleet')
+    await page.getByRole('button', { name: 'Select all' }).click()
+    const bar = page.getByTestId('batch-bar')
+    await expect(bar).toContainText('3 selected')
+    await expect(bar.getByTestId('batch-pause')).toBeDisabled() // nothing is printing
+    await expect(bar.getByTestId('batch-home')).toContainText('3')
+    await shot(page, '13-fleet-batch')
+    await bar.getByTestId('batch-home').click()
+    const dialog = page.getByRole('dialog', { name: /Home axes: 3 printers/ })
+    await expect(dialog).toContainText('bambu-01, bambu-02, voron-01')
+    await dialog.getByTestId('confirm-check').check()
+    await dialog.getByRole('button', { name: 'Home axes' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Home axes: sent to 3 printers' })).toBeVisible()
+    await expect(bar).toBeHidden()
+    // each printer reports its own result in the log
+    const log = page.getByTestId('fleet-log')
+    for (const id of ['bambu-01', 'bambu-02', 'voron-01']) {
+      await expect(log.locator('tr', { hasText: `${id}: home done` }).first()).toBeVisible({ timeout: 30_000 })
+    }
+    await page.locator('#log-severity').selectOption('warning')
+    await expect(log.locator('tbody tr').filter({ hasText: 'Info' })).toHaveCount(0)
+    await shot(page, '14-fleet-log')
+  })
+})

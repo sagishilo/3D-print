@@ -18,6 +18,7 @@ const badges = computed<Record<string, { n: number; tone: string }>>(() => {
   return {
     '/system': { n: systemIssues, tone: 'danger' },
     '/live': { n: printerIssues, tone: 'danger' },
+    '/fleet': { n: printerIssues, tone: 'danger' },
   }
 })
 

@@ -14,6 +14,10 @@ Every pause - automatic (CRITICAL finding), from the dashboard, or "pause all" -
 send, then watch the printer's own state until it stops printing (safety.pause_and_verify). The outcome is
 recorded in telemetry.pause_checks and published as evt.printer.pause.confirmed or, as a safety alert,
 evt.printer.pause.unconfirmed.
+
+Calibrations (cmd.telemetry.calibrate) run only on an online, idle printer whose bed the operator confirmed empty,
+one at a time and never while a plate is being started. Each request ends in evt.printer.calibration.finished
+(also when refused) and is recorded in telemetry.calibrations. A critical finding during a calibration aborts it.
 """
 
 from __future__ import annotations
@@ -25,13 +29,18 @@ from pathlib import Path
 from psycopg.types.json import Jsonb
 
 from printfarm.agents.base import Agent, on
-from printfarm.agents.telemetry.adapters import PrinterAdapter, make_adapter
+from printfarm.agents.telemetry.adapters import CalibrationError, PrinterAdapter, make_adapter
 from printfarm.agents.telemetry.detectors import DetectorSet, Finding
 from printfarm.agents.telemetry.platefiles import PlateFileError, resolve_plate_file
 from printfarm.agents.telemetry.safety import PauseOutcome, pause_and_verify
 from printfarm.agents.telemetry.transfer import PlateFile, UploadError
 from printfarm.contracts import Envelope, deterministic_id, new_message
+from printfarm.contracts.calibration import BY_KEY as ROUTINES
+from printfarm.contracts.calibration import target_temperature
 from printfarm.contracts.messages import (
+    CalibratePrinter,
+    CalibrationFinished,
+    CalibrationStarted,
     CancelPrint,
     FailureDetected,
     PauseAll,
@@ -56,8 +65,34 @@ UPLOAD_ATTEMPTS = 3
 ONLINE_WAIT_S = 30.0
 
 
+CALIBRATION_OK = {PrinterStatus.IDLE, PrinterStatus.FINISHED, PrinterStatus.FAILED}
+
+
 class StartFailed(RuntimeError):
     """The printer did not take the plate; the message is shown to the operator."""
+
+
+def calibration_refusal(cmd: CalibratePrinter, *, vendor: str | None, online: bool, state: PrinterState | None,
+                        busy: str | None) -> str | None:
+    """Why ``cmd`` must not run now (None = it may). Pure: unit-tested in tests/test_calibration.py."""
+    routine = ROUTINES.get(cmd.routine)
+    if vendor is None:
+        return "unknown printer"
+    if routine is None or vendor not in routine.vendors:
+        return f"{cmd.routine} is not available on this printer"
+    if not cmd.bed_clear_confirmed:
+        return "the bed was not confirmed empty"
+    try:
+        target_temperature(routine, cmd.temperature)
+    except ValueError as exc:
+        return str(exc)
+    if not online:
+        return "printer offline"
+    if state is None:
+        return "no state from the printer yet"
+    if state.status not in CALIBRATION_OK:
+        return f"printer is {state.status.value}"
+    return busy
 
 
 class TelemetryAgent(Agent):
@@ -71,6 +106,7 @@ class TelemetryAgent(Agent):
         self._last_pub: dict[str, float] = {}
         self._pausing: set[str] = set()                 # printers with a pause check in flight
         self._starting: dict[tuple[str, str], asyncio.Task] = {}
+        self._calibrating: dict[str, str] = {}          # printer -> calibration id in flight
         for cfg in self.fleet.printers:
             pid = cfg.id
             self.detectors[pid] = DetectorSet()
@@ -81,6 +117,7 @@ class TelemetryAgent(Agent):
             )
             self.spawn(self.adapters[pid].run())
         await self._resume_open_starts()
+        await self._close_interrupted_calibrations()
 
     # ------------------------------------------------------------ device callbacks
 
@@ -116,7 +153,13 @@ class TelemetryAgent(Agent):
 
     async def _handle_finding(self, pid: str, s: PrinterState, f: Finding) -> None:
         action = "none"
-        if f.severity == Severity.CRITICAL and s.status == PrinterStatus.PRINTING:
+        if f.severity == Severity.CRITICAL and s.status == PrinterStatus.CALIBRATING:
+            try:
+                await self.adapters[pid].abort()
+                action = "calibration aborted"
+            except Exception as exc:  # noqa: BLE001 - report it; the finding itself is still recorded
+                action = f"abort failed: {exc!r}"[:200]
+        elif f.severity == Severity.CRITICAL and s.status == PrinterStatus.PRINTING:
             if self.setting("safety.auto_pause"):
                 # The pause task is created before any DB work below, so it is sent within one event-loop turn.
                 self.pause_verified(pid, reason=f"{f.detector}: {f.message}", requested_by="telemetry")
@@ -238,9 +281,10 @@ class TelemetryAgent(Agent):
         cur = self.last.get(cmd.printer_id)
         if cur and cur.plate_id == cmd.plate_id and cur.status in ACTIVE | DONE:
             return  # already started (redelivery) - idempotent at the device
-        if adapter is None or not adapter.online:
-            await self._finish_failed(conn, cmd.printer_id, cmd.plate_id,
-                                      "unknown printer" if adapter is None else "printer offline", cause=env)
+        if adapter is None or not adapter.online or cmd.printer_id in self._calibrating:
+            reason = ("unknown printer" if adapter is None else "printer offline" if not adapter.online
+                      else "printer is calibrating")
+            await self._finish_failed(conn, cmd.printer_id, cmd.plate_id, reason, cause=env)
             return
         cur = await conn.execute(
             "INSERT INTO telemetry.plate_starts (printer_id, plate_id, artifact_uris, status) VALUES (%s, %s, %s, 'queued') "
@@ -389,6 +433,96 @@ class TelemetryAgent(Agent):
         if adapter := self._adapter_for(cmd.printer_id):
             self.log.warning("cancel %s requested by %s: %s", cmd.printer_id, cmd.requested_by or "?", cmd.reason)
             await adapter.cancel()
+
+    # ------------------------------------------------------------ calibration
+
+    def _busy_reason(self, pid: str) -> str | None:
+        if pid in self._calibrating:
+            return "another calibration is running"
+        if pid in self._pausing:
+            return "a pause is being verified"
+        if any(p == pid for p, _ in self._starting):
+            return "a plate is being started"
+        return None
+
+    @on("cmd.telemetry.calibrate")
+    async def calibrate(self, env, cmd: CalibratePrinter, conn):
+        adapter = self.adapters.get(cmd.printer_id)
+        who = cmd.requested_by or "unknown"
+        cur = await conn.execute(
+            "INSERT INTO telemetry.calibrations (calibration_id, printer_id, routine, temperature, requested_by, status) "
+            "VALUES (%s, %s, %s, %s, %s, 'running') ON CONFLICT DO NOTHING",
+            (env.id, cmd.printer_id, cmd.routine, cmd.temperature, who),
+        )
+        if not cur.rowcount:
+            return  # redelivery: this request was already taken
+        refusal = calibration_refusal(cmd, vendor=adapter.vendor if adapter else None,
+                                      online=bool(adapter and adapter.online), state=self.last.get(cmd.printer_id),
+                                      busy=self._busy_reason(cmd.printer_id))
+        if refusal:
+            self.log.warning("calibration %s on %s refused: %s", cmd.routine, cmd.printer_id, refusal)
+            await conn.execute(
+                "UPDATE telemetry.calibrations SET status = 'refused', detail = %s, finished_at = now() "
+                "WHERE calibration_id = %s", (refusal, env.id))
+            await self.emit(conn, CalibrationFinished(printer_id=cmd.printer_id, calibration_id=env.id,
+                                                      routine=cmd.routine, succeeded=False, started=False,
+                                                      detail=f"refused: {refusal}"), cause=env)
+            return
+        await self.emit(conn, CalibrationStarted(printer_id=cmd.printer_id, calibration_id=env.id,
+                                                 routine=cmd.routine, requested_by=who), cause=env)
+        self.log.warning("calibration %s on %s requested by %s", cmd.routine, cmd.printer_id, who)
+        self.after_commit(lambda: self._begin_calibration(cmd, env.id))
+
+    def _begin_calibration(self, cmd: CalibratePrinter, calibration_id: str) -> None:
+        # Reserved only once committed (a rolled-back request must not block the printer). Handlers run one at a
+        # time per consumer and this runs before the next message, so a second request still sees it.
+        self._calibrating[cmd.printer_id] = calibration_id
+        self.spawn(self._run_calibration(cmd, calibration_id))
+
+    async def _run_calibration(self, cmd: CalibratePrinter, calibration_id: str) -> None:
+        routine, adapter = ROUTINES[cmd.routine], self.adapters[cmd.printer_id]
+        started = time.monotonic()
+        ok, detail = False, ""
+        try:
+            await adapter.calibrate(routine, target_temperature(routine, cmd.temperature))
+            ok, detail = True, f"{routine.label} finished"
+        except asyncio.CancelledError:
+            raise
+        except CalibrationError as exc:
+            detail = str(exc)
+        except Exception as exc:  # noqa: BLE001 - connection drops etc.: report, never leave it "running"
+            self.log.exception("calibration %s on %s failed", cmd.routine, cmd.printer_id)
+            detail = f"{type(exc).__name__}: {exc}"
+        finally:
+            self._calibrating.pop(cmd.printer_id, None)
+        seconds = round(time.monotonic() - started, 1)
+        (self.log.info if ok else self.log.error)("calibration %s on %s: %s (%.0f s)", cmd.routine, cmd.printer_id,
+                                                  detail, seconds)
+        await self._finish_calibration(cmd.printer_id, calibration_id, cmd.routine, ok, detail, seconds)
+
+    async def _finish_calibration(self, pid: str, calibration_id: str, routine: str, ok: bool, detail: str,
+                                  seconds: float) -> None:
+        async with self.db.tx() as conn:
+            cur = await conn.execute(
+                "UPDATE telemetry.calibrations SET status = %s, detail = %s, finished_at = now() "
+                "WHERE calibration_id = %s AND status = 'running'", ("done" if ok else "failed", detail[:1000],
+                                                                    calibration_id))
+            if cur.rowcount:
+                await self.emit(conn, CalibrationFinished(printer_id=pid, calibration_id=calibration_id,
+                                                          routine=routine, succeeded=ok, detail=detail[:500],
+                                                          seconds=seconds))
+        self.relay.wakeup.set()
+
+    async def _close_interrupted_calibrations(self) -> None:
+        """A calibration cannot be resumed after a restart: report it, so the fleet takes the printer back."""
+        async with self.db.tx() as conn:
+            rows = await (await conn.execute(
+                "SELECT calibration_id, printer_id, routine FROM telemetry.calibrations WHERE status = 'running'"
+            )).fetchall()
+        for r in rows:
+            await self._finish_calibration(r["printer_id"], r["calibration_id"], r["routine"], False,
+                                           "the telemetry agent restarted during the calibration: check the printer",
+                                           0.0)
 
     @on("cmd.telemetry.pause_all")
     async def pause_all(self, env, cmd: PauseAll, conn):

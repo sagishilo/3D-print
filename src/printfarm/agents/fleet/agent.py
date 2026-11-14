@@ -9,6 +9,8 @@ import uuid
 from printfarm.agents.base import Agent, on
 from printfarm.agents.fleet.packing import JobSpec, build_plate
 from printfarm.contracts.messages import (
+    CalibrationFinished,
+    CalibrationStarted,
     EnqueueJob,
     JobCompleted,
     JobFailed,
@@ -74,6 +76,19 @@ class FleetAgent(Agent):
             "UPDATE fleet.printers SET online = %s, updated_at = now() WHERE printer_id = %s", (ev.online, ev.printer_id)
         )
         self._kick.set()
+
+    # A calibrating printer is moving on its own: the scheduler must not send it a plate meanwhile.
+    @on("evt.printer.calibration.started")
+    async def calibration_started(self, env, ev: CalibrationStarted, conn):
+        await conn.execute("UPDATE fleet.printers SET calibrating = true, updated_at = now() WHERE printer_id = %s",
+                           (ev.printer_id,))
+
+    @on("evt.printer.calibration.finished")
+    async def calibration_finished(self, env, ev: CalibrationFinished, conn):
+        if ev.started:  # a refused request never set the flag
+            await conn.execute("UPDATE fleet.printers SET calibrating = false, updated_at = now() "
+                               "WHERE printer_id = %s", (ev.printer_id,))
+            self._kick.set()
 
     @on("evt.printer.print.started")
     async def print_started(self, env, ev: PrintStarted, conn):
@@ -179,7 +194,7 @@ class FleetAgent(Agent):
         async with self.db.tx() as conn:
             printers = await (
                 await conn.execute(
-                    "SELECT * FROM fleet.printers WHERE online AND NOT busy AND bed_clear "
+                    "SELECT * FROM fleet.printers WHERE online AND NOT busy AND bed_clear AND NOT calibrating "
                     "ORDER BY printer_id FOR UPDATE SKIP LOCKED"
                 )
             ).fetchall()

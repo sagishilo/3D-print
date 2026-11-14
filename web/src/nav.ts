@@ -34,14 +34,7 @@ export const NAV: NavItem[] = [
     phase: 5,
     blurb: 'Orders from lead to shipped; dragging a card to the next stage dispatches the job.',
   },
-  {
-    to: '/fleet',
-    label: 'Printer Fleet',
-    icon: 'monitor',
-    group: 'Make',
-    phase: 4,
-    blurb: 'Every printer with controls, failure banners and the event log. Live cameras and printer state are on the Live floor today.',
-  },
+  { to: '/fleet', label: 'Printer Fleet', icon: 'monitor', group: 'Make' },
   {
     to: '/filament',
     label: 'Filament',

@@ -11,7 +11,7 @@ import type { TelemetrySample, Tone } from '@/lib/types'
 import { useLive } from '@/stores/live'
 import { STATUS_TONE, usePrinters } from '@/stores/printers'
 
-const props = defineProps<{ printerId: string }>()
+const props = withDefaults(defineProps<{ printerId: string; closable?: boolean }>(), { closable: true })
 defineEmits<{ close: [] }>()
 
 const printers = usePrinters()
@@ -142,7 +142,7 @@ onBeforeUnmount(stop)
         <button type="button" class="btn btn-sm" :aria-pressed="!!player" :disabled="samples.length < 2" @click="play">
           <Icon :name="player ? 'pause' : 'play'" :size="14" />{{ player ? 'Stop' : 'Play' }}
         </button>
-        <button type="button" class="icon-btn small" aria-label="Close the replay" @click="$emit('close')">
+        <button v-if="closable" type="button" class="icon-btn small" aria-label="Close the replay" @click="$emit('close')">
           <Icon name="x" :size="14" />
         </button>
       </div>

@@ -61,7 +61,12 @@ export const useLive = defineStore('live', () => {
     const { d } = entry
     const data = entry.item.data.data as Record<string, any>
     if (d.kind === 'printer.connection.changed') printers.setOnline(data.printer_id, data.online)
-    if (d.kind.startsWith('fleet.plate.') || d.kind.startsWith('printer.print.')) void printers.load()
+    if (d.kind.startsWith('fleet.plate.') || d.kind.startsWith('printer.print.') || d.kind.startsWith('printer.calibration.'))
+      void printers.load()
+    if (d.kind === 'printer.calibration.finished') {
+      if (data.succeeded) toasts.ok('Calibration done', d.text)
+      else toasts.error(data.started === false ? 'Calibration not started' : 'Calibration failed', d.text)
+    }
     if (d.safety) toasts.push({ tone: 'danger', title: 'Safety: pause not confirmed', text: d.text, sticky: true })
     if (d.kind === 'printer.pause.confirmed') toasts.ok('Printer paused', d.text)
     if (d.kind.startsWith('approval.')) void useApprovals().load()

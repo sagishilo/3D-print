@@ -7,6 +7,8 @@ export interface ConfirmRequest {
   text: string
   confirmLabel?: string
   danger?: boolean
+  /** A statement the operator must tick before confirming ("The bed is empty"). */
+  requireCheck?: string
 }
 
 export const useConfirm = defineStore('confirm', () => {

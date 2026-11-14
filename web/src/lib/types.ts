@@ -14,7 +14,39 @@ export interface Envelope<T = Record<string, unknown>> {
   data: T
 }
 
-export type PrinterStatus = 'idle' | 'printing' | 'paused' | 'finished' | 'failed' | 'offline'
+export type PrinterStatus = 'idle' | 'printing' | 'paused' | 'finished' | 'failed' | 'offline' | 'calibrating'
+
+export interface AmsTray {
+  unit: number
+  slot: number
+  material: string | null
+  color: string | null
+  remaining_pct: number | null
+}
+
+export interface AmsUnit {
+  unit: number
+  humidity_level: number | null
+  temp: number | null
+  trays: AmsTray[]
+}
+
+export interface PrinterHardware {
+  chamber_temp: number | null
+  fans: Record<string, number>
+  speed_mode: string | null
+  speed_pct: number | null
+  nozzle_diameter: number | null
+  nozzle_type: string | null
+  wifi_dbm: number | null
+  firmware: string | null
+  stage: string | null
+  homed_axes: string | null
+  bed_mesh: string | null
+  host_load: number | null
+  ams: AmsUnit[]
+  hms: string[]
+}
 
 export interface PrinterState {
   printer_id: string
@@ -31,6 +63,14 @@ export interface PrinterState {
   remaining_s?: number | null
   error_code?: string | null
   observed_at: string
+  hardware?: PrinterHardware | null
+}
+
+export interface RunningCalibration {
+  calibration_id: string
+  routine: string
+  requested_by: string
+  started_at: string
 }
 
 export interface Printer {
@@ -49,6 +89,58 @@ export interface Printer {
   updated_at: string
   state: PrinterState | null
   camera: boolean
+  calibration?: RunningCalibration | null
+}
+
+export interface Routine {
+  key: string
+  label: string
+  help: string
+  max_minutes: number
+  heater: 'nozzle' | 'bed' | null
+  default_temp: number | null
+}
+
+export interface CalibrationRun {
+  calibration_id: string
+  routine: string
+  temperature: number | null
+  requested_by: string
+  status: 'running' | 'done' | 'failed' | 'refused'
+  detail: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface PrinterDetail {
+  printer: Printer
+  routines: Routine[]
+  calibrations: CalibrationRun[]
+  sessions: { plate_id: string; started_at: string; finished_at: string | null; succeeded: boolean | null }[]
+  pause_checks: {
+    reason: string
+    requested_by: string
+    confirmed: boolean
+    latency_ms: number | null
+    attempts: number
+    final_status: string | null
+    checked_at: string
+  }[]
+  failures: { plate_id: string | null; detector: string; severity: string; message: string; action_taken: string; detected_at: string }[]
+  stats: { prints_7d: number; succeeded_7d: number; failed_7d: number; print_hours_7d: number }
+}
+
+export type Severity = 'info' | 'warning' | 'critical'
+
+export interface LogItem {
+  topic: string
+  stream: string
+  seq: number
+  data: Envelope
+  severity: Severity
+  printer_id: string | null
+  time: string | null
+  source: string | null
 }
 
 export type TelemetrySample = Pick<

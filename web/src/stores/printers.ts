@@ -2,9 +2,10 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, errorText } from '@/lib/api'
-import type { Printer, PrinterState, PrinterStatus, TelemetrySample, Tone } from '@/lib/types'
+import type { DisplayStatus } from '@/lib/fleet'
+import type { LogItem, Printer, PrinterDetail, PrinterState, Severity, TelemetrySample, Tone } from '@/lib/types'
 
-export type DisplayStatus = PrinterStatus | 'heating'
+export type { DisplayStatus }
 
 /** What a tile shows: offline beats everything; "heating" = printing but still far from the targets at 0 %. */
 export function displayStatus(p: Printer): DisplayStatus {
@@ -24,6 +25,7 @@ export const STATUS_TONE: Record<DisplayStatus, Tone> = {
   failed: 'danger',
   idle: 'idle',
   offline: 'idle',
+  calibrating: 'accent',
 }
 
 export const usePrinters = defineStore('printers', () => {
@@ -61,7 +63,9 @@ export const usePrinters = defineStore('printers', () => {
   }
 
   const counts = computed(() => {
-    const c: Record<DisplayStatus, number> = { printing: 0, heating: 0, paused: 0, finished: 0, failed: 0, idle: 0, offline: 0 }
+    const c: Record<DisplayStatus, number> = {
+      printing: 0, heating: 0, paused: 0, finished: 0, failed: 0, idle: 0, offline: 0, calibrating: 0,
+    }
     for (const p of list.value) c[displayStatus(p)] += 1
     return c
   })
@@ -72,5 +76,15 @@ export const usePrinters = defineStore('printers', () => {
     )
   }
 
-  return { list, loading, error, load, get, applyState, setOnline, counts, history }
+  function detail(id: string) {
+    return api<PrinterDetail>(`/api/v1/printers/${encodeURIComponent(id)}`)
+  }
+
+  function log(opts: { printer?: string | null; minSeverity?: Severity; hours?: number } = {}) {
+    const q = new URLSearchParams({ min_severity: opts.minSeverity ?? 'info', hours: String(opts.hours ?? 24) })
+    if (opts.printer) q.set('printer', opts.printer)
+    return api<{ items: LogItem[]; count: number }>(`/api/v1/printers/log?${q}`)
+  }
+
+  return { list, loading, error, load, get, applyState, setOnline, counts, history, detail, log }
 })

@@ -11,7 +11,10 @@ handled here, so no extra web framework is needed.
 
 Faults: ``upload_fail`` (HTTP 507), ``upload_flaky`` (first upload of a file gets HTTP 503), ``ignore_commands``
 (every print command answers "ok" but does nothing), ``ignore_pause`` (pause answers "ok" but does nothing),
-plus the camera faults in ``camera.py``.
+``calibration_fail`` (calibration scripts end with a Klipper error), plus the camera faults in ``camera.py``.
+
+``printer.gcode.script`` answers when the script has finished, like Klipper: G28, BED_MESH_CALIBRATE,
+SHAPER_CALIBRATE and PID_CALIBRATE take a few seconds of simulated time; other commands are unknown.
 """
 
 from __future__ import annotations
@@ -39,7 +42,10 @@ log = logging.getLogger("simulator.moonraker")
 MAX_BODY = 512 * 1024 * 1024
 TICK_S = 0.5
 
-MOONRAKER_STATE = {"idle": "standby", "printing": "printing", "paused": "paused", "finished": "complete", "failed": "error"}
+MOONRAKER_STATE = {"idle": "standby", "printing": "printing", "paused": "paused", "finished": "complete", "failed": "error",
+                   "calibrating": "standby"}   # Klipper runs calibration macros outside a print job
+KLIPPER_VERSION = "v0.12.0-415-gsim"
+SCRIPTS = {"G28": "home", "BED_MESH_CALIBRATE": "bed_level", "SHAPER_CALIBRATE": "vibration"}
 
 
 def moonraker_status(p: SimPrinter) -> dict:
@@ -53,7 +59,47 @@ def moonraker_status(p: SimPrinter) -> dict:
         "extruder": {"temperature": round(p.nozzle, 1), "target": p.nozzle_target},
         "heater_bed": {"temperature": round(p.bed, 1), "target": p.bed_target},
         "display_status": {"progress": round(p.progress, 4)},
+        "fan": {"speed": p.fans["part"] / 100},
+        "heater_fan hotend_fan": {"speed": p.fans["hotend"] / 100},
+        "gcode_move": {"speed_factor": 1.0},
+        "toolhead": {"homed_axes": p.homed},
+        "bed_mesh": {"profile_name": p.mesh},
+        "system_stats": {"sysload": round(0.25 + (0.4 if p.status == "printing" else 0.0), 2), "memavail": 612000},
     }
+
+
+def _routine_for(script: str) -> tuple[str | None, float | None, str | None]:
+    """The simulated routine a script runs: (routine, PID target, error). Only the last line decides."""
+    words = script.strip().splitlines()[-1].split() if script.strip() else []
+    if not words:
+        return None, None, "empty script"
+    cmd, *args = words
+    if cmd.upper() == "PID_CALIBRATE":
+        opts = dict(a.split("=", 1) for a in args if "=" in a)
+        heater = opts.get("HEATER", "").lower()
+        if heater not in ("extruder", "heater_bed"):
+            return None, None, f"Unknown heater '{heater}'"
+        return ("nozzle_pid" if heater == "extruder" else "bed_pid"), float(opts.get("TARGET", 0) or 0), None
+    if cmd.upper() in SCRIPTS:
+        return SCRIPTS[cmd.upper()], None, None
+    return None, None, f'Unknown command:"{cmd.upper()}"'
+
+
+async def run_script(p: SimPrinter, script: str) -> dict | None:
+    """Run a G-code script to its end, like Klipper; returns a JSON-RPC error or None."""
+    routine, target, error = _routine_for(script)
+    if error:
+        return {"code": 400, "message": error}
+    if p.has("ignore_commands"):
+        return None
+    busy = p.start_calibration(routine, target=target)
+    if busy:
+        return {"code": 400, "message": busy}
+    while p.calibration:
+        await asyncio.sleep(0.1)
+    if p.status == "failed":
+        return {"code": 400, "message": p.calibration_error or "calibration failed"}
+    return None
 
 
 # ---------------------------------------------------------------- JSON-RPC over WebSocket
@@ -69,6 +115,11 @@ def _rpc(p: SimPrinter, method: str, params: dict) -> tuple[object | None, dict 
             return {"eventtime": time.time(), "status": moonraker_status(p)}, None
         case "server.info":
             return {"klippy_state": "ready", "klippy_connected": True}, None
+        case "printer.info":
+            return {"state": "ready", "software_version": KLIPPER_VERSION, "hostname": p.id}, None
+        case "printer.emergency_stop":
+            p.emergency_stop()
+            return "ok", None
         case "printer.print.start":
             if ignored:
                 return "ok", None
@@ -98,10 +149,14 @@ async def _ws_handler(p: SimPrinter, ws) -> None:
                                       "params": [moonraker_status(p), time.time()]}))
 
     pusher = None
+    scripts: set[asyncio.Task] = set()
     try:
         async for raw in ws:
             req = json.loads(raw)
             method, params, rid = req.get("method"), req.get("params") or {}, req.get("id")
+            if method == "printer.gcode.script":  # answered when the script is done; other calls go on meanwhile
+                scripts.add(asyncio.create_task(_answer_script(ws, p, rid, str(params.get("script", "")))))
+                continue
             result, error = _rpc(p, method, params)
             if method == "printer.objects.subscribe":
                 pusher = pusher or asyncio.create_task(push())
@@ -112,6 +167,14 @@ async def _ws_handler(p: SimPrinter, ws) -> None:
     finally:
         if pusher:
             pusher.cancel()
+        for t in scripts:
+            t.cancel()
+
+
+async def _answer_script(ws, p: SimPrinter, rid, script: str) -> None:
+    error = await run_script(p, script)
+    with contextlib.suppress(websockets.ConnectionClosed):
+        await ws.send(json.dumps({"jsonrpc": "2.0", "id": rid, **({"error": error} if error else {"result": "ok"})}))
 
 
 # ---------------------------------------------------------------- HTTP front (+ WebSocket pass-through)

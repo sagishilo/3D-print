@@ -89,6 +89,15 @@ export function describe(env: Envelope): Described {
         'printer',
         { safety: true },
       )
+    case 'printer.calibration.started':
+      return out(`${d.printer_id}: ${String(d.routine).replaceAll('_', ' ')} started (${d.requested_by})`, 'accent', 'printer')
+    case 'printer.calibration.finished':
+      return out(
+        `${d.printer_id}: ${String(d.routine).replaceAll('_', ' ')} ${d.succeeded ? 'done' : d.started === false ? 'not started' : 'failed'}` +
+          (d.succeeded ? ` in ${duration(d.seconds)}` : ` · ${d.detail}`),
+        d.succeeded ? 'ok' : d.started === false ? 'idle' : 'warn',
+        'printer',
+      )
     case 'printer.connection.changed':
       return out(`${d.printer_id} ${d.online ? 'connected' : 'disconnected'}`, d.online ? 'ok' : 'warn', 'printer')
     case 'approval.request.created':

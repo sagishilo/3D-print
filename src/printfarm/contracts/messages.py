@@ -35,6 +35,7 @@ class PrinterStatus(StrEnum):
     FINISHED = "finished"
     FAILED = "failed"
     OFFLINE = "offline"
+    CALIBRATING = "calibrating"   # running a calibration routine the telemetry agent started (no plate)
 
 
 class Severity(StrEnum):
@@ -352,6 +353,55 @@ class PauseAll(Command):
     requested_by: str = ""
 
 
+class AmsTray(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    unit: int
+    slot: int
+    material: str | None = None
+    color: str | None = None              # "#RRGGBB"
+    remaining_pct: int | None = None      # -1 / unknown -> None
+
+
+class AmsUnit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    unit: int
+    humidity_level: int | None = None     # Bambu's 1-5 humidity index, as the printer reports it
+    temp: float | None = None
+    trays: list[AmsTray] = []
+
+
+class PrinterHardware(BaseModel):
+    """Deeper hardware readings for the dashboard; every field is optional (vendors report different things)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    chamber_temp: float | None = None
+    fans: dict[str, int] = {}             # percent per fan: part, aux, chamber, hotend
+    speed_mode: str | None = None         # Bambu: silent | standard | sport | ludicrous
+    speed_pct: int | None = None
+    nozzle_diameter: float | None = None
+    nozzle_type: str | None = None
+    wifi_dbm: int | None = None
+    firmware: str | None = None
+    stage: str | None = None              # what the printer is doing right now ("auto bed leveling", ...)
+    homed_axes: str | None = None         # Klipper: "xyz" when homed
+    bed_mesh: str | None = None           # Klipper: active bed mesh profile
+    host_load: float | None = None        # Klipper host: 1-minute load average
+    ams: list[AmsUnit] = []
+    hms: list[str] = []                   # Bambu health codes, e.g. "0300_0100_0001_0007"
+
+
+class CalibratePrinter(Command):
+    """Run one calibration routine (contracts/calibration.py). Refused unless the printer is online, idle and the
+    operator confirmed the bed is empty; the outcome is always published as evt.printer.calibration.finished."""
+
+    subject: ClassVar[str] = "cmd.telemetry.calibrate"
+    printer_id: str
+    routine: str = Field(pattern=r"^[a-z_]{2,32}$")
+    bed_clear_confirmed: bool = False
+    temperature: int | None = Field(default=None, ge=40, le=300)   # PID routines only
+    requested_by: str = ""
+
+
 class PrinterState(Event):
     """Canonical, vendor-neutral printer state. Sampled to tlm.<printer_id>.state."""
 
@@ -370,6 +420,7 @@ class PrinterState(Event):
     remaining_s: int | None = None
     error_code: str | None = None
     observed_at: datetime
+    hardware: PrinterHardware | None = None
 
 
 class PrintStarted(Event):
@@ -435,6 +486,27 @@ class PauseUnconfirmed(Event):
     last_status: PrinterStatus | None = None
     online: bool
     printer_reply: str = ""      # what the printer answered to the pause command, if it answered
+
+
+class CalibrationStarted(Event):
+    subject: ClassVar[str] = "evt.printer.calibration.started"
+    printer_id: str
+    calibration_id: str
+    routine: str
+    requested_by: str
+
+
+class CalibrationFinished(Event):
+    """Every calibration request ends here: done, failed, or refused before it started (``started`` False)."""
+
+    subject: ClassVar[str] = "evt.printer.calibration.finished"
+    printer_id: str
+    calibration_id: str
+    routine: str
+    succeeded: bool
+    started: bool = True
+    detail: str = ""
+    seconds: float = 0.0
 
 
 class PrinterConnectivity(Event):

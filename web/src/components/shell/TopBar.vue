@@ -32,7 +32,7 @@ const results = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return []
   const out: { label: string; hint: string; to: string | { path: string; query: Record<string, string> } }[] = []
-  for (const p of printers.list) if (p.id.includes(q)) out.push({ label: p.id, hint: 'printer', to: { path: '/live', query: { printer: p.id } } })
+  for (const p of printers.list) if (p.id.includes(q)) out.push({ label: p.id, hint: 'printer', to: { path: '/fleet', query: { printer: p.id } } })
   for (const n of NAV) if (n.label.toLowerCase().includes(q)) out.push({ label: n.label, hint: 'screen', to: n.to })
   for (const a of system.agents) if (a.label.toLowerCase().includes(q)) out.push({ label: a.label, hint: 'agent', to: { path: '/system', query: { tab: 'agents' } } })
   return out.slice(0, 8)

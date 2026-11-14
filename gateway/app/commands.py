@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from printfarm.contracts import Envelope, Payload, new_message
 from printfarm.contracts.config_keys import CONFIG_KEYS
 from printfarm.contracts.messages import (
+    CalibratePrinter,
     CancelPrint,
     ConfirmPoOrdered,
     CreateExpense,
@@ -71,6 +72,8 @@ COMMANDS: dict[str, CommandSpec] = {
     "printers.cancel": CommandSpec(CancelPrint, "requested_by", deadline_s=30),
     "printers.pause_all": CommandSpec(PauseAll, "requested_by", deadline_s=30),
     "printers.clear_bed": CommandSpec(MarkBedCleared, "operator"),
+    # Calibration moves the machine: a request that waited (agent down) must not start it later.
+    "printers.calibrate": CommandSpec(CalibratePrinter, "requested_by", deadline_s=30),
     "payments.record": CommandSpec(RecordPayment, "recorded_by"),
     "payments.refund": CommandSpec(RefundPayment, "recorded_by"),
     "expenses.create": CommandSpec(CreateExpense, "created_by"),

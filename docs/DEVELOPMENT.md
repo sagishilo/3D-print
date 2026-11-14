@@ -133,9 +133,11 @@ src/lib/        api.ts (cookies, CSRF header, refresh-once on 401, idempotency k
                 resume cursors per stream, de-duplication, 4401 → refresh, backoff, replay), mjpeg.ts (camera frames
                 over fetch, stall detection), events.ts (one plain-language line per event type), format.ts
 src/stores/     auth, live (the feed + safety alerts), printers, system, approvals, toasts, confirm
+src/lib/fleet.ts batch-action planning (which printers an action applies to, and why not), severities, hardware labels
 src/components/ shell/ (sidebar, top bar, approvals drawer), live/ (camera, printer tile, telemetry replay, event feed),
-                system/ (agents, servers, printers, NATS, dead letters, settings), ui/ (icons, pills, tabs, switches)
-src/views/      LoginView, LiveView, SystemView, ComingSoonView (screens of later phases)
+                fleet/ (printer details drawer, hardware, calibration, event log), system/ (agents, servers, printers,
+                NATS, dead letters, settings), ui/ (icons, pills, tabs, switches)
+src/views/      LoginView, LiveView, FleetView, SystemView, ComingSoonView (screens of later phases)
 ```
 
 Work on it against a running stack (the dev server forwards `/api` and `/ws` to it; the WebSocket Origin is rewritten,
@@ -156,7 +158,8 @@ simulator stack. One of them injects a dead letter through `docker compose exec`
 ```powershell
 $env:PRINTFARM_PASSWORD = "<admin password>"; $env:PRINTFARM_COMPOSE_PROJECT = "printfarm"
 npx playwright test           # sign-in, live floor (all three cameras live, telemetry + event replay), System & Agents,
-                              # an audited toggle, dead-letter replay, phone layout
+                              # an audited toggle, dead-letter replay, phone layout,
+                              # printer details + a calibration run, batch home
 ```
 
 Set `PW_SCREENSHOTS=<folder>` to save a full-page screenshot of every screen, and `PW_CHANNEL=chrome` to use Chrome.
