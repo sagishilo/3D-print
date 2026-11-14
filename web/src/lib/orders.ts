@@ -13,14 +13,14 @@ export interface Column {
 export const COLUMNS: Column[] = [
   { stage: 'LEAD', label: 'Lead', hint: 'Drop: back to lead is not possible' },
   { stage: 'RECEIVED', label: 'Order received', hint: 'Drop: confirms a lead' },
-  { stage: 'PERSONALIZING', label: 'Personalization', hint: 'Drop dispatches nameplate jobs' },
+  { stage: 'PERSONALIZING', label: 'Personalization', hint: 'Drop prepares the models' },
   { stage: 'SCHEDULING', label: 'Slicing / scheduling', hint: 'Drop dispatches print jobs' },
   { stage: 'PRINTING', label: 'Printing', hint: 'Printer events only' },
   { stage: 'QC', label: 'Quality control', hint: 'Manual pass / fail' },
   { stage: 'SHIPPED', label: 'Shipped', hint: 'Drop: ship a passed order' },
 ]
 
-export const CHANNELS = ['manual', 'whatsapp', 'facebook', 'instagram', 'etsy', 'market', 'website', 'api'] as const
+export const CHANNELS = ['manual', 'whatsapp', 'facebook', 'instagram', 'etsy', 'market', 'website', 'api', 'stock'] as const
 export const PAYMENT_METHODS = ['bit', 'paybox', 'bank_transfer', 'cash', 'card'] as const
 
 export interface Product {
@@ -29,7 +29,10 @@ export interface Product {
   defaultPrice: number // agorot
   needsText: boolean
 }
-export const PRODUCTS: Product[] = [{ key: 'nameplate', label: 'Nameplate', defaultPrice: 4500, needsText: true }]
+export const PRODUCTS: Product[] = [
+  { key: 'nameplate', label: 'Nameplate', defaultPrice: 4500, needsText: true },
+  { key: 'catalog', label: 'Catalog item', defaultPrice: 0, needsText: false }, // the price comes from the catalog
+]
 
 export type DropAction =
   | { ok: true; kind: 'advance'; to: Stage }
@@ -53,10 +56,10 @@ export function dropAction(card: OrderCard, to: Stage): DropAction {
   if (to === 'SCHEDULING') {
     if (from === 'PERSONALIZING') {
       const waiting = card.items.filter((i) => i.model.status !== 'ready').map((i) => i.item_id)
-      return waiting.length ? { ok: false, reason: `nameplate of item ${waiting.join(', ')} is not ready yet` } : { ok: true, kind: 'advance', to }
+      return waiting.length ? { ok: false, reason: `model of item ${waiting.join(', ')} is not ready yet` } : { ok: true, kind: 'advance', to }
     }
     if (from === 'NEEDS_ATTENTION' && ['PRINTING', 'SCHEDULING', 'QC'].includes(card.stage)) return { ok: true, kind: 'advance', to }
-    return { ok: false, reason: 'nameplates must be ready first' }
+    return { ok: false, reason: 'the models must be ready first' }
   }
   if (to === 'SHIPPED') return from === 'QC' && card.qc === 'passed' ? { ok: true, kind: 'ship' } : { ok: false, reason: 'pass QC first' }
   return { ok: false, reason: 'not allowed' }
@@ -64,6 +67,7 @@ export function dropAction(card: OrderCard, to: Stage): DropAction {
 
 export interface Line {
   product: string
+  sku?: string // catalog lines
   text: string
   material: string
   color: string
@@ -91,6 +95,7 @@ export function priceOrder(lines: Line[], discount = 0, shipping = 0): Pricing {
   let error: string | null = null
   if (!lines.length) error = 'an order needs at least one item'
   else if (lines.some((l) => PRODUCTS.find((p) => p.key === l.product)?.needsText && !l.text.trim())) error = 'every nameplate needs its text'
+  else if (lines.some((l) => l.product === 'catalog' && !l.sku)) error = 'pick the SKU of every catalog item'
   else if (lines.some((l) => l.text.length > 40)) error = 'a text can be at most 40 characters'
   else if (lines.some((l) => !(l.quantity >= 1 && l.quantity <= 50))) error = 'quantity must be 1-50'
   else if (discount < 0 || shipping < 0) error = 'discount and shipping cannot be negative'

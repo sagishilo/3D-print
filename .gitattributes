@@ -9,3 +9,4 @@ docs/design/*.html -diff linguist-generated
 *.jpg binary
 *.woff2 binary
 *.zip binary
+*.3mf binary

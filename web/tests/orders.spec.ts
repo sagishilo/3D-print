@@ -31,7 +31,7 @@ describe('board drops (mirror the saga)', () => {
   it('dispatch only the next step and say why not otherwise', () => {
     expect(dropAction(card('RECEIVED'), 'PERSONALIZING')).toEqual({ ok: true, kind: 'advance', to: 'PERSONALIZING' })
     expect(dropAction(card('LEAD'), 'RECEIVED')).toEqual({ ok: true, kind: 'advance', to: 'RECEIVED' })
-    expect(dropAction(card('PERSONALIZING'), 'SCHEDULING')).toEqual({ ok: false, reason: 'nameplate of item 2 is not ready yet' })
+    expect(dropAction(card('PERSONALIZING'), 'SCHEDULING')).toEqual({ ok: false, reason: 'model of item 2 is not ready yet' })
     expect(dropAction(card('RECEIVED'), 'PRINTING')).toEqual({ ok: false, reason: 'printing starts when a printer takes the plate' })
     expect(dropAction(card('QC', { qc: 'pending' }), 'SHIPPED')).toEqual({ ok: false, reason: 'pass QC first' })
     expect(dropAction(card('QC', { qc: 'passed' }), 'SHIPPED')).toEqual({ ok: true, kind: 'ship' })
@@ -99,14 +99,14 @@ describe('NewOrderDialog', () => {
     await w.get('[data-testid=customer-name]').setValue('Cohen family')
     await w.get('[data-testid=line-1] input').setValue('משפחת כהן')
     await w.get('[data-testid=line-1] input[type=number]').setValue('2')
-    await w.findAll('button').find((b) => b.text().includes('Add item'))!.trigger('click')
+    await w.findAll('button').find((b) => b.text().includes('Add nameplate'))!.trigger('click')
     await w.get('[data-testid=line-2] input').setValue('Dan')
     const price = w.get('[data-testid=line-2]').findAll('input').find((i) => i.attributes('inputmode') === 'decimal')!
     await price.setValue('60')
     expect(w.get('[data-testid=order-total]').text()).toContain('₪150.00')   // 2 × 45 + 60
     await w.get('form').trigger('submit')
     await flushPromises()
-    const body = calls[0].body as Record<string, any>
+    const body = calls.find((c) => c.method === 'POST')!.body as Record<string, any>
     expect(body.customer_name).toBe('Cohen family')
     expect(body.items).toEqual([
       { product: 'nameplate', text: 'משפחת כהן', material: 'PLA', color: 'black', quantity: 2, unit_price_agorot: 4500 },
@@ -120,5 +120,30 @@ describe('NewOrderDialog', () => {
     await w.get('[data-testid=line-1] input').setValue('A')
     expect(w.get('[role=alert]').text()).toBe('the customer’s name is missing')
     expect(w.get('button[type=submit]').attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('NewOrderDialog with the catalog', () => {
+  it('sells a catalog SKU at its catalog price', async () => {
+    const sku = { sku: 'STD-SLAB-1E', name: 'Single slab easel', category: 'displays', material: 'PLA', color: 'white',
+      price_agorot: 3500, active: true }
+    const calls = serve(
+      on('GET', /\/api\/v1\/catalog\/products/, () => json(200, { products: [sku], categories: ['displays'], counts: { displays: 1 } })),
+      on('POST', '/api/v1/commands/orders.create', () => json(202, { accepted: true, command_id: 'c2' })),
+    )
+    const w = mount(NewOrderDialog)
+    await flushPromises()
+    await w.get('[data-testid=customer-name]').setValue('Dana')
+    await w.get('[data-testid=line-1] input').setValue('Dana')
+    await w.get('[data-testid=add-catalog-line]').trigger('click')
+    expect(w.get('[role=alert]').text()).toBe('pick the SKU of every catalog item')
+    await w.get('[data-testid=line-2] [data-testid=line-sku]').setValue('STD-SLAB-1E')
+    await w.get('[data-testid=line-2] input[type=number]').setValue('2')
+    expect(w.get('[data-testid=order-total]').text()).toContain('₪115.00')   // 45 + 2 × 35
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    const body = calls.find((c) => c.method === 'POST')!.body as Record<string, any>
+    expect(body.items[1]).toEqual({ product: 'catalog', sku: 'STD-SLAB-1E', text: 'Single slab easel', material: 'PLA', color: 'white',
+      quantity: 2, unit_price_agorot: 3500 })
   })
 })

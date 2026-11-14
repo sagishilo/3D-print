@@ -18,6 +18,10 @@ printer_status  latest canonical PrinterState per printer (written by telemetry)
 heartbeats      agent liveness, 30 s TTL
 leases          single-writer locks (e.g. one scheduler instance), 60 s TTL
 config          automation settings (written by the coordinator on cmd.coordinator.set_config)
+
+Object stores
+-------------
+uploads         files from the dashboard (3MF templates), 7 days; the gateway puts, an agent takes and keeps a copy
 """
 
 from __future__ import annotations
@@ -33,11 +37,12 @@ from nats.js.api import (
     ConsumerConfig,
     DeliverPolicy,
     KeyValueConfig,
+    ObjectStoreConfig,
     RetentionPolicy,
     StorageType,
     StreamConfig,
 )
-from nats.js.errors import KeyNotFoundError, NotFoundError
+from nats.js.errors import KeyNotFoundError, NotFoundError, ObjectNotFoundError
 
 from printfarm.bus.base import DEFAULT_MAX_DELIVER, Handler, Outcome, Responder, backoff_for, deliver, durable_name
 from printfarm.contracts import Envelope
@@ -70,12 +75,19 @@ KV_BUCKETS = [
 ]
 
 
+OBJECT_STORES = [
+    ObjectStoreConfig(bucket="uploads", description="dashboard uploads (3MF templates)", ttl=7 * DAY,
+                      max_bytes=2 * 1024**3, storage=StorageType.FILE),
+]
+
+
 class NatsBus:
     def __init__(self, nc: nats.NATS):
         self.nc = nc
         self.js = nc.jetstream()
         self._tasks: list[asyncio.Task] = []
         self._kv: dict = {}
+        self._obs: dict = {}
 
     @classmethod
     async def connect(cls, url: str, name: str = "printfarm") -> NatsBus:
@@ -95,6 +107,11 @@ class NatsBus:
                 self._kv[kv.bucket] = await self.js.key_value(kv.bucket)
             except (NotFoundError, Exception):  # noqa: BLE001
                 self._kv[kv.bucket] = await self.js.create_key_value(kv)
+        for obs in OBJECT_STORES:
+            try:
+                self._obs[obs.bucket] = await self.js.object_store(obs.bucket)
+            except Exception:  # noqa: BLE001 - not found
+                self._obs[obs.bucket] = await self.js.create_object_store(obs.bucket, config=obs)
 
     # ------------------------------------------------------------- pub/sub
 
@@ -181,6 +198,17 @@ class NatsBus:
             return list(await self._kv[bucket].keys())
         except Exception:  # noqa: BLE001 - nats-py raises NoKeysError on empty bucket
             return []
+
+    # ------------------------------------------------------------- object store
+
+    async def blob_put(self, bucket: str, name: str, data: bytes) -> None:
+        await self._obs[bucket].put(name, data)
+
+    async def blob_get(self, bucket: str, name: str) -> bytes | None:
+        try:
+            return (await self._obs[bucket].get(name)).data
+        except ObjectNotFoundError:
+            return None
 
     async def close(self) -> None:
         for t in self._tasks:

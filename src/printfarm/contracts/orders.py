@@ -15,8 +15,10 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from printfarm.contracts.catalog import SKU_RE, STOCK_CHANNEL
+
 MAX_ITEMS = 20
-CHANNELS = ("manual", "whatsapp", "facebook", "instagram", "etsy", "market", "website", "api")
+CHANNELS = ("manual", "whatsapp", "facebook", "instagram", "etsy", "market", "website", "api", STOCK_CHANNEL)
 
 
 @dataclass(frozen=True)
@@ -27,10 +29,17 @@ class Product:
     needs_text: bool
 
 
-# Phase 8 adds catalog SKUs; until then every printable item is a personalized nameplate.
+# A personalized nameplate (OpenSCAD, one model per line), or a ready-made catalog SKU (a 3MF template; the line names
+# its ``sku`` and carries the catalog's price, which the gateway fills in from the catalog).
 PRODUCTS: dict[str, Product] = {
     "nameplate": Product("nameplate", "Nameplate", 4500, needs_text=True),
+    "catalog": Product("catalog", "Catalog item", 0, needs_text=False),
 }
+
+
+def product_type(product: str, sku: str = "") -> str:
+    """What Finance books a line's money and costs under: the SKU of a catalog line, else the product."""
+    return sku if product == "catalog" and sku else product
 
 # Board columns in order (NEEDS_ATTENTION cards show in the column they came from).
 STAGES = ("LEAD", "RECEIVED", "PERSONALIZING", "SCHEDULING", "PRINTING", "QC", "SHIPPED")
@@ -44,6 +53,7 @@ class OrderLine(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     product: str = "nameplate"
+    sku: str = Field(default="", max_length=32)          # catalog lines only
     text: str = Field(default="", max_length=40)
     material: str = Field(default="PLA", max_length=20)
     color: str = Field(default="black", max_length=20)
@@ -57,6 +67,13 @@ class OrderLine(BaseModel):
             raise ValueError(f"unknown product {self.product!r}")
         if p.needs_text and not self.text.strip():
             raise ValueError(f"a {p.label.lower()} needs its text")
+        if self.product == "catalog":
+            if not SKU_RE.match(self.sku):
+                raise ValueError(f"a catalog item needs a SKU, not {self.sku!r}")
+            if self.unit_price_agorot is None:
+                raise ValueError(f"catalog item {self.sku}: the price comes from the catalog")
+        elif self.sku:
+            raise ValueError("only a catalog item has a SKU")
         return self
 
     @property

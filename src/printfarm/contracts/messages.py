@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from printfarm.contracts.catalog import CATEGORIES, SKU_PATTERN
 from printfarm.contracts.envelope import Kind, Payload
 from printfarm.contracts.orders import CHANNELS, OrderLine, price_order
 
@@ -125,6 +126,7 @@ class CreateOrder(Command):
     due_by: datetime | None = None
     notes: str = Field(default="", max_length=500)
     as_lead: bool = False
+    dispatch: bool = False       # a stock batch (Instant Catalog): prepare and schedule at once, whatever the switches
     created_by: str = ""
 
     @model_validator(mode="after")
@@ -370,6 +372,71 @@ class ModelFailed(Event):
     reason: str
 
 
+# ---------------------------------------------------------------- instant catalog (personalization owns catalog.*)
+
+
+class UpsertCatalogProduct(Command):
+    """Add a SKU or change one (dashboard: Import 3MF, Edit). ``upload`` is the SHA-256 of a 3MF the gateway put into
+    the uploads object store; empty keeps the stored template. A sliced template's time and weight come from the file;
+    an unsliced one needs ``est_grams`` and ``est_minutes``."""
+
+    subject: ClassVar[str] = "cmd.personalization.upsert_product"
+    sku: str = Field(pattern=SKU_PATTERN)
+    name: str = Field(min_length=1, max_length=80)
+    category: str = "other"
+    material: str = Field(default="PLA", min_length=1, max_length=20)
+    color: str = Field(default="black", min_length=1, max_length=20)
+    price_agorot: int = Field(ge=0, le=10_000_000)                 # gross, as sold
+    upload: str = Field(default="", pattern=r"^([0-9a-f]{64})?$")
+    upload_name: str = Field(default="", max_length=120)
+    est_grams: float | None = Field(default=None, gt=0, le=5000)
+    est_minutes: float | None = Field(default=None, gt=0, le=10_000)
+    active: bool = True
+    changed_by: str = ""
+
+    @model_validator(mode="after")
+    def _category(self) -> UpsertCatalogProduct:
+        if self.category not in CATEGORIES:
+            raise ValueError(f"unknown category {self.category!r}")
+        return self
+
+
+class SliceCatalogProduct(Command):
+    """Slice a SKU's unsliced template with the slicer CLI on the personalization agent's host (when installed)."""
+
+    subject: ClassVar[str] = "cmd.personalization.slice_product"
+    sku: str = Field(pattern=SKU_PATTERN)
+    requested_by: str = ""
+
+
+class PrepareCatalogItem(Command):
+    """An order line of a catalog SKU: its template becomes the line's model (ModelReady, or ModelFailed)."""
+
+    subject: ClassVar[str] = "cmd.personalization.prepare_catalog_item"
+    order_id: str
+    item_id: str
+    sku: str
+
+
+class CatalogProductUpdated(Event):
+    subject: ClassVar[str] = "evt.catalog.product.updated"
+    sku: str
+    name: str
+    active: bool
+    sliced: bool
+    by: str
+
+
+class CatalogProductRejected(Event):
+    """An upsert or a slice that did not happen; ``action`` is "upsert" or "slice"."""
+
+    subject: ClassVar[str] = "evt.catalog.product.rejected"
+    sku: str
+    action: str
+    reason: str
+    by: str
+
+
 # ---------------------------------------------------------------- fleet
 
 
@@ -386,6 +453,7 @@ class EnqueueJob(Command):
     due_by: datetime | None = None
     priority: int = 0
     product_type: str = "nameplate"
+    whole_plate: bool = False    # a sliced file: printed alone, as the slicer arranged its plate
 
 
 class CancelOrderJobs(Command):

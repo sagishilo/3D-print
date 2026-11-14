@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from printfarm.contracts import Envelope, Payload, new_message
+from printfarm.contracts.catalog import STOCK_CHANNEL
 from printfarm.contracts.config_keys import CONFIG_KEYS
 from printfarm.contracts.messages import (
     AcknowledgeInventoryAlert,
@@ -40,8 +41,10 @@ from printfarm.contracts.messages import (
     SetConfig,
     SetReorderRule,
     ShipOrder,
+    SliceCatalogProduct,
     UpdateFinanceSettings,
     UpdatePo,
+    UpsertCatalogProduct,
 )
 
 
@@ -63,6 +66,19 @@ def _new_spool(data: dict, command_id: str) -> None:
 def _new_order(data: dict, command_id: str) -> None:
     # Deterministic from the command id, so a retried request creates the same order, not a second one.
     data["order_id"] = f"ord-{command_id[:8]}"
+    data["dispatch"] = False          # only a stock batch skips the gates
+
+
+def _new_batch(data: dict, command_id: str) -> None:
+    # A batch for the shelf: an order on the stock channel, no price, prepared and scheduled at once.
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        raise ValueError("a batch needs at least one SKU")
+    if not all(isinstance(i, dict) and i.get("product") == "catalog" for i in items):
+        raise ValueError("a batch holds catalog SKUs only")
+    data.update(order_id=f"stk-{command_id[:8]}", channel=STOCK_CHANNEL, customer_name="Stock batch", dispatch=True,
+                as_lead=False, discount_agorot=0, shipping_agorot=0,
+                items=[{**i, "unit_price_agorot": 0} for i in items])
 
 
 _SETTINGS = {k.key: k for k in CONFIG_KEYS}
@@ -87,6 +103,9 @@ COMMANDS: dict[str, CommandSpec] = {
     "orders.qc": CommandSpec(RecordQc, "inspected_by"),
     "orders.ship": CommandSpec(ShipOrder, "shipped_by"),
     "orders.cancel": CommandSpec(CancelOrder, "cancelled_by"),
+    "catalog.upsert": CommandSpec(UpsertCatalogProduct, "changed_by"),
+    "catalog.slice": CommandSpec(SliceCatalogProduct, "requested_by"),
+    "catalog.batch": CommandSpec(CreateOrder, "created_by", fill=_new_batch),
     "approvals.decide": CommandSpec(DecideApproval, "decided_by"),
     "printers.pause": CommandSpec(PausePrint, "requested_by", deadline_s=30),
     "printers.resume": CommandSpec(ResumePrint, "requested_by", deadline_s=30),

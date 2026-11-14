@@ -44,8 +44,8 @@ def _status(state: str, ctx: dict) -> str:
         case "PERSONALIZING":
             failed = [k for k, i in items.items() if i.get("model_status") == "failed"]
             if failed:
-                return f"nameplate failed: item {', '.join(failed)}"
-            return f"nameplates ready {ready}/{len(items)}" + (" · drag to scheduling" if ready == len(items) else " · generating")
+                return f"model failed: item {', '.join(failed)}"
+            return f"models ready {ready}/{len(items)}" + (" · drag to scheduling" if ready == len(items) else " · generating")
         case "SCHEDULING":
             return f"{sum(1 for u in units.values() if u.get('status') == 'queued')} unit(s) waiting for a plate"
         case "PRINTING":

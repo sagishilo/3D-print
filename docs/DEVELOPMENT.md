@@ -13,7 +13,7 @@ the code.
 | Printer Telemetry: Bambu MQTT + Moonraker WebSocket, failure detection, auto-pause | deterministic, real-time | ✅ |
 | Fleet Manager: queue, MaxRects bin packing, printer assignment | deterministic | ✅ |
 | Inventory: filament ledger, reorder policy, approval-gated POs | deterministic | ✅ |
-| Personalization: headless Hebrew/RTL nameplates (OpenSCAD + slicer CLI) | deterministic | ✅ |
+| Personalization: headless Hebrew/RTL nameplates (OpenSCAD + slicer CLI); Instant Catalog SKUs from 3MF templates | deterministic | ✅ |
 | Finance (ledger): income, expenses, VAT, per-job cost allocation | deterministic | ✅ |
 | Social Listening: buying intent from human-captured Facebook posts | LLM | 📐 designed (phase 10) |
 | Trend Analyst: market shifts | LLM + stats | 📐 designed (phase 10) |

@@ -97,7 +97,7 @@ def test_a_new_order_waits_at_every_gate_when_the_switches_are_off():
     d = step(d, ready("1"))
     rejected = step(d, AdvanceOrder(order_id="o1", to_state="SCHEDULING", requested_by="admin"))
     assert rejected.state == State.PERSONALIZING and isinstance(rejected.outgoing[0], OrderMoveRejected)
-    assert rejected.outgoing[0].reason == "nameplate of item 2 is not ready yet"
+    assert rejected.outgoing[0].reason == "model of item 2 is not ready yet"
 
     d = step(d, ready("2"))
     assert d.state == State.PERSONALIZING and d.outgoing == []      # ready, waiting for the dispatch

@@ -161,6 +161,9 @@ class FakeBus:
     async def kv_get(self, bucket, key):
         return self.kv[bucket].get(key)
 
+    async def blob_put(self, bucket, name, data):
+        self.kv.setdefault(f"obs:{bucket}", {})[name] = data
+
 
 class FakeHttp:
     """go2rtc or the NATS monitoring API: path prefix -> JSON body."""

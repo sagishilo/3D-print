@@ -12,6 +12,8 @@ An order has line items; each item has ``quantity`` units and each unit is print
     QC --RecordQc(pass), then ShipOrder--> SHIPPED          QC --RecordQc(fail)--> SCHEDULING (reprint units)
     ModelFailed | a unit failing MAX_PRINT_ATTEMPTS times | MAX_QC_ROUNDS QC failures --> NEEDS_ATTENTION
     NEEDS_ATTENTION --AdvanceOrder--> PERSONALIZING (retry models, texts may change) | SCHEDULING (retry units)
+    Catalog lines get PrepareCatalogItem instead of GenerateNameplate (the SKU's 3MF template is the model).
+    A stock batch (CreateOrder.dispatch) prepares and schedules at once, whatever the switches.
     open stage without a unit on a printer --CancelOrder--> CANCELLED
 
 A move an operator may not make (e.g. into PRINTING: printers drive that) produces OrderMoveRejected and changes
@@ -20,7 +22,7 @@ nothing. ``Switches`` are the automation settings orders.auto_* (off by default:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
 
@@ -44,10 +46,11 @@ from printfarm.contracts.messages import (
     OrderQcRecorded,
     OrderReceived,
     OrderShipped,
+    PrepareCatalogItem,
     RecordQc,
     ShipOrder,
 )
-from printfarm.contracts.orders import OrderLine, price_order
+from printfarm.contracts.orders import OrderLine, price_order, product_type
 
 MAX_PRINT_ATTEMPTS = 2      # per unit, between two operator retries
 MAX_QC_ROUNDS = 3           # failed QC checks of one order before a person must look
@@ -89,6 +92,11 @@ class Decision:
     reason: str = ""
 
 
+def _effective(ctx: dict, sw: Switches) -> Switches:
+    """A stock batch was dispatched by the operator who queued it: no gate waits for a second click."""
+    return replace(sw, personalize=True, schedule=True) if ctx.get("order", {}).get("dispatch") else sw
+
+
 def job_id(order_id: str, item: str, unit: str, attempt: int) -> str:
     return f"{order_id}-i{item}-u{unit}-a{attempt}"
 
@@ -110,10 +118,12 @@ def start_created(cmd: CreateOrder, sw: Switches) -> Decision:
     pricing = price_order(list(cmd.items), discount_agorot=cmd.discount_agorot, shipping_agorot=cmd.shipping_agorot)
     order = {"order_id": cmd.order_id, "customer_name": cmd.customer_name, "channel": cmd.channel,
              "due_by": cmd.due_by.isoformat() if cmd.due_by else None, "total_agorot": pricing.total}
+    if cmd.dispatch:
+        order["dispatch"] = True
     ctx = _context(order, list(cmd.items))
-    if cmd.as_lead:
+    if cmd.as_lead and not cmd.dispatch:
         return Decision(State.LEAD, ctx, by=cmd.created_by or "unknown")
-    return _received(ctx, sw, by=cmd.created_by or "unknown")
+    return _received(ctx, _effective(ctx, sw), by=cmd.created_by or "unknown")
 
 
 def start_legacy(msg: OrderReceived, sw: Switches) -> Decision:
@@ -142,8 +152,11 @@ def _personalize(state: State, ctx: dict, by: str) -> Decision:
         if item["model_status"] == "ready":
             continue
         item["model_status"], item["model_error"] = "generating", None
-        out.append(GenerateNameplate(order_id=oid, item_id=iid, text=item["text"], material=item["material"],
-                                     color=item["color"]))
+        if item["product"] == "catalog":
+            out.append(PrepareCatalogItem(order_id=oid, item_id=iid, sku=item["sku"]))
+        else:
+            out.append(GenerateNameplate(order_id=oid, item_id=iid, text=item["text"], material=item["material"],
+                                         color=item["color"]))
     # Nothing to generate (every model already ready): the order waits in PERSONALIZING for its dispatch.
     return Decision(State.PERSONALIZING, ctx, out, by=by)
 
@@ -157,7 +170,7 @@ def _enqueue(ctx: dict, unit_key: str) -> EnqueueJob:
         job_id=job_id(oid, iid, unit, u["attempt"]), order_id=oid, artifact_uri=model["artifact_uri"],
         material=item["material"], color=item["color"], footprint_mm=tuple(model["footprint_mm"]),
         est_grams=model["est_grams"], est_minutes=model["est_minutes"], due_by=ctx["order"].get("due_by"),
-        product_type=item["product"],
+        product_type=product_type(item["product"], item.get("sku", "")), whole_plate=bool(model.get("sliced")),
     )
 
 
@@ -212,6 +225,8 @@ def _advance(state: State, ctx: dict, msg: AdvanceOrder, sw: Switches) -> Decisi
             item = ctx["items"].get(iid)
             if item is None:
                 return _reject(state, ctx, to, f"no item {iid} in order {oid}", by)
+            if item["product"] == "catalog":
+                return _reject(state, ctx, to, f"item {iid} is catalog SKU {item['sku']}: it has no text", by)
             if not 0 < len(text.strip()) <= 40:
                 return _reject(state, ctx, to, f"item {iid}: the text must be 1-40 characters", by)
             item["text"], item["model_status"], item["model"] = text.strip(), "pending", None
@@ -220,7 +235,7 @@ def _advance(state: State, ctx: dict, msg: AdvanceOrder, sw: Switches) -> Decisi
     if to == "SCHEDULING" and state == State.PERSONALIZING:
         waiting = [iid for iid, it in ctx["items"].items() if it["model_status"] != "ready"]
         if waiting:
-            return _reject(state, ctx, to, f"nameplate of item {', '.join(waiting)} is not ready yet", by)
+            return _reject(state, ctx, to, f"model of item {', '.join(waiting)} is not ready yet", by)
         return _models_ready(state, ctx, Switches(schedule=True), by)
     came_from = ctx.get("attention", {}).get("from")
     if to == "SCHEDULING" and state == State.NEEDS_ATTENTION and came_from in ("PRINTING", "SCHEDULING", "QC"):
@@ -299,6 +314,7 @@ def _cancel(state: State, ctx: dict, msg: CancelOrder) -> Decision:
 def decide(state: State, ctx: dict, msg: Payload, sw: Switches = Switches()) -> Decision:
     ctx = {**ctx, "items": {k: dict(v) for k, v in ctx.get("items", {}).items()},
            "units": {k: dict(v) for k, v in ctx.get("units", {}).items()}, "qc": dict(ctx.get("qc", {}))}
+    sw = _effective(ctx, sw)
     if state in TERMINAL:
         if isinstance(msg, AdvanceOrder | RecordQc | ShipOrder | CancelOrder):
             by = getattr(msg, "requested_by", "") or getattr(msg, "inspected_by", "") or getattr(msg, "shipped_by", "") \
@@ -332,7 +348,7 @@ def decide(state: State, ctx: dict, msg: Payload, sw: Switches = Switches()) -> 
                 return Decision(state, ctx, changed=False)
             item["model_status"], item["model_error"] = "failed", msg.reason
             if state == State.PERSONALIZING:
-                return _attention(state, ctx, f"nameplate of item {msg.item_id or '1'} failed: {msg.reason}")
+                return _attention(state, ctx, f"model of item {msg.item_id or '1'} failed: {msg.reason}")
             return Decision(state, ctx)
 
         case JobStarted():

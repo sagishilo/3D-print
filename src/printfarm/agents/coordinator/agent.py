@@ -65,10 +65,10 @@ class CoordinatorAgent(Agent):
         )
         for i, (line, total) in enumerate(zip(lines, pricing.lines, strict=True), start=1):
             await conn.execute(
-                "INSERT INTO coordinator.order_items (order_id, item_id, product, text, material, color, quantity, "
-                "unit_price_agorot, line_total_agorot) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (order_id, str(i), line.product, line.text, line.material, line.color, line.quantity, line.unit_price,
-                 total),
+                "INSERT INTO coordinator.order_items (order_id, item_id, product, sku, text, material, color, quantity, "
+                "unit_price_agorot, line_total_agorot) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (order_id, str(i), line.product, line.sku, line.text, line.material, line.color, line.quantity,
+                 line.unit_price, total),
             )
         return pricing.total
 
@@ -240,9 +240,10 @@ class CoordinatorAgent(Agent):
             return
         product_type = cmd.product_type
         if cmd.order_id and product_type is None:
-            # The order's product (orders v2: from its lines; several different products -> "mixed").
+            # The order's product (orders v2: from its lines, a catalog line by its SKU; several -> "mixed").
             products = [r["product"] for r in await (await conn.execute(
-                "SELECT DISTINCT product FROM coordinator.order_items WHERE order_id = %s", (cmd.order_id,))).fetchall()]
+                "SELECT DISTINCT CASE WHEN product = 'catalog' AND sku <> '' THEN sku ELSE product END AS product "
+                "FROM coordinator.order_items WHERE order_id = %s", (cmd.order_id,))).fetchall()]
             if not products:
                 self.log.warning("payment for unknown order %s recorded anyway", cmd.order_id)
             else:

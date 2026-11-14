@@ -53,7 +53,7 @@ def test_board_cards_say_what_each_order_waits_for(client):
     db.rows["FROM fleet.jobs j"] = [{"order_id": "o3", "plate_id": "plate-9", "printer_id": "voron-01", "status": "printing"}]
     cards = {c["order_id"]: c for c in client.get("/api/v1/orders").json()["orders"]}
     o1, o2, o3 = cards["o1"], cards["o2"], cards["o3"]
-    assert o1["status"] == "nameplates ready 1/2 · generating" and o1["stuck"] is True
+    assert o1["status"] == "models ready 1/2 · generating" and o1["stuck"] is True
     assert [i["text"] for i in o1["items"]] == ["Noa", "Dan"] and o1["items"][1]["model"]["status"] == "generating"
     assert o2["stage"] == "PRINTING" and o2["state"] == "NEEDS_ATTENTION" and o2["status"].startswith("unit 1.1 failed")
     assert o3["status"] == "printed 1/2 units" and o3["stuck"] is False     # printers drive this stage: never "stuck"

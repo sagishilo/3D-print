@@ -29,8 +29,9 @@ MQTT_URL = os.getenv("TEST_MQTT_URL")
 pytestmark = pytest.mark.skipif(not (NATS_URL and DB_URL), reason="needs TEST_NATS_URL and TEST_DATABASE_URL")
 
 SCHEMAS = ("messaging", "coordinator", "personalization", "fleet", "telemetry", "inventory", "social", "trend",
-           "finance", "gateway")
-STREAMS = ("EVENTS", "COMMANDS", "TELEMETRY", "DLQ", "KV_printer_status", "KV_heartbeats", "KV_leases", "KV_config")
+           "finance", "gateway", "catalog")
+STREAMS = ("EVENTS", "COMMANDS", "TELEMETRY", "DLQ", "KV_printer_status", "KV_heartbeats", "KV_leases", "KV_config",
+           "OBJ_uploads")
 
 
 def free_port() -> int:
@@ -345,6 +346,40 @@ async def test_order_to_print_to_inventory(stack):
                                    "JOIN fleet.plates p USING (plate_id) WHERE p.printer_id = 'voron-01'", (),
                                lambda r: r and r[0]["status"] == "started")
         assert white[0]["remote_file"].endswith(".gcode")
+
+        # 4) Instant Catalog: a sliced 3MF template uploaded, then a stock batch of two -> one piece per plate,
+        #    the sliced file itself sent to bambu-01 (prices 0: shelf stock, no income)
+        import hashlib
+
+        from test_catalog import sliced_model
+
+        from printfarm.bus.nats_bus import NatsBus
+        from printfarm.contracts.messages import UpsertCatalogProduct
+
+        data = sliced_model()
+        sha = hashlib.sha256(data).hexdigest()
+        bus = await NatsBus.connect(NATS_URL, name="e2e-upload")
+        await bus.blob_put("uploads", sha, data)
+        await bus.close()
+        await _publish(settings, UpsertCatalogProduct(sku="HOOK-E2E", name="Wall hook", category="home", material="PLA",
+                                                      color="black", price_agorot=2500, upload=sha, changed_by="test"))
+        product = await wait_for(db, "SELECT sliced, est_minutes, est_grams, estimated, file_uri FROM catalog.products "
+                                     "WHERE sku = 'HOOK-E2E'", (), lambda r: r)
+        assert product[0]["sliced"] and product[0]["est_minutes"] == 90 and not product[0]["estimated"]
+        await _publish(settings, CreateOrder(
+            order_id="stk-e2e", customer_name="Stock batch", channel="stock", dispatch=True, created_by="test",
+            items=[OrderLine(product="catalog", sku="HOOK-E2E", quantity=2, unit_price_agorot=0)]),
+            correlationid="stk-e2e")
+        jobs = await wait_for(db, "SELECT job_id, whole_plate, product_type FROM fleet.jobs WHERE order_id = 'stk-e2e'",
+                              (), lambda r: len(r) == 2)
+        assert all(j["whole_plate"] and j["product_type"] == "HOOK-E2E" for j in jobs)
+        started = await wait_for(db, "SELECT s.status, s.remote_file, p.printer_id, "
+                                     "(SELECT count(*) FROM fleet.plate_items i WHERE i.plate_id = p.plate_id) AS parts "
+                                     "FROM telemetry.plate_starts s JOIN fleet.plates p USING (plate_id) "
+                                     "JOIN fleet.jobs j ON j.plate_id = p.plate_id WHERE j.order_id = 'stk-e2e'", (),
+                                 lambda r: r and r[0]["status"] == "started", timeout=90)
+        assert started[0]["printer_id"] == "bambu-01" and started[0]["parts"] == 1
+        assert started[0]["remote_file"].endswith(".gcode.3mf")
 
         # every handler ran exactly once per message; nothing was dead-lettered
         async with db.tx() as conn:

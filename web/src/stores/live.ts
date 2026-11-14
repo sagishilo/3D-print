@@ -9,6 +9,7 @@ import { type GapInfo, LiveClient, type LiveStatus, type ReplayEnd } from '@/lib
 import type { FeedItem, PrinterState, Tone } from '@/lib/types'
 
 import { useApprovals } from './approvals'
+import { useCatalog } from './catalog'
 import { useAuth } from './auth'
 import { useFinance } from './finance'
 import { useInventory } from './inventory'
@@ -77,6 +78,11 @@ export const useLive = defineStore('live', () => {
     if (d.kind.startsWith('inventory.') || d.kind === 'fleet.plate.scheduled' || d.kind === 'fleet.plate.finished') useInventory().reloadSoon()
     if (d.kind === 'inventory.alert.raised' && data.severity !== 'info') toasts.push({ tone: 'warn', title: 'Filament', text: d.text }, 10000)
     if (d.kind.startsWith('finance.') || d.kind.startsWith('order.payment.') || d.kind === 'order.order.shipped') useFinance().reloadSoon()
+    if (d.kind.startsWith('catalog.') || d.kind === 'order.order.created' || d.kind === 'order.order.shipped' ||
+      d.kind === 'fleet.plate.scheduled' || d.kind === 'inventory.spool.adjusted') useCatalog().reloadSoon()
+    if (d.kind === 'catalog.product.rejected')
+      toasts.error(data.action === 'slice' ? `${data.sku} not sliced` : `${data.sku} not saved`, String(data.reason))
+    if (d.kind === 'catalog.product.updated') toasts.ok(`${data.sku} in the catalog`, d.text)
     if (d.kind === 'order.move.rejected') toasts.error(`Order ${data.order_id} not moved`, String(data.reason))
     if (d.kind === 'message.dead_lettered') void useSystem().loadDlq()
     if (d.kind === 'system.config.changed') void useSystem().loadSettings()

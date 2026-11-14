@@ -16,8 +16,8 @@ describe('route table', () => {
     const shell = routes.find((r) => r.path === '/')!
     const paths = shell.children!.map((c) => c.path)
     expect(paths).toEqual(expect.arrayContaining(['live', 'system', 'social', 'catalog', 'orders', 'fleet', 'filament', 'finance']))
-    const later = shell.children!.find((c) => c.path === 'catalog')!
-    expect(later.meta).toMatchObject({ title: 'Instant Catalog', phase: 8 })
+    const later = shell.children!.find((c) => c.path === 'social')!
+    expect(later.meta).toMatchObject({ title: 'Social & Trends', phase: 10 })
     expect(typeof later.component).toBe('function')
   })
 })
@@ -40,8 +40,8 @@ describe('auth guard', () => {
     await router.push('/login')
     expect(router.currentRoute.value.path).toBe('/live')
     expect(document.title).toBe('Live floor · PrintFarm Ops')
-    await router.push('/catalog')
-    expect(router.currentRoute.value.meta.phase).toBe(8)
+    await router.push('/social')
+    expect(router.currentRoute.value.meta.phase).toBe(10)
     expect(calls.filter((c) => c.url === '/api/v1/auth/me')).toHaveLength(1) // asked once, then trusted
   })
 })

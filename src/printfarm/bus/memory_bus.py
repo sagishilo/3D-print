@@ -76,6 +76,12 @@ class MemoryBus:
     async def kv_keys(self, bucket: str) -> list[str]:
         return list(self._kv.get(bucket, {}))
 
+    async def blob_put(self, bucket: str, name: str, data: bytes) -> None:
+        self._kv.setdefault(f"obs:{bucket}", {})[name] = data
+
+    async def blob_get(self, bucket: str, name: str) -> bytes | None:
+        return self._kv.get(f"obs:{bucket}", {}).get(name)
+
     async def close(self) -> None:
         for s in self.subs:
             if s.task:

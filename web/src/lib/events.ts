@@ -61,8 +61,8 @@ export function describe(env: Envelope): Described {
       )
     case 'order.order.updated': {
       const what: Record<string, string> = {
-        'personalization.model.ready': 'a nameplate is ready',
-        'personalization.model.failed': 'a nameplate failed',
+        'personalization.model.ready': 'a model is ready',
+        'personalization.model.failed': 'a model failed',
         'fleet.job.started': 'a unit started printing',
         'fleet.job.completed': 'a unit is printed',
         'fleet.job.failed': 'a unit failed and is queued again',
@@ -89,10 +89,14 @@ export function describe(env: Envelope): Described {
       return out(`Payment ${shekels(d.amount_agorot)} (${d.method}) for ${d.order_id ?? 'no order'}`, 'ok', 'money')
     case 'order.payment.refunded':
       return out(`Refund ${shekels(d.amount_agorot)} for ${d.order_id ?? 'no order'}`, 'warn', 'money')
+    case 'catalog.product.updated':
+      return out(`${d.sku} “${d.name}” saved${d.sliced ? ' · sliced' : ' · not sliced'}${d.active ? '' : ' · switched off'} (${d.by})`, 'ok', 'stock')
+    case 'catalog.product.rejected':
+      return out(`${d.sku}: ${d.action === 'slice' ? 'not sliced' : 'not saved'} · ${d.reason}`, 'warn', 'stock')
     case 'personalization.model.ready':
-      return out(`Nameplate for ${d.order_id} ready · ~${round(d.est_grams)} g, ~${round(d.est_minutes)} min${d.sliced ? '' : ' (estimate)'}`, 'ok', 'order')
+      return out(`Model for ${d.order_id} ready · ~${round(d.est_grams)} g, ~${round(d.est_minutes)} min${d.sliced ? '' : ' (estimate)'}`, 'ok', 'order')
     case 'personalization.model.failed':
-      return out(`Nameplate for ${d.order_id} failed: ${d.reason}`, 'danger', 'order')
+      return out(`Model for ${d.order_id} failed: ${d.reason}`, 'danger', 'order')
     case 'fleet.job.queued':
       return out(`Job ${d.job_id} queued`, 'idle', 'order')
     case 'fleet.job.started':

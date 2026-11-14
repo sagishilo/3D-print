@@ -1,5 +1,6 @@
 // End-to-end: the dashboard in a real browser against the simulator stack (see playwright.config.ts).
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 import { expect, type Page, test } from '@playwright/test'
 
@@ -243,7 +244,7 @@ test.describe('order pipeline', () => {
     const dialog = page.getByTestId('new-order')
     await dialog.getByTestId('customer-name').fill(customer)
     await dialog.getByTestId('line-1').locator('input').first().fill('Noa')
-    await dialog.getByRole('button', { name: 'Add item' }).click()
+    await dialog.getByRole('button', { name: 'Add nameplate' }).click()
     await dialog.getByTestId('line-2').locator('input').first().fill('Dan')
     await expect(dialog.getByTestId('order-total')).toContainText('₪90.00') // 2 × ₪45 default price
     await shot(page, '20-orders-new')
@@ -370,5 +371,48 @@ test.describe('finance', () => {
     await page.getByRole('button', { name: 'Save settings' }).click()
     await expect(page.getByTestId('placeholder-banner')).toBeHidden({ timeout: 20_000 })
     await expect(page.getByTestId('finance-settings')).toContainText('confirmed by admin')
+  })
+})
+
+test.describe('instant catalog', () => {
+  test('import a sliced 3MF, build a batch with its estimate, queue it as a stock order', async ({ page }) => {
+    test.setTimeout(180_000)
+    const sku = `E2E-${Date.now().toString(36).toUpperCase()}`
+    await signIn(page, '/catalog')
+    await expect(page.getByRole('heading', { name: 'High-Demand Instant-Print Catalog' })).toBeVisible()
+
+    // the gateway reads the file and says what it holds; the personalization agent keeps it
+    await page.getByTestId('import-3mf').click()
+    const dialog = page.getByTestId('product-dialog')
+    await dialog.getByTestId('file').setInputFiles(fileURLToPath(new URL('./fixtures/slab-easel.3mf', import.meta.url)))
+    await expect(dialog.getByTestId('upload-info')).toContainText('sliced (1 plate)')
+    await expect(dialog.getByTestId('upload-info')).toContainText('slicer: 1 h 30 m · 31.3 g')
+    await dialog.getByTestId('sku').fill(sku)
+    await dialog.getByTestId('name').fill('E2E slab easel')
+    await dialog.getByTestId('price').fill('35')
+    await shot(page, '50-catalog-import')
+    await dialog.getByTestId('save-product').click()
+
+    const card = page.getByTestId(`sku-${sku}`)
+    await expect(card).toContainText('3MF · sliced', { timeout: 20_000 })
+    await expect(card).toContainText('1 h 30 m')
+
+    // into the batch: the bar shows plates, time and filament as the scheduler would pack them
+    await card.getByTestId(`add-${sku}`).click()
+    await card.getByTestId(`qty-${sku}`).fill('2')
+    await card.getByTestId(`qty-${sku}`).blur()
+    const bar = page.getByTestId('batch-bar')
+    await expect(bar).toContainText(`${sku} × 2`)
+    await expect(bar.getByTestId('batch-estimate')).toContainText('2 plates · 3 h 00 m · 63 g')   // sliced: one per plate
+    await shot(page, '51-catalog-batch')
+    await bar.getByTestId('queue-batch').click()
+    await page.locator('dialog.confirm').getByRole('button', { name: 'Queue batch' }).click()
+    await expect(bar).toBeHidden()
+
+    // the stock order skips the gates: on the pipeline it is already past Personalization
+    await page.goto('/orders')
+    const stock = page.locator('article', { hasText: 'Stock batch' }).filter({ hasText: /stk-/ }).first()
+    await expect(stock).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('column-RECEIVED').locator('article', { hasText: 'Stock batch' })).toHaveCount(0)
   })
 })

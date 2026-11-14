@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
 
-from . import approvals, auth, cameras, finance, inventory, live, orders, printers, system
+from . import approvals, auth, cameras, catalog, finance, inventory, live, orders, printers, system
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan)
-for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance):
+for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance, catalog):
     app.include_router(module.router)
 
 
@@ -70,6 +70,8 @@ async def health(request: Request):
 
 
 # ---------------------------------------------------------------- commands
+CATALOG_LINES = {"orders.create", "catalog.batch"}    # their catalog lines take filament and price from the catalog
+
 async def _dispatch(request: Request, name: str, body: dict, claims: dict) -> dict:
     try:
         command_id = command_id_from(request.headers.get("idempotency-key"))
@@ -122,7 +124,10 @@ async def command_catalog(_c: dict = Depends(auth.require_auth)):
 async def command(name: str, request: Request, claims: dict = Depends(auth.require_csrf)):
     if name not in COMMANDS:
         raise HTTPException(404, f"unknown command {name}")
-    return await _dispatch(request, name, await _json_object(request), claims)
+    body = await _json_object(request)
+    if name in CATALOG_LINES:
+        body = await catalog.resolve_lines(request.app.state.db, body)
+    return await _dispatch(request, name, body, claims)
 
 
 @app.post("/api/v1/commands/printers/{printer_id}/{action}", status_code=202)

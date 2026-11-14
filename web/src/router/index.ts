@@ -20,6 +20,7 @@ export const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/live' },
       { path: 'live', name: 'live', component: () => import('@/views/LiveView.vue'), meta: { title: 'Live floor' } },
+      { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Instant Catalog' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline' } },
       { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Filament' } },
       { path: 'fleet', name: 'fleet', component: () => import('@/views/FleetView.vue'), meta: { title: 'Printer Fleet' } },

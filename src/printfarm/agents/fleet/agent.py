@@ -51,11 +51,11 @@ class FleetAgent(Agent):
     async def enqueue(self, env, cmd: EnqueueJob, conn):
         cur = await conn.execute(
             "INSERT INTO fleet.jobs (job_id, order_id, correlationid, artifact_uri, material, color, footprint_w, "
-            "footprint_d, est_grams, est_minutes, due_by, priority, product_type, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued') ON CONFLICT DO NOTHING",
+            "footprint_d, est_grams, est_minutes, due_by, priority, product_type, whole_plate, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued') ON CONFLICT DO NOTHING",
             (cmd.job_id, cmd.order_id, env.correlationid, cmd.artifact_uri, cmd.material, cmd.color,
              cmd.footprint_mm[0], cmd.footprint_mm[1], cmd.est_grams, cmd.est_minutes, cmd.due_by, cmd.priority,
-             cmd.product_type),
+             cmd.product_type, cmd.whole_plate),
         )
         if cur.rowcount:
             await self.emit(conn, JobQueued(job_id=cmd.job_id, order_id=cmd.order_id), cause=env)
@@ -218,6 +218,12 @@ class FleetAgent(Agent):
                 if not rows:
                     continue
                 by_id = {r["job_id"]: r for r in rows}
+                # A sliced file is a whole plate already: when it is next in line it prints alone; otherwise the
+                # plate is packed from the jobs that can share one.
+                if rows[0]["whole_plate"]:
+                    rows = rows[:1]
+                else:
+                    rows = [r for r in rows if not r["whole_plate"]]
                 plan = build_plate(
                     [JobSpec(r["job_id"], r["footprint_w"], r["footprint_d"], r["est_minutes"], r["est_grams"],
                              r["priority"], r["due_by"], r["created_at"]) for r in rows],
