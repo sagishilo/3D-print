@@ -30,8 +30,8 @@ AGENTS = (
     {"name": "personalization", "label": "Personalization", "detail": "nameplates", "tier": "core"},
     {"name": "inventory", "label": "Inventory", "detail": "filament · reorders · POs", "tier": "core"},
     {"name": "finance", "label": "Finance", "detail": "ledger · VAT", "tier": "core"},
-    {"name": "social", "label": "Social Listening", "detail": "arrives in phase 10", "tier": "optional", "planned": True},
-    {"name": "trend", "label": "Trend Analyst", "detail": "arrives in phase 10", "tier": "optional", "planned": True},
+    {"name": "social", "label": "Social Listening", "detail": "captured posts · intent · reply drafts", "tier": "optional"},
+    {"name": "trend", "label": "Trend Analyst", "detail": "arrives in phase 10b", "tier": "optional", "planned": True},
 )
 HEALTHY_WITHIN_S = 25   # heartbeats come every 10 s and expire from the KV bucket after 30 s
 DLQ_SCAN_MAX = 1000
@@ -253,6 +253,7 @@ async def config(request: Request):
         raw = await bus.kv_get("config", k.key)
         change = last.get(k.key)
         out.append({"key": k.key, "label": k.label, "help": k.help, "default": k.default, "phase": k.phase,
+                    "minimum": k.minimum, "maximum": k.maximum,
                     "value": json.loads(raw) if raw is not None else k.default, "is_default": raw is None,
                     "changed_by": change["changed_by"] if change else None,
                     "changed_at": change["at"] if change else None,

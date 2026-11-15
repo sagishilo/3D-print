@@ -15,6 +15,8 @@ const system = useSystem()
 const confirm = useConfirm()
 const toasts = useToasts()
 const saving = ref<string | null>(null)
+// On/off settings only; number settings (thresholds, budget) are on the screens they tune (Social & Trends).
+const switches = computed(() => system.settings.filter((s) => typeof s.default === 'boolean'))
 
 const lastChange = computed(() => {
   const changed = system.settings.filter((s) => s.changed_at).sort((a, b) => (a.changed_at! < b.changed_at! ? 1 : -1))
@@ -52,7 +54,7 @@ async function change(s: Setting, value: boolean) {
       <span class="panel-note">changes are audited</span>
     </div>
     <ul class="settings">
-      <li v-for="s in system.settings" :key="s.key" :data-testid="`setting-${s.key}`">
+      <li v-for="s in switches" :key="s.key" :data-testid="`setting-${s.key}`">
         <div class="text">
           <span class="label">
             {{ s.label }}

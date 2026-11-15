@@ -15,8 +15,8 @@ the code.
 | Inventory: filament ledger, reorder policy, approval-gated POs | deterministic | ✅ |
 | Personalization: headless Hebrew/RTL nameplates (OpenSCAD + slicer CLI); Instant Catalog SKUs from 3MF templates | deterministic | ✅ |
 | Finance (ledger): income, expenses, VAT, per-job cost allocation | deterministic | ✅ |
-| Social Listening: buying intent from human-captured Facebook posts | LLM | 📐 designed (phase 10) |
-| Trend Analyst: market shifts | LLM + stats | 📐 designed (phase 10) |
+| Social Listening: buying intent from human-captured Facebook posts (local embeddings + pgvector prefilter, Haiku triage, Opus Hebrew drafts, human approval) | LLM | ✅ |
+| Trend Analyst: market shifts | LLM + stats | 📐 designed (phase 10b) |
 
 **Design docs:** [architecture/](architecture/README.md) · original plan: [PLAN.md](PLAN.md) · dashboard design: [design/](design/)
 
@@ -122,6 +122,12 @@ docker run -d --rm --name pf-e2e-nats --network pf-e2e -e NATS_SERVICES_PASSWORD
 A publish the `agents` user may not make shows in `docker logs pf-e2e-nats` as `Publish Violation`. When an agent
 needs a new command, add its subject to `AGENT_COMMANDS` in `src/printfarm/contracts/permissions.py` **and** to the
 agents' allow list in `infra/nats/nats.conf` (`tests/test_hardening.py` fails until both match).
+
+**Social agent offline:** `SOCIAL_EMBEDDER=hash` (word hashing instead of the local model) and `SOCIAL_LLM=fake`
+(keyword triage, canned drafts, no Claude calls) run it without the model download or an API key; the e2e test uses
+both. The Docker image bakes the embedding model in (`--build-arg INSTALL_SOCIAL=0` leaves the social dependencies out).
+The database needs pgvector: `infra/postgres/Dockerfile` (compose builds it); for a throwaway e2e database,
+`docker build -t pf-postgres infra/postgres` or `pgvector/pgvector:0.8.0-pg16`.
 
 **Migrations** are numbered files in `src/printfarm/store/migrations/`. Never edit one that has been applied anywhere:
 `printfarm migrate` refuses (checksums), so add the next number instead. `printfarm migrate --status` shows what is applied.

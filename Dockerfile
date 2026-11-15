@@ -8,6 +8,16 @@ RUN if [ "$INSTALL_OPENSCAD" = "1" ]; then \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Social Listening: the Claude SDK and a local multilingual embedding model (~0.5 GB with ONNX runtime), downloaded
+# here so the agent needs no internet for embeddings. --build-arg INSTALL_SOCIAL=0 leaves it out (no social agent).
+ARG INSTALL_SOCIAL=1
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed
+RUN if [ "$INSTALL_SOCIAL" = "1" ]; then \
+      pip install --no-cache-dir "anthropic>=2.8,<3" "fastembed>=0.9.1,<0.10" \
+      && python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', cache_dir='/opt/fastembed')" \
+      && chmod -R a+rX /opt/fastembed; \
+    fi
+
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src

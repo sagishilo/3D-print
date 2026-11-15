@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PrintFarm Capture · settings</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font: 14px/1.5 system-ui, sans-serif; background: #0B0D10; color: #E6E9EE; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 20px; }
+    label { display: flex; flex-direction: column; gap: 4px; margin: 14px 0; color: #8B95A3; font-size: 12px; }
+    input { padding: 8px 10px; border-radius: 6px; border: 1px solid #252B34; background: #12151A; color: #E6E9EE; font: 14px ui-monospace, monospace; }
+    button { padding: 8px 14px; border-radius: 6px; border: 1px solid #4C8DFF; background: #4C8DFF; color: #fff; font: 600 14px system-ui; cursor: pointer; }
+    #status { margin-top: 12px; min-height: 1.5em; }
+    .ok { color: #2EA043; } .bad { color: #F85149; }
+    p.note { color: #8B95A3; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>PrintFarm Capture</h1>
+  <p class="note">In a group, select a post's text, right-click, and choose <b>Capture post to PrintFarm</b>. Only that text, the page
+    title (as the group's name) and the post's link are sent, and only when you choose Capture. Replies are drafted on the
+    dashboard; you post them yourself.</p>
+  <form id="form">
+    <label>Dashboard address<input id="origin" placeholder="https://192.168.50.10" autocomplete="off" required /></label>
+    <label>Capture token (Social &amp; Trends › Capture extension › New token)<input id="token" placeholder="pfc_…" autocomplete="off" required /></label>
+    <button type="submit">Save and test</button>
+  </form>
+  <div id="status" role="status"></div>
+  <p class="note">If the test says the dashboard cannot be reached, this device may not trust the dashboard's certificate yet
+    (README step 7).</p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

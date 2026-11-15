@@ -12,7 +12,7 @@ import time
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from nats.errors import ConnectionClosedError, NoRespondersError, NoServersError
 from nats.errors import TimeoutError as NatsTimeout
@@ -20,13 +20,13 @@ from nats.js.errors import NoStreamResponseError
 from psycopg import OperationalError
 from psycopg.types.json import Jsonb
 from psycopg_pool import PoolTimeout
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
 from printfarm.contracts.catalog import MAX_UPLOAD_BYTES
 from printfarm.store import schema
 
-from . import approvals, auth, cameras, catalog, finance, inventory, live, orders, printers, system
+from . import approvals, auth, cameras, catalog, finance, inventory, live, orders, printers, social, system
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
@@ -90,7 +90,7 @@ async def _unexpected(request: Request, exc: Exception):
     log.exception("unhandled error on %s %s rid=%s", request.method, request.url.path, _rid(request))
     return JSONResponse({"detail": "internal error", "request_id": _rid(request)}, status_code=500)
 
-for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance, catalog):
+for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance, catalog, social):
     app.include_router(module.router)
 
 
@@ -181,6 +181,27 @@ async def command(name: str, request: Request, claims: dict = Depends(auth.requi
     if name in CATALOG_LINES:
         body = await catalog.resolve_lines(request.app.state.db, body)
     return await _dispatch(request, name, body, claims)
+
+
+class CaptureIn(BaseModel):
+    """What the capture extension sends: the post a person chose to capture (ADR-0007), nothing else."""
+    post_text: str = Field(min_length=1, max_length=5000)
+    post_url: str = Field(default="", max_length=1000, pattern=r"^(https://\S+)?$")
+    group_name: str = Field(default="", max_length=200)
+
+
+@app.post("/api/v1/social/captures", status_code=202)
+async def capture_from_extension(body: CaptureIn, request: Request, authorization: str | None = Header(None)):
+    """The browser extension's only door: a capture token (Bearer), not the dashboard login; no CSRF (no cookie)."""
+    tok = await social.verify_token(request.app.state.db, authorization)
+    return await _dispatch(request, "social.capture", body.model_dump(), {"sub": f"extension:{tok['label']}"})
+
+
+@app.get("/api/v1/social/token-check")
+async def capture_token_check(request: Request, authorization: str | None = Header(None)):
+    """The extension's options page: is this token valid? (Counts as a use; never returns the token.)"""
+    tok = await social.verify_token(request.app.state.db, authorization)
+    return {"ok": True, "label": tok["label"]}
 
 
 @app.post("/api/v1/commands/printers/{printer_id}/{action}", status_code=202)

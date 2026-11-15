@@ -2,7 +2,7 @@
 import { bytes, duration, shekels } from './format'
 import type { Envelope, Tone } from './types'
 
-export type Category = 'printer' | 'order' | 'stock' | 'money' | 'system'
+export type Category = 'printer' | 'order' | 'stock' | 'money' | 'social' | 'system'
 
 export interface Described {
   kind: string // e.g. "printer.pause.confirmed"
@@ -89,6 +89,22 @@ export function describe(env: Envelope): Described {
       return out(`Payment ${shekels(d.amount_agorot)} (${d.method}) for ${d.order_id ?? 'no order'}`, 'ok', 'money')
     case 'order.payment.refunded':
       return out(`Refund ${shekels(d.amount_agorot)} for ${d.order_id ?? 'no order'}`, 'warn', 'money')
+    case 'social.capture.scored':
+      if (d.status === 'lead') return out(`Lead in ${d.group_name || 'a pasted post'} · intent ${Number(d.intent_score).toFixed(2)} · ${d.summary}`, 'ok', 'social')
+      if (d.status === 'waiting' || d.status === 'failed')
+        return out(`Capture ${d.status}${d.group_name ? ` (${d.group_name})` : ''}: ${d.reason}`, d.status === 'failed' ? 'danger' : 'warn', 'social')
+      if (d.status === 'duplicate') return out(`Captured again: ${d.reason}`, 'idle', 'social')
+      return out(`Capture ${d.status === 'ignored' ? 'ignored' : 'scored'}${d.group_name ? ` (${d.group_name})` : ''}${d.reason ? `: ${d.reason}` : d.summary ? `: ${d.summary}` : ''}`, 'idle', 'social')
+    case 'social.lead.detected':
+      return out(`New lead · ${d.summary}`, 'ok', 'social')
+    case 'social.reply.drafted':
+      return d.failed ? out(`Lead ${d.lead_id}: no draft (${d.failed}); write the reply yourself`, 'warn', 'social')
+        : out(`Reply drafted for ${d.lead_id}: waiting for your review`, 'accent', 'social')
+    case 'social.lead.changed':
+      return out(`Lead ${d.lead_id} ${d.status === 'approved' ? 'approved' : d.status === 'posted' ? 'posted' : 'rejected'} (${d.by})`,
+        d.status === 'dismissed' ? 'idle' : 'ok', 'social')
+    case 'social.capture.labelled':
+      return out(`Capture labelled ${d.label === 'buyer' ? 'buyer' : 'not a buyer'} (${d.by})`, 'idle', 'social')
     case 'catalog.product.updated':
       return out(`${d.sku} “${d.name}” saved${d.sliced ? ' · sliced' : ' · not sliced'}${d.active ? '' : ' · switched off'} (${d.by})`, 'ok', 'stock')
     case 'catalog.product.rejected':

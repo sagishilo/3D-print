@@ -61,7 +61,8 @@ services:
     logging: *logging
 
   postgres:
-    image: postgres:16.16-alpine
+    build: ./infra/postgres          # postgres:16.16-alpine + pgvector (the social agent's embeddings)
+    image: printfarm-postgres:16-pgvector
     environment:
       POSTGRES_DB: printfarm
       POSTGRES_USER: printfarm
@@ -205,6 +206,17 @@ services:
   finance:                      # the ledger: income, expenses, VAT, per-job cost allocation
     <<: *agent
     command: ["agent", "finance"]
+
+  # Social Listening (ADR-0007): scores posts people captured, drafts replies people approve and post themselves.
+  # The only service that gets the Claude API key; without one, captures are kept and wait.
+  social:
+    <<: *agent
+    command: ["agent", "social"]
+    environment:
+      <<: *agent-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SOCIAL_CONFIG: /app/config/social.toml
+      SOCIAL_LLM: ${SOCIAL_LLM:-}         # "fake" = test mode: keyword triage, canned drafts, no Claude calls
 
   telemetry:
     <<: *agent

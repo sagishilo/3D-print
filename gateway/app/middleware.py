@@ -57,7 +57,7 @@ def bucket_for(method: str, path: str) -> str | None:
         return None
     if method == "POST" and path.startswith("/api/v1/catalog/uploads"):
         return "uploads"
-    if method == "POST" and path.startswith("/api/v1/commands"):
+    if method == "POST" and (path.startswith("/api/v1/commands") or path == "/api/v1/social/captures"):
         return "commands"
     return "api"
 

@@ -226,7 +226,7 @@ $env:SIM_FAULTS = "bambu-01=ignore_pause,voron-01=thermal_runaway"; docker compo
 
 ## The dashboard
 
-After signing in (step 7), the sidebar has the screens of the design. Seven work today; Social & Trends says which roadmap phase brings it.
+After signing in (step 7), the sidebar has the screens of the design, and all of them work. The Trend Analyst panel on Social & Trends arrives in phase 10b.
 
 - **Live floor**: one tile per printer with its camera (live MJPEG; the tile shows the frame age, and STALLED / RECONNECTING / OFFLINE when the camera has a problem), state, temperatures and progress, and Pause / Resume. **History** on a tile replays that printer's last 15–60 minutes of telemetry (temperatures, progress, failure and pause markers; scrub or play it back). The **Live events** list below shows every event as it happens; **Replay** loads stored events (up to 7 days back). Safety alerts (a pause the printer did not confirm, a critical failure) appear as a red banner and stay until you acknowledge them.
 - **Instant Catalog**: ready-made products (SKUs) printed from a 3MF template, ranked by units sold in the last 7 days (with the change against the week before), filtered by category. **Import 3MF**: best a plate **sliced** in Bambu Studio or OrcaSlicer (File › Export › Export plate sliced file, one plate per file): it goes to the printer as is, one piece per plate, and its print time and filament come from the slicer. A model-only 3MF also works (type its grams and minutes); simulated printers print it, a real printer refuses it until it is sliced. **Slice now** slices on the server when a slicer is installed next to the personalization agent; the standard image has none, so it tells you to export a sliced plate instead. **Add to batch** (it suggests this week's sales minus what is already being printed for stock) builds a batch: the bar shows its plates, print time and filament as the scheduler would pack them, and which filament would run short (spools minus what scheduled plates and queued jobs already need). **Queue batch** creates one stock order (channel "stock", no price) that goes straight to the printers' queue; it appears on the Order Pipeline. Catalog SKUs can also be sold in **New manual order** (Add catalog item): the price and filament come from the catalog.
@@ -274,6 +274,27 @@ The dashboard sends commands with `POST /api/v1/commands/<name>` (the list: `GET
 
 Amounts are integers in agorot (`35400` = ₪354.00) and gross (VAT included). Every ledger row is keyed by the id of the message that caused it, so a redelivered message is never booked twice. A message that keeps failing goes to the DLQ (`dlq.message.dead_lettered`) after 5 attempts.
 
+## Social Listening (optional)
+
+The **Social & Trends** screen finds people in Facebook groups who want something you print, and drafts a Hebrew reply. **You** read it, edit it, copy it, paste it in the group and post it yourself. The system never posts, never sends messages and never reads Facebook by itself (ADR-0007: scraping groups breaks Meta's terms and gets accounts banned).
+
+How posts get in:
+- **The capture extension.** Install the `extension/` folder in Chrome (Extensions › Developer mode › Load unpacked). On Social & Trends › Capture extension, make a **New token** (it is shown once). In the extension's options, enter this dashboard's address and the token. In a group, select a post's text, right-click, and choose **Capture post to PrintFarm**. The extension sends only what you selected, the page title as the group's name, and the post's link. The device must trust the dashboard's certificate (step 7).
+- **Add post** on the screen: paste a post by hand.
+
+What happens to a post:
+1. The same post captured twice is kept once.
+2. A small model on this PC (no internet, nothing sent anywhere) compares it with posts known to be from buyers. Posts that look nothing like a buyer's are set aside as **ignored**, at no cost.
+3. **Claude Haiku 5.5** scores the buying intent (0–1), picks the closest catalog SKU, and writes a one-line summary.
+4. From the **lead threshold** (0.7) upward the post becomes a **lead**, and **Claude Opus 5.5** drafts the reply, using only the facts in `config/social.toml`. Put your real business name, area, contact line and facts there; the shipped values are placeholders.
+5. The review queue shows the post, the matched SKU and the draft. **Approve & Copy** copies your (edited) text; paste it in the group, post it, then **Mark as posted**. Keys: J / K move, A approve & copy, P mark posted, R reject.
+
+To switch it on, put a Claude API key in `.env` (`ANTHROPIC_API_KEY=sk-ant-...`, from console.anthropic.com), then `docker compose up -d social`. Only the social container gets the key. Without a key, posts are kept and **wait**; press Rescore on each after adding it.
+
+**Cost.** Claude is paid per use. At 50–300 captured posts a day, expect a few dollars a month: Haiku triage costs well under a tenth of a cent a post, and an Opus draft one to two cents, only for leads. The screen shows today's and this month's spend. **Daily model budget** (default $2) stops all model calls for the rest of the day once reached; waiting posts can be rescored the next day.
+
+**Accuracy.** Mark captures **Buyer** or **Not buyer**. Each label also teaches the local prefilter, and the screen shows how many leads were real buyers and how many buyers became leads. Label a few dozen real posts before you trust or move the threshold.
+
 ## Daily operations
 
 | Task | Command |
@@ -294,7 +315,7 @@ Amounts are integers in agorot (`35400` = ₪354.00) and gross (VAT included). E
 
 **Prints that ended unseen.** If a printer is restarted, a print is cancelled at the printer's screen, or a print ends while this PC or the network is down, the telemetry agent notices within about 20 seconds of the printer reporting again. It closes that plate as failed: its items are reprinted, and the bed is not assumed empty, so an operator clears it first.
 
-**Limits.** The gateway answers each device with 429 (and `Retry-After`) beyond 600 requests a minute, 60 commands a minute or 20 uploads a minute. Bodies are limited to 1 MB, 50 MB for a 3MF upload. Sign-ins lock for 15 minutes after 5 wrong passwords. Sign-ins, failed sign-ins, lockouts, sign-outs and reused refresh tokens go to the same audit log as commands. When the database or the message bus is down, requests answer 503 ("try again shortly"), not a crash, and the dashboard retries a read once. Every response carries an `X-Request-ID`; a server error shows it as "ref …", so you can find it in `docker compose logs gateway`.
+**Limits.** The capture extension's endpoint counts as commands. The gateway answers each device with 429 (and `Retry-After`) beyond 600 requests a minute, 60 commands a minute or 20 uploads a minute. Bodies are limited to 1 MB, 50 MB for a 3MF upload. Sign-ins lock for 15 minutes after 5 wrong passwords. Sign-ins, failed sign-ins, lockouts, sign-outs and reused refresh tokens go to the same audit log as commands. When the database or the message bus is down, requests answer 503 ("try again shortly"), not a crash, and the dashboard retries a read once. Every response carries an `X-Request-ID`; a server error shows it as "ref …", so you can find it in `docker compose logs gateway`.
 
 **Never run `docker compose down -v`** unless you mean to erase everything. `-v` deletes the database, the NATS history and Caddy's certificate authority, so every device would then have to trust a new certificate.
 
@@ -304,7 +325,7 @@ Amounts are integers in agorot (`35400` = ₪354.00) and gross (VAT included). E
 
 | Works now (tested end to end) | Still to build |
 | --- | --- |
-| HTTPS via Caddy; admin login with HttpOnly cookies, refresh rotation, logout, 5-try lockout | Dashboard screen for Social & Trends (Phase 10) |
+| HTTPS via Caddy; admin login with HttpOnly cookies, refresh rotation, logout, 5-try lockout | Trend Analyst (phase 10b): rising and cooling demand, catalog suggestions |
 | Dashboard (Vue 3, built into the Caddy image): sign-in, app shell, Live floor (cameras, telemetry replay, event replay, safety alerts), Order Pipeline (multi-item priced orders, drag-to-dispatch board, QC, shipping, payments), Instant Catalog (3MF import, demand ranking, batches with plates/time/filament and shortages), Filament (spools, live grams, alerts, reorder rules and list, purchase orders), Finance (P&L by period, trend, product margins, receivables, VAT, ledgers, CSV, settings), Printer Fleet (controls, batch actions, hardware readings, calibration, failure & event log), System & Agents (agent health, NATS, servers, dead-letter replay/discard, audited automation toggles); works on phones | Calibration on real Bambu printers (commands are community-documented; verify in Phase 9) |
 | Commands: CSRF check, validated against typed contracts, audit log, published durably to JetStream (202 + `command_id`, idempotent retries) | Building multi-part plate files automatically (plate compositor); until then a printer only gets an already-sliced plate file. Server-side slicing (Slice now) needs a slicer CLI in the personalization container; none ships today |
 | Agents: order sagas, human approvals, payments, audited settings; plate packing and scheduling; filament ledger, reorders, PO ordered/received, spools | Real-printer tests (Phase 9), including `bambu-cam` on a real P1/A1 and whether your Bambu firmware needs Developer Mode for control |
@@ -314,6 +335,7 @@ Amounts are integers in agorot (`35400` = ₪354.00) and gross (VAT included). E
 | Live feed (`/ws`): events, telemetry and dead letters only, never commands; resumes after a reconnect from the last event seen, replays stored history; refuses other sites (4403) and visitors without a session (4401) | |
 | Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit, filament priced from the latest PO), duplicate-safe; settings from the dashboard (audited, confirmed) | Metrics dashboards (Prometheus/Grafana); per-agent Postgres roles |
 | Hardening: NATS permissions per user (agents cannot send operator commands or delete streams); rate limits, body limits, request ids, 503 on outages; audited sign-ins; checksummed migrations with `--status`/`--check`; nightly backups with restore; health checks for every service and a dashboard banner; CSP and security headers; CI (lint, unit, e2e under the real NATS permissions, web, image builds) | Off-site backup copies (yours to schedule) |
-| One JetStream topology and one migration path (`migrate` service) shared by every component | Social Listening and Trend Analyst (LLM agents) |
+| One JetStream topology and one migration path (`migrate` service) shared by every component | Social Listening with a real API key (built and tested against a faked Claude client; set `ANTHROPIC_API_KEY` to run it for real) |
+| Social Listening: posts captured by people (browser extension or Add post), local embeddings + pgvector prefilter, Claude Haiku triage, Claude Opus Hebrew drafts, review queue (Approve & Copy, Mark as posted), labels and accuracy, daily budget | |
 
 The default finance settings (VAT 18%, 64 agorot/kWh, 150 W, ₪85/kg) are **placeholders**. Set real values with your accountant and from your electricity bill.

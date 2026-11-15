@@ -115,6 +115,10 @@ class Agent:
     async def on_start(self) -> None:
         """Seed state, open device connections, start loops."""
 
+    def heartbeat_info(self) -> dict:
+        """Extra fields an agent shows in its heartbeat (the dashboard reads them)."""
+        return {}
+
     def spawn(self, coro) -> asyncio.Task:
         """Run a background task owned by this agent (cancelled on stop; forgotten once finished)."""
         task = asyncio.create_task(coro)
@@ -143,7 +147,7 @@ class Agent:
         while True:
             beat = {"agent": self.name, "version": __version__, "at": datetime.now(UTC).isoformat(),
                     "uptime_s": int(time.time() - self._started), "host": socket.gethostname(), "pid": os.getpid(),
-                    "interval_s": HEARTBEAT_S}
+                    "interval_s": HEARTBEAT_S, **self.heartbeat_info()}
             with contextlib.suppress(Exception):
                 await self.bus.kv_put("heartbeats", self.name, json.dumps(beat).encode())
             await asyncio.sleep(HEARTBEAT_S)

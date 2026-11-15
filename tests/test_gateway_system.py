@@ -113,7 +113,8 @@ def test_agents_health_version_and_queue(client):
     assert agents["coordinator"]["version"] == "0.3.0"
     assert agents["fleet"]["status"] == "late"
     assert agents["telemetry"]["status"] == "down" and agents["telemetry"]["queue"] is None
-    assert agents["social"]["status"] == "planned"
+    assert agents["social"]["status"] == "down"            # a real agent since phase 10
+    assert agents["trend"]["status"] == "planned"
 
 
 def test_overview_combines_nats_postgres_and_dlq(client):

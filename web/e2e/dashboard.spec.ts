@@ -85,10 +85,10 @@ test('live floor: cameras, state, telemetry replay and event replay', async ({ p
 test('system & agents: health, NATS, servers and printers', async ({ page }) => {
   await signIn(page, '/system')
   await expect(page.getByRole('heading', { name: 'System & Agents' })).toBeVisible()
-  for (const agent of ['coordinator', 'telemetry', 'fleet', 'personalization', 'inventory', 'finance']) {
+  for (const agent of ['coordinator', 'telemetry', 'fleet', 'personalization', 'inventory', 'finance', 'social']) {
     await expect(page.getByTestId(`agent-${agent}`)).toHaveAttribute('data-status', 'healthy', { timeout: 40_000 })
   }
-  await expect(page.getByTestId('agent-social')).toContainText('Planned')
+  await expect(page.getByTestId('agent-trend')).toContainText('Planned')
   for (const server of ['gateway', 'nats', 'postgres', 'go2rtc']) {
     await expect(page.getByTestId(`server-${server}`)).toContainText('OK')
   }
@@ -414,5 +414,64 @@ test.describe('instant catalog', () => {
     const stock = page.locator('article', { hasText: 'Stock batch' }).filter({ hasText: /stk-/ }).first()
     await expect(stock).toBeVisible({ timeout: 30_000 })
     await expect(page.getByTestId('column-RECEIVED').locator('article', { hasText: 'Stock batch' })).toHaveCount(0)
+  })
+})
+
+test.describe('social listening', () => {
+  // The stack runs the social agent in test mode (SOCIAL_LLM=fake: keyword triage, canned drafts, no Claude calls)
+  // with the real local embedding model, so the prefilter is the production one.
+  test('a pasted post becomes a lead; the reply is edited, approved & copied, and marked posted', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    const n = Date.now()
+    await signIn(page, '/social')
+    await expect(page.getByRole('heading', { name: 'Social Listening & Trends' })).toBeVisible()
+    await expect(page.getByTestId('capture-line')).not.toContainText(/monitor|scan/i)
+
+    await page.getByTestId('add-post-open').click()
+    await page.getByTestId('post-text').fill(`מישהו מכיר מקום שמדפיס שלט עם שם לדלת? צריכה לחדר של הבת שלי (${n})`)
+    await page.getByTestId('add-post').getByLabel('Group').fill('הורים בחיפה')
+    await page.getByTestId('add-post-submit').click()
+    const review = page.getByTestId('review')
+    await expect(review.getByTestId('lead-post')).toContainText(String(n), { timeout: 60_000 })
+    await expect(review.getByTestId('lead-draft')).toHaveValue(/היי!/)
+    await shot(page, 'social-lead')
+
+    const reply = `היי! נשמח להדפיס לך שלט לדלת (${n})`
+    await review.getByTestId('lead-draft').fill(reply)
+    await review.getByTestId('approve-copy').click()
+    await expect(page.getByText('Approved and copied')).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(reply)
+    await review.getByTestId('mark-posted').click()
+    await expect(page.getByText('Marked as posted')).toBeVisible()
+
+    await page.getByTestId('add-post-open').click()
+    await page.getByTestId('post-text').fill(`מוכר אופניים משומשים במצב מעולה, 500 שקל (${n})`)
+    await page.getByTestId('add-post-submit').click()
+    const sold = page.locator('article').filter({ hasText: `500 שקל (${n})` })
+    await expect(sold.getByText('ignored')).toBeVisible({ timeout: 60_000 })
+    await sold.getByRole('button', { name: 'Not buyer' }).click()
+    await expect(sold.getByRole('button', { name: 'Not buyer' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('a capture token is shown once and lets the extension send a post', async ({ page }) => {
+    const n = Date.now()
+    await signIn(page, '/social')
+    await page.getByTestId('token-label').fill(`e2e browser ${n}`)
+    await page.getByRole('button', { name: 'New token' }).click()
+    const token = (await page.getByTestId('token-fresh').locator('code').textContent())!.trim()
+    expect(token).toMatch(/^pfc_/)
+    await page.getByRole('button', { name: 'Done' }).click()
+    await expect(page.getByTestId('token-fresh')).toHaveCount(0)
+
+    const denied = await page.request.post('/api/v1/social/captures', { data: { post_text: 'x' } })
+    expect(denied.status()).toBe(401)
+    const sent = await page.request.post('/api/v1/social/captures', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { post_text: `ממליצים על מישהו שעושה הדפסות תלת מימד בהזמנה אישית? (${n})`, group_name: 'TCG IL',
+        post_url: 'https://www.facebook.com/groups/1/posts/9' },
+    })
+    expect(sent.status()).toBe(202)
+    await page.reload()
+    await expect(page.locator('article').filter({ hasText: String(n) }).getByText(`extension:e2e browser ${n}`)).toBeVisible({ timeout: 60_000 })
   })
 })

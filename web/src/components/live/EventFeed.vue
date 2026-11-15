@@ -18,6 +18,7 @@ const FILTERS: { id: typeof filter.value; label: string }[] = [
   { id: 'order', label: 'Orders' },
   { id: 'stock', label: 'Stock' },
   { id: 'money', label: 'Money' },
+  { id: 'social', label: 'Social' },
   { id: 'system', label: 'System' },
   { id: 'safety', label: 'Safety' },
 ]

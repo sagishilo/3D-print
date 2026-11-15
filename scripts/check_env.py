@@ -29,4 +29,8 @@ print(f"{'OK     ' if nats_ok else 'INVALID'}  NATS password format")
 if not nats_ok:
     print("         Each NATS password must start with a letter and use only letters and digits (16+).\n"
           "         Fix it in .env (e.g. put the letter n in front), then: docker compose up -d. This is safe at any time.")
+key = vals.get("ANTHROPIC_API_KEY", "")
+print(f"{'SET    ' if key else 'not set'}  ANTHROPIC_API_KEY (optional: Social Listening scores posts only with it)")
+if key and not key.startswith("sk-ant-"):
+    print("         It does not look like an Anthropic API key (they start with sk-ant-).")
 sys.exit(1 if bad or not hash_ok or not nats_ok else 0)

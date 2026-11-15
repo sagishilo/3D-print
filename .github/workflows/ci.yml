@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:16.16-alpine
+        image: pgvector/pgvector:0.8.0-pg16      # Postgres 16 + pgvector (production builds the same onto alpine)
         env:
           POSTGRES_DB: printfarm
           POSTGRES_USER: printfarm

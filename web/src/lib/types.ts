@@ -232,6 +232,8 @@ export interface Setting {
   help: string
   default: unknown
   phase: number | null
+  minimum?: number | null
+  maximum?: number | null
   value: unknown
   is_default: boolean
   changed_by: string | null

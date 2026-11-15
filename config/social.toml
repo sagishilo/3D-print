@@ -1,0 +1,13 @@
+# Who the social agent's reply drafts speak for. The model uses only these facts: it never invents prices,
+# delivery dates or discounts. Every draft is read, edited, approved and posted by a person (ADR-0007).
+# PLACEHOLDERS: put your business's real details here, then: docker compose up -d social
+
+[business]
+name = "PrintFarm"                              # how the reply names the business
+area = ""                                       # e.g. "Haifa and the Krayot"
+contact = "send us a private message"           # how the author continues, e.g. "WhatsApp 05x-xxx-xxxx"
+tone = "warm, short, helpful; like a local small business owner"
+facts = [
+  "Personalised nameplates in Hebrew or English, in many colours",
+  "We print in PLA",
+]

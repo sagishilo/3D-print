@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 
 from printfarm.config import Settings
 
-AGENTS = ("coordinator", "personalization", "fleet", "telemetry", "inventory", "finance")
+AGENTS = ("coordinator", "personalization", "fleet", "telemetry", "inventory", "finance", "social")
 
 
 def agent_class(name: str):
@@ -36,6 +36,7 @@ def agent_class(name: str):
     from printfarm.agents.fleet.agent import FleetAgent
     from printfarm.agents.inventory.agent import InventoryAgent
     from printfarm.agents.personalization.agent import PersonalizationAgent
+    from printfarm.agents.social.agent import SocialAgent
     from printfarm.agents.telemetry.agent import TelemetryAgent
 
     return {
@@ -45,6 +46,7 @@ def agent_class(name: str):
         "telemetry": TelemetryAgent,
         "inventory": InventoryAgent,
         "finance": FinanceAgent,
+        "social": SocialAgent,
     }[name]
 
 

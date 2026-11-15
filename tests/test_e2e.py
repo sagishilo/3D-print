@@ -160,6 +160,8 @@ async def stack(tmp_path):
         grams = 1000
         loaded_on = "voron-01"
     """))
+    # Social Listening without the model download or an API key: word-hash embeddings and keyword triage.
+    os.environ.update(SOCIAL_EMBEDDER="hash", SOCIAL_LLM="fake")
     os.environ.update(NATS_URL=AGENTS_NATS_URL, DATABASE_URL=DB_URL, FLEET_CONFIG=str(cfg), ARTIFACT_DIR=str(tmp_path / "art"),
                       SIM_ACCESS_CODE="12345678")
     settings = Settings()
@@ -384,6 +386,52 @@ async def test_order_to_print_to_inventory(stack):
                                  lambda r: r and r[0]["status"] == "started", timeout=90)
         assert started[0]["printer_id"] == "bambu-01" and started[0]["parts"] == 1
         assert started[0]["remote_file"].endswith(".gcode.3mf")
+
+        # Social Listening (ADR-0007): captured posts -> prefilter -> triage -> lead with a Hebrew draft -> a person
+        # approves the (edited) text, posts it themselves and marks it posted; a labelled capture joins the examples.
+        from datetime import UTC, datetime
+
+        from printfarm.contracts.messages import CaptureSubmitted, DecideLead, LabelCapture, MarkLeadPosted
+
+        await wait_for(db, "SELECT sku FROM social.sku_vectors WHERE sku = 'HOOK-E2E'", (), lambda r: r)
+        seeds = await wait_for(db, "SELECT count(*) AS n FROM social.examples WHERE embedding IS NOT NULL", (),
+                               lambda r: r[0]["n"] >= 11)
+        assert seeds[0]["n"] >= 11
+        now = datetime.now(UTC)
+        buyer = "מישהו מכיר מקום שמדפיס שלט עם שם לדלת? צריך לחדר של הבן שלי"
+        for cid, text in (("cap-buy", buyer), ("cap-sell", "מוכר אופניים משומשים במצב מעולה, כמעט חדשים"),
+                          ("cap-dup", "  " + buyer.replace(" ", "  ") + " ")):
+            await _publish(settings, CaptureSubmitted(capture_id=cid, group_name="הורים בחיפה",
+                                                      post_url="https://www.facebook.com/groups/1/posts/2",
+                                                      post_text=text, captured_by="test", captured_at=now))
+        lead = await wait_for(db, "SELECT l.lead_id, l.status, l.draft, l.sku, c.status AS cstatus, c.intent "
+                                  "FROM social.leads l JOIN social.captures c USING (capture_id) "
+                                  "WHERE capture_id = 'cap-buy'", (), lambda r: r and r[0]["status"] == "pending")
+        assert lead[0]["cstatus"] == "lead" and lead[0]["intent"] == "buy" and lead[0]["sku"] == "HOOK-E2E"
+        assert lead[0]["draft"].startswith("היי!")                       # the (fake) model's Hebrew draft
+        sell = await wait_for(db, "SELECT status, status_reason FROM social.captures WHERE capture_id = 'cap-sell'", (),
+                              lambda r: r and r[0]["status"] not in ("new", "scoring"))
+        assert sell[0]["status"] == "ignored" and "prefilter" in sell[0]["status_reason"]
+        await asyncio.sleep(1)
+        async with db.tx() as conn:
+            dup = await (await conn.execute("SELECT count(*) AS n FROM social.captures WHERE capture_id = 'cap-dup'")).fetchone()
+        assert dup["n"] == 0                                             # the same post twice is one capture
+        lead_id = lead[0]["lead_id"]
+        await _publish(settings, MarkLeadPosted(lead_id=lead_id, posted_by="test"))        # refused: not approved yet
+        await _publish(settings, DecideLead(lead_id=lead_id, approve=True, final_text="היי! נשמח להדפיס לכם שלט 🙂",
+                                            decided_by="test"))
+        await wait_for(db, "SELECT status FROM social.leads WHERE lead_id = %s", (lead_id,),
+                       lambda r: r[0]["status"] == "approved")
+        await _publish(settings, MarkLeadPosted(lead_id=lead_id, posted_by="test"))
+        posted = await wait_for(db, "SELECT status, final_text, posted_by FROM social.leads WHERE lead_id = %s", (lead_id,),
+                                lambda r: r[0]["status"] == "posted")
+        assert posted[0]["final_text"].startswith("היי!") and posted[0]["posted_by"] == "test"
+        await _publish(settings, LabelCapture(capture_id="cap-sell", label="not_buyer", labelled_by="test"))
+        ex = await wait_for(db, "SELECT label, source, embedding IS NOT NULL AS has_vec FROM social.examples "
+                                "WHERE example_id = 'cap-cap-sell'", (), lambda r: r)
+        assert ex[0] == {"label": "not_buyer", "source": "capture", "has_vec": True}
+        calls = await wait_for(db, "SELECT purpose, model FROM social.llm_calls ORDER BY id", (), lambda r: len(r) >= 2)
+        assert [(c["purpose"], c["model"]) for c in calls] == [("classify", "claude-haiku-5-5"), ("draft", "claude-opus-5-5")]
 
         # every handler ran exactly once per message; nothing was dead-lettered
         async with db.tx() as conn:

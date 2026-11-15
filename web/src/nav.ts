@@ -9,14 +9,7 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  {
-    to: '/social',
-    label: 'Social & Trends',
-    icon: 'activity',
-    group: 'Sell',
-    phase: 10,
-    blurb: 'Buying-intent posts captured by group members, AI-drafted replies you approve and post yourself, and demand trends.',
-  },
+  { to: '/social', label: 'Social & Trends', icon: 'activity', group: 'Sell' },
   { to: '/catalog', label: 'Instant Catalog', icon: 'grid', group: 'Sell' },
   { to: '/live', label: 'Live floor', icon: 'live', group: 'Make' },
   { to: '/orders', label: 'Order Pipeline', icon: 'columns', group: 'Make' },

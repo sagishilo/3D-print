@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -1004,15 +1004,31 @@ class LedgerEntryCreated(Event):
 
 
 class CaptureSubmitted(Command):
-    """A post captured by a human group member via the browser extension."""
+    """A post captured by a human group member via the browser extension (ADR-0007: never scraped)."""
 
     subject: ClassVar[str] = "cmd.social.ingest_capture"
     capture_id: str
-    group_name: str
-    post_url: str
-    post_text: str = Field(max_length=5000)
-    captured_by: str
+    group_name: str = Field(max_length=200)
+    post_url: str = Field(max_length=1000)
+    post_text: str = Field(min_length=1, max_length=5000)
+    captured_by: str = Field(max_length=200)
     captured_at: datetime
+
+
+class CaptureScored(Event):
+    """What became of a capture: ignored by the prefilter, scored by the model, a lead, a duplicate, waiting
+    (no API key, budget used up, switched off) or failed."""
+
+    subject: ClassVar[str] = "evt.social.capture.scored"
+    capture_id: str
+    group_name: str
+    status: str
+    reason: str = ""
+    prefilter: float | None = None
+    intent: str | None = None
+    intent_score: float | None = None
+    sku_guess: str | None = None
+    summary: str = ""
 
 
 class LeadDetected(Event):
@@ -1025,10 +1041,65 @@ class LeadDetected(Event):
 
 
 class ReplyDrafted(Event):
+    """The model's draft is waiting for a person: nothing is ever posted by the system."""
+
     subject: ClassVar[str] = "evt.social.reply.drafted"
     lead_id: str
+    capture_id: str
     draft: str
-    approval_id: str             # nothing is posted until this approval is granted
+    sku: str | None = None
+    failed: str = ""             # the draft could not be written (the lead is still shown, without a draft)
+
+
+class DecideLead(Command):
+    """Approve (with the text the person will post, edited or not) or dismiss a lead's reply."""
+
+    subject: ClassVar[str] = "cmd.social.decide_lead"
+    lead_id: str
+    approve: bool
+    final_text: str = Field(default="", max_length=2000)
+    decided_by: str
+
+
+class MarkLeadPosted(Command):
+    """The person posted the approved reply themselves (the system never posts)."""
+
+    subject: ClassVar[str] = "cmd.social.mark_posted"
+    lead_id: str
+    posted_by: str
+
+
+class LabelCapture(Command):
+    """A person's verdict on a capture; it joins the labelled set the prefilter and the accuracy use."""
+
+    subject: ClassVar[str] = "cmd.social.label_capture"
+    capture_id: str
+    label: Literal["buyer", "not_buyer"]
+    labelled_by: str
+
+
+class RescoreCapture(Command):
+    """Score a capture again (after it waited for a key or the budget, or after a failure)."""
+
+    subject: ClassVar[str] = "cmd.social.rescore"
+    capture_id: str
+    requested_by: str
+
+
+class LeadChanged(Event):
+    subject: ClassVar[str] = "evt.social.lead.changed"
+    lead_id: str
+    capture_id: str
+    status: str
+    by: str
+    final_text: str = ""
+
+
+class CaptureLabelled(Event):
+    subject: ClassVar[str] = "evt.social.capture.labelled"
+    capture_id: str
+    label: str
+    by: str
 
 
 class TrendSignal(Event):

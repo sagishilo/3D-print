@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "PrintFarm Capture",
+  "version": "1.0.0",
+  "description": "Send a post you selected to your PrintFarm dashboard. Nothing is read or sent unless you choose Capture.",
+  "permissions": ["contextMenus", "storage"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "action": { "default_title": "PrintFarm Capture: select a post's text, right-click, Capture post to PrintFarm" }
+}

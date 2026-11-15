@@ -19,11 +19,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Social Listening (phase 10): Claude API + local multilingual embeddings (ONNX, CPU)
+social = ["anthropic>=2.8,<3", "fastembed>=0.9.1,<0.10"]
 dev = [
     "pytest>=8", "pytest-asyncio>=0.23",
     "amqtt>=0.11",               # in-process MQTT broker for tests/test_e2e.py (or set TEST_MQTT_URL)
     # gateway tests (tests/test_gateway.py)
     "fastapi>=0.110", "httpx>=0.27", "pyjwt>=2.8", "argon2-cffi>=23.1", "pydantic-settings>=2.2",
+    "anthropic>=2.8,<3",         # social agent tests (the client is faked; no network)
 ]
 
 [project.scripts]

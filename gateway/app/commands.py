@@ -23,12 +23,16 @@ from printfarm.contracts.messages import (
     CalibratePrinter,
     CancelOrder,
     CancelPrint,
+    CaptureSubmitted,
     ConfirmPoOrdered,
     CreateExpense,
     CreateOrder,
     DecideApproval,
+    DecideLead,
+    LabelCapture,
     LoadSpool,
     MarkBedCleared,
+    MarkLeadPosted,
     PauseAll,
     PausePrint,
     ReceivePo,
@@ -37,6 +41,7 @@ from printfarm.contracts.messages import (
     RefundPayment,
     RegisterSpool,
     RequestReorder,
+    RescoreCapture,
     ResumePrint,
     SetConfig,
     SetReorderRule,
@@ -81,6 +86,15 @@ def _new_batch(data: dict, command_id: str) -> None:
                 items=[{**i, "unit_price_agorot": 0} for i in items])
 
 
+def _new_capture(data: dict, command_id: str) -> None:
+    # A post pasted on the Social screen, or sent by the capture extension (gateway/app/main.py). The id comes from
+    # the command id, so a retried request is one capture; the agent also drops the same text captured twice.
+    data["capture_id"] = f"cap-{command_id[:12]}"
+    data.setdefault("captured_at", datetime.now(UTC).isoformat())
+    data.setdefault("group_name", "")
+    data.setdefault("post_url", "")
+
+
 _SETTINGS = {k.key: k for k in CONFIG_KEYS}
 
 
@@ -93,8 +107,13 @@ def _known_setting(data: dict, command_id: str) -> None:
         raise ValueError(f"unknown setting {key!r}")
     if spec.phase is not None:
         raise ValueError(f"{spec.key} arrives in phase {spec.phase}")
-    if type(data.get("value")) is not type(spec.default):
+    value = data.get("value")
+    if isinstance(spec.default, float) and type(value) is int:
+        value = data["value"] = float(value)                 # JSON has one number type: 1 means 1.0 here
+    if type(value) is not type(spec.default):
         raise ValueError(f"{spec.key} takes a {type(spec.default).__name__} value")
+    if spec.minimum is not None and value < spec.minimum or spec.maximum is not None and value > spec.maximum:
+        raise ValueError(f"{spec.key} must be between {spec.minimum:g} and {spec.maximum:g}")
 
 
 COMMANDS: dict[str, CommandSpec] = {
@@ -128,6 +147,12 @@ COMMANDS: dict[str, CommandSpec] = {
     "inventory.ack_alert": CommandSpec(AcknowledgeInventoryAlert, "acknowledged_by"),
     "po.update": CommandSpec(UpdatePo, "updated_by"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting),
+    # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
+    "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),
+    "social.decide": CommandSpec(DecideLead, "decided_by"),
+    "social.posted": CommandSpec(MarkLeadPosted, "posted_by"),
+    "social.label": CommandSpec(LabelCapture, "labelled_by"),
+    "social.rescore": CommandSpec(RescoreCapture, "requested_by"),
 }
 
 # POST /api/v1/commands/printers/{printer_id}/{action}
