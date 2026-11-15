@@ -31,6 +31,7 @@ from psycopg.types.json import Jsonb
 from printfarm.agents.base import Agent, on
 from printfarm.agents.telemetry.adapters import CalibrationError, PrinterAdapter, make_adapter
 from printfarm.agents.telemetry.detectors import DetectorSet, Finding
+from printfarm.agents.telemetry.lost import LostPrintWatch
 from printfarm.agents.telemetry.platefiles import PlateFileError, resolve_plate_file
 from printfarm.agents.telemetry.safety import PauseOutcome, pause_and_verify
 from printfarm.agents.telemetry.transfer import PlateFile, UploadError
@@ -107,6 +108,12 @@ class TelemetryAgent(Agent):
         self._pausing: set[str] = set()                 # printers with a pause check in flight
         self._starting: dict[tuple[str, str], asyncio.Task] = {}
         self._calibrating: dict[str, str] = {}          # printer -> calibration id in flight
+        # open sessions before any printer reports (adapters start below)
+        self.lost = LostPrintWatch()
+        async with self.db.tx() as conn:
+            for r in await (await conn.execute(
+                    "SELECT printer_id, plate_id FROM telemetry.print_sessions WHERE finished_at IS NULL")).fetchall():
+                self.lost.opened(r["printer_id"], r["plate_id"])
         for cfg in self.fleet.printers:
             pid = cfg.id
             self.detectors[pid] = DetectorSet()
@@ -139,6 +146,16 @@ class TelemetryAgent(Agent):
         if s.plate_id and s.status in DONE and (prev is None or prev.status not in DONE or prev.plate_id != s.plate_id):
             await self._lifecycle_finished(pid, s.plate_id, s.status == PrinterStatus.FINISHED, s.progress,
                                            "" if s.status == PrinterStatus.FINISHED else (s.error_code or "printer reported failure"))
+
+        # 2b. a print that ended while we were not watching (restart, outage, cancelled at the printer)
+        for plate in self.lost.check(pid, s, time.monotonic()):
+            self.log.warning("plate %s on %s is lost: the printer reports %s%s; closing it as failed", plate, pid,
+                             s.status.value, f" with plate {s.plate_id}" if s.plate_id else "")
+            await self._lifecycle_finished(
+                pid, plate, False, s.progress if s.plate_id == plate else 0.0,
+                f"print lost: the printer reports {s.status.value} and no longer runs this plate "
+                "(restarted, cancelled at the printer, or ended while the farm was offline); check the bed",
+                bed_state_unknown=True)
 
         # 3. live view, throttled
         now = time.monotonic()
@@ -190,9 +207,11 @@ class TelemetryAgent(Agent):
             if cur.rowcount:
                 await self.emit(conn, PrintStarted(printer_id=pid, plate_id=plate_id), correlationid=plate_id,
                                 id=deterministic_id(pid, plate_id, "started"))
+        self.lost.opened(pid, plate_id)
         self.relay.wakeup.set()
 
-    async def _lifecycle_finished(self, pid: str, plate_id: str, ok: bool, progress: float, reason: str) -> None:
+    async def _lifecycle_finished(self, pid: str, plate_id: str, ok: bool, progress: float, reason: str,
+                                  bed_state_unknown: bool = False) -> None:
         async with self.db.tx() as conn:
             row = await (
                 await conn.execute(
@@ -206,9 +225,11 @@ class TelemetryAgent(Agent):
             if row:
                 await self.emit(
                     conn,
-                    PrintFinished(printer_id=pid, plate_id=plate_id, succeeded=ok, progress=progress, reason=reason),
+                    PrintFinished(printer_id=pid, plate_id=plate_id, succeeded=ok, progress=progress, reason=reason,
+                                  bed_state_unknown=bed_state_unknown),
                     correlationid=plate_id, id=deterministic_id(pid, plate_id, "finished"),
                 )
+        self.lost.closed(pid, plate_id)
         self.relay.wakeup.set()
 
     # ------------------------------------------------------------ verified pause (safety-critical)

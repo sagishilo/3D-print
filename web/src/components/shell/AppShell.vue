@@ -11,6 +11,7 @@ import { usePrinters } from '@/stores/printers'
 import { useSystem } from '@/stores/system'
 
 import ApprovalsDrawer from './ApprovalsDrawer.vue'
+import HealthBanner from './HealthBanner.vue'
 import SideNav from './SideNav.vue'
 import TopBar from './TopBar.vue'
 
@@ -64,6 +65,7 @@ watch(
     <div v-if="navOpen" class="nav-scrim" @click="navOpen = false" />
     <div class="column">
       <TopBar @menu="navOpen = !navOpen" @approvals="approvalsOpen = true" />
+      <HealthBanner />
       <main class="content">
         <RouterView />
       </main>

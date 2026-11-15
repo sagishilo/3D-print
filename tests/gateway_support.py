@@ -52,6 +52,8 @@ class FakeDb:
                                               "payload": getattr(params[3], "obj", params[3])})
             if "'done'" in sql:
                 self.audit[params[0]]["outcome"] = "done"
+            elif len(params) > 4:
+                self.audit[params[0]]["outcome"] = params[4]
         elif sql.startswith("UPDATE gateway.audit_log"):
             self.audit[params[1]]["outcome"] = params[0]
         elif sql.startswith("UPDATE gateway.refresh_tokens"):
@@ -186,6 +188,7 @@ def gateway_client():
         app.state.http = FakeHttp({"/api/streams": {"p1": {}, "voron-01": {}}, "/api": {"version": "1.9.15"}})
         app.state.nats_http = FakeHttp()
         app.state.ws_clients, app.state.started = 0, time.monotonic()
+        gateway.limiter.reset()
         yield
 
     gateway.app.router.lifespan_context = fake_lifespan

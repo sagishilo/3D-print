@@ -133,7 +133,8 @@ class FleetAgent(Agent):
             return
         await conn.execute(
             "UPDATE fleet.printers SET busy = false, bed_clear = %s, updated_at = now() WHERE printer_id = %s",
-            (self.fleet.auto_clear_bed or not ev.succeeded and ev.progress == 0, ev.printer_id),
+            (self.fleet.auto_clear_bed or (not ev.succeeded and ev.progress == 0 and not ev.bed_state_unknown),
+             ev.printer_id),
         )
         grams = plate["est_grams"] * (1.0 if ev.succeeded else ev.progress)
         on_plate = await (

@@ -13,6 +13,7 @@ caddy-root.crt
 # local, per-site data
 printers.txt
 backup-*.sql
+backups/
 
 # frontend
 web/node_modules/

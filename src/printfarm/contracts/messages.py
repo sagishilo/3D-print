@@ -644,6 +644,7 @@ class PrintFinished(Event):
     succeeded: bool
     progress: float
     reason: str = ""
+    bed_state_unknown: bool = False   # the end was not seen (lost print): never assume the bed is empty
 
 
 class FailureDetected(Event):

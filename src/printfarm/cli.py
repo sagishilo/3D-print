@@ -1,6 +1,7 @@
 """Command line entry point.
 
     printfarm migrate                       apply database migrations
+    printfarm migrate --status|--check      what is applied / pending (no changes)
     printfarm agent <name> [<name> ...]     run agents (one process per agent in docker-compose)
     printfarm dev                           run every agent in one process
     printfarm sim                           run the simulated printers
@@ -183,12 +184,28 @@ async def cmd_watch(args, settings: Settings) -> None:
 
 async def cmd_migrate(args, settings: Settings) -> None:
     from printfarm.store import Database
+    from printfarm.store.schema import MigrationError
 
     db = Database(settings.database_url)
     await db.open()
-    await db.migrate()
-    await db.close()
-    print("migrations applied")
+    try:
+        if args.status or args.check:
+            plan = await db.migration_plan()
+            print(f"applied: {plan.applied} (latest {plan.latest or '-'})")
+            for m in plan.pending:
+                print(f"pending: {m.name}")
+            for problem in plan.problems:
+                print(f"ERROR:   {problem}")
+            if args.check and (plan.pending or not plan.ok):
+                raise SystemExit(1)
+            return
+        try:
+            plan = await db.migrate()
+        except MigrationError as exc:
+            raise SystemExit(f"migrations refused: {exc}") from None
+        print(f"migrations applied: {len(plan.pending)} new, {plan.applied + len(plan.pending)} in total")
+    finally:
+        await db.close()
 
 
 async def cmd_sim(args, settings: Settings) -> None:
@@ -204,7 +221,9 @@ def main(argv: list[str] | None = None) -> None:
 
     ap = argparse.ArgumentParser(prog="printfarm")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("migrate")
+    mg = sub.add_parser("migrate")
+    mg.add_argument("--status", action="store_true", help="list applied/pending migrations, change nothing")
+    mg.add_argument("--check", action="store_true", help="like --status; exit 1 if anything is pending or wrong")
     a = sub.add_parser("agent")
     a.add_argument("names", nargs="+", choices=AGENTS)
     sub.add_parser("dev")

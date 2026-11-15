@@ -1,6 +1,7 @@
 """Single-admin auth: JWT access cookie + rotating refresh cookie + CSRF double-submit."""
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 import uuid
@@ -10,6 +11,7 @@ import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 from .config import settings
@@ -19,6 +21,19 @@ _ph = PasswordHasher()
 _failures: dict[str, list[float]] = {}  # ip -> failure timestamps (single process is enough here)
 
 ACCESS, REFRESH, CSRF = "pf_access", "pf_refresh", "pf_csrf"
+log = logging.getLogger("pf.gateway.auth")
+
+
+async def _audit(request: Request, subject: str, actor: str, outcome: str, **detail) -> None:
+    """Sign-ins, failures, lockouts and sign-outs go to the same audit log as commands (System screen).
+    Best effort: a database hiccup must not turn a sign-in into a 500, so it is logged instead."""
+    ip = request.client.host if request.client else "?"
+    try:
+        await request.app.state.db.execute(
+            "INSERT INTO gateway.audit_log (command_id, actor, subject, payload, outcome) VALUES (%s, %s, %s, %s, %s)",
+            (f"auth-{uuid.uuid4().hex}", actor[:200], subject, Jsonb({"ip": ip, **detail}), outcome))
+    except Exception:  # noqa: BLE001
+        log.exception("audit of %s for %s failed", subject, ip)
 
 
 def _same(a: str, b: str) -> bool:
@@ -85,6 +100,7 @@ async def login(body: LoginIn, request: Request, response: Response):
     now = time.time()
     recent = [t for t in _failures.get(ip, []) if now - t < settings.login_lockout_s]
     if len(recent) >= settings.login_max_failures:
+        await _audit(request, "auth.login", body.username, "locked out")
         raise HTTPException(429, f"locked out; retry in {int(settings.login_lockout_s - (now - recent[0]))} s")
     ok = _same(body.username, settings.admin_username)
     try:
@@ -94,12 +110,16 @@ async def login(body: LoginIn, request: Request, response: Response):
     if not ok:
         recent.append(now)
         _failures[ip] = recent
+        await _audit(request, "auth.login", body.username, "failed", attempt=len(recent))
+        if len(recent) >= settings.login_max_failures:
+            log.warning("login locked out for %s after %d failures", ip, len(recent))
         raise HTTPException(401, f"wrong username or password; {settings.login_max_failures - len(recent)} attempts left")
     _failures.pop(ip, None)
     refresh = secrets.token_urlsafe(32)
     await request.app.state.db.execute(
         "INSERT INTO gateway.refresh_tokens (token_hash, expires_at) VALUES (%s, %s)", (_hash_token(refresh), _refresh_expiry()))
     _set_cookies(response, _issue_access(), refresh)
+    await _audit(request, "auth.login", settings.admin_username, "done")
     return {"user": settings.admin_username}
 
 
@@ -112,6 +132,7 @@ async def refresh(request: Request, response: Response):
         "UPDATE gateway.refresh_tokens SET revoked_at = now() "
         "WHERE token_hash = %s AND revoked_at IS NULL AND expires_at > now() RETURNING id", (_hash_token(old),))
     if not row:
+        await _audit(request, "auth.refresh", "?", "refused")   # an old (rotated) token reused: worth seeing
         raise HTTPException(401, "refresh token invalid")
     new = secrets.token_urlsafe(32)
     await request.app.state.db.execute(
@@ -128,6 +149,8 @@ async def logout(request: Request, response: Response):
             "UPDATE gateway.refresh_tokens SET revoked_at = now() WHERE token_hash = %s", (_hash_token(token),))
     for name, path in ((ACCESS, "/"), (REFRESH, "/api/v1/auth"), (CSRF, "/")):
         response.delete_cookie(name, path=path)
+    if token:
+        await _audit(request, "auth.logout", settings.admin_username, "done")
     return {"ok": True}
 
 

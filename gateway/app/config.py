@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     command_timeout_s: float = 5.0
     login_max_failures: int = 5
     login_lockout_s: int = 15 * 60
+    # Per client IP, per minute (middleware.py). 0 switches a limit off.
+    rate_api_per_min: int = 600
+    rate_commands_per_min: int = 60
+    rate_uploads_per_min: int = 20
+    max_body_bytes: int = 1024 * 1024          # JSON bodies; the 3MF upload has its own (contracts.catalog)
     # Browser origins allowed to open /ws: https://<each host in SITE_HOSTS>, plus EXTRA_ORIGINS (comma separated),
     # e.g. "http://localhost:5173" for the Vite dev server.
     site_hosts: str = "localhost"

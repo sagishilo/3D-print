@@ -166,7 +166,7 @@ def test_dlq_list_replay_and_discard_are_audited(client):
     assert 2 in js.deleted and 2 not in js.dlq
 
     assert client.post("/api/v1/system/dlq/3/discard", headers=csrf(client)).json() == {"discarded": True}
-    assert {a["subject"] for a in db.audit.values()} == {"dlq.replay", "dlq.discard"}
+    assert {a["subject"] for a in db.audit.values()} == {"auth.login", "dlq.replay", "dlq.discard"}  # sign-in too
     assert client.post("/api/v1/system/dlq/99/discard", headers=csrf(client)).status_code == 404
 
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import AsyncIterator
-from importlib import resources
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -15,6 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from printfarm.bus.base import Bus
 from printfarm.contracts import Envelope
+from printfarm.store import schema
 
 log = logging.getLogger(__name__)
 
@@ -37,24 +38,42 @@ class Database:
         async with self.pool.connection() as conn, conn.transaction():
             yield conn
 
-    async def migrate(self) -> None:
+    async def migration_plan(self) -> schema.Plan:
         async with self.tx() as conn:
-            # Serialise concurrent migrators (several agents may start together).
-            await conn.execute("SELECT pg_advisory_xact_lock(4242)")
-            await conn.execute(
-                "CREATE TABLE IF NOT EXISTS public.schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT now())"
-            )
-            done = {r["name"] for r in await (await conn.execute("SELECT name FROM public.schema_migrations")).fetchall()}
-            files = sorted(
-                (p for p in resources.files("printfarm.store").joinpath("migrations").iterdir() if p.name.endswith(".sql")),
-                key=lambda p: p.name,
-            )
-            for f in files:
-                if f.name in done:
-                    continue
-                log.info("applying migration %s", f.name)
-                await conn.execute(f.read_text())
-                await conn.execute("INSERT INTO public.schema_migrations (name) VALUES (%s)", (f.name,))
+            return await _plan(conn)
+
+    async def migrate(self) -> schema.Plan:
+        """Apply pending migrations (one transaction, one migrator at a time). Refuses when an applied migration
+        was edited or the database is newer than this build: nothing is applied then."""
+        async with self.tx() as conn:
+            await conn.execute("SELECT pg_advisory_xact_lock(%s)", (schema.LOCK_ID,))
+            await conn.execute(schema.TABLE_SQL)
+            plan = await _plan(conn)
+            if not plan.ok:
+                raise schema.MigrationError("; ".join(plan.problems))
+            for m in plan.adopt:
+                await conn.execute("UPDATE public.schema_migrations SET checksum = %s WHERE name = %s", (m.checksum, m.name))
+            for m in plan.pending:
+                log.info("applying migration %s", m.name)
+                t0 = time.monotonic()
+                await conn.execute(m.sql)
+                await conn.execute(
+                    "INSERT INTO public.schema_migrations (name, checksum, duration_ms) VALUES (%s, %s, %s)",
+                    (m.name, m.checksum, int((time.monotonic() - t0) * 1000)))
+            return plan
+
+
+async def _plan(conn: AsyncConnection) -> schema.Plan:
+    exists = await (await conn.execute("SELECT to_regclass('public.schema_migrations') AS t")).fetchone()
+    applied: dict[str, str | None] = {}
+    if exists and exists["t"]:
+        cols = {r["column_name"] for r in await (await conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' "
+            "AND table_name = 'schema_migrations'")).fetchall()}
+        digest = "checksum" if "checksum" in cols else "NULL AS checksum"
+        sql = f"SELECT name, {digest} FROM public.schema_migrations"
+        applied = {r["name"]: r["checksum"] for r in await (await conn.execute(sql)).fetchall()}
+    return schema.plan(schema.bundled(), applied)
 
 
 # ------------------------------------------------------------------ inbox / outbox

@@ -14,18 +14,23 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from nats.errors import NoRespondersError
+from nats.errors import ConnectionClosedError, NoRespondersError, NoServersError
 from nats.errors import TimeoutError as NatsTimeout
 from nats.js.errors import NoStreamResponseError
+from psycopg import OperationalError
 from psycopg.types.json import Jsonb
+from psycopg_pool import PoolTimeout
 from pydantic import ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
+from printfarm.contracts.catalog import MAX_UPLOAD_BYTES
+from printfarm.store import schema
 
 from . import approvals, auth, cameras, catalog, finance, inventory, live, orders, printers, system
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
+from .middleware import BodyTooLarge, Guard, RateLimiter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("pf.gateway")
@@ -48,25 +53,73 @@ async def lifespan(app: FastAPI):
     await app.state.db.close()
 
 
-app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan)
+app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+limiter = RateLimiter({"api": settings.rate_api_per_min, "commands": settings.rate_commands_per_min,
+                       "uploads": settings.rate_uploads_per_min})
+app.add_middleware(Guard, limiter=limiter, max_body=settings.max_body_bytes,
+                   large_body_paths={"/api/v1/catalog/uploads": MAX_UPLOAD_BYTES + 64 * 1024})
+
+
+def _rid(request: Request) -> str:
+    return getattr(request.state, "request_id", "-")
+
+
+@app.exception_handler(BodyTooLarge)
+async def _too_large(request: Request, _exc: BodyTooLarge):
+    return JSONResponse({"detail": "request body too large", "request_id": _rid(request)}, status_code=413)
+
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(PoolTimeout)
+async def _db_down(request: Request, exc: Exception):
+    log.error("database unavailable on %s %s rid=%s: %s", request.method, request.url.path, _rid(request), exc)
+    return JSONResponse({"detail": "database unavailable; try again shortly", "request_id": _rid(request)},
+                        status_code=503, headers={"Retry-After": "5"})
+
+
+@app.exception_handler(ConnectionClosedError)
+@app.exception_handler(NoServersError)
+async def _nats_down(request: Request, exc: Exception):
+    log.error("NATS unavailable on %s %s rid=%s: %s", request.method, request.url.path, _rid(request), exc)
+    return JSONResponse({"detail": "message bus unavailable; try again shortly", "request_id": _rid(request)},
+                        status_code=503, headers={"Retry-After": "5"})
+
+
+@app.exception_handler(Exception)
+async def _unexpected(request: Request, exc: Exception):
+    log.exception("unhandled error on %s %s rid=%s", request.method, request.url.path, _rid(request))
+    return JSONResponse({"detail": "internal error", "request_id": _rid(request)}, status_code=500)
+
 for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance, catalog):
     app.include_router(module.router)
 
 
 @app.get("/health")
 async def health(request: Request):
-    checks = {"nats": request.app.state.bus.nc.is_connected}
+    checks: dict = {"nats": request.app.state.bus.nc.is_connected}
     try:
         await request.app.state.db.fetchval("SELECT 1")
         checks["postgres"] = True
     except Exception:  # noqa: BLE001
         checks["postgres"] = False
+    checks["migrations"] = await _migrations(request.app.state.db) if checks["postgres"] else None
     try:
         checks["go2rtc"] = (await request.app.state.http.get("/api", timeout=3)).status_code == 200
     except httpx.HTTPError:
         checks["go2rtc"] = False
-    core_ok = checks["nats"] and checks["postgres"]  # go2rtc down = cameras degraded, not gateway down
+    # go2rtc down = cameras degraded, not gateway down. An unmigrated or edited schema is down: queries would fail.
+    core_ok = bool(checks["nats"] and checks["postgres"] and checks["migrations"] and checks["migrations"]["ok"])
     return JSONResponse({"ok": core_ok, **checks}, status_code=200 if core_ok else 503)
+
+
+async def _migrations(db: Db) -> dict:
+    """The schema against the migrations this build ships (the migrate service applies them before we start)."""
+    try:
+        rows = await db.fetchall("SELECT name, checksum FROM public.schema_migrations")
+    except Exception:  # noqa: BLE001 - no table yet
+        rows = []
+    p = schema.plan(schema.bundled(), {r["name"]: r["checksum"] for r in rows})
+    return {"ok": p.ok and not p.pending, **p.summary()}
 
 
 # ---------------------------------------------------------------- commands

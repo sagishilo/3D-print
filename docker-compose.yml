@@ -78,6 +78,30 @@ services:
     restart: *restart
     logging: *logging
 
+  # Nightly pg_dump into ./backups (keeps 14). Copy that folder off this PC now and then.
+  # One now: docker compose run --rm backup now   ·  restore: see infra/backup/backup.sh
+  backup:
+    image: postgres:16.16-alpine
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    command: ["loop"]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      BACKUP_INTERVAL_S: ${BACKUP_INTERVAL_S:-86400}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+    volumes:
+      - ./infra/backup/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:   # unhealthy when the last good backup is older than two intervals
+      test: ["CMD", "/bin/sh", "/backup.sh", "check"]
+      interval: 10m
+      timeout: 5s
+      start_period: 5m
+      retries: 1
+    restart: *restart
+    logging: *logging
+
   go2rtc:
     image: alexxit/go2rtc:1.9.15
     env_file:                                         # printer access codes only, referenced as ${...} in go2rtc.yaml
@@ -141,6 +165,11 @@ services:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data         # holds the local CA; keep it, or every device must re-trust a new one
       - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
     depends_on:
       gateway: { condition: service_healthy }
     restart: *restart
@@ -229,9 +258,13 @@ services:
     logging: *logging
 
   # Operator CLI: docker compose run --rm cli <order|approvals|approve|clear-bed|status|watch>
+  # It sends operator commands (approve, clear bed, orders), so it connects as "services", not "agents".
   cli:
     <<: *agent
     profiles: ["tools"]
+    environment:
+      <<: *agent-env
+      NATS_URL: nats://services:${NATS_SERVICES_PASSWORD:?set in .env}@nats:4222
     restart: "no"
 
 volumes:

@@ -109,6 +109,30 @@ docker run --rm --network pf-e2e -v "${PWD}:/src:ro" `
 docker stop pf-e2e-nats pf-e2e-pg pf-e2e-mqtt; docker network rm pf-e2e
 ```
 
+To run it under the **production NATS permissions** (as CI does), start NATS with the real config and give the agents
+the restricted user; the test itself acts as the operator:
+
+```powershell
+docker run -d --rm --name pf-e2e-nats --network pf-e2e -e NATS_SERVICES_PASSWORD=nsvc -e NATS_AGENTS_PASSWORD=nagt `
+  -v "${PWD}/infra/nats/nats.conf:/etc/nats/nats.conf:ro" nats:2.10.29-alpine -c /etc/nats/nats.conf
+# then: -e TEST_NATS_URL=nats://services:nsvc@pf-e2e-nats:4222 -e TEST_NATS_AGENTS_URL=nats://agents:nagt@pf-e2e-nats:4222
+# and run tests/test_e2e.py tests/test_hardening.py (the latter checks that NATS refuses an operator command from agents)
+```
+
+A publish the `agents` user may not make shows in `docker logs pf-e2e-nats` as `Publish Violation`. When an agent
+needs a new command, add its subject to `AGENT_COMMANDS` in `src/printfarm/contracts/permissions.py` **and** to the
+agents' allow list in `infra/nats/nats.conf` (`tests/test_hardening.py` fails until both match).
+
+**Migrations** are numbered files in `src/printfarm/store/migrations/`. Never edit one that has been applied anywhere:
+`printfarm migrate` refuses (checksums), so add the next number instead. `printfarm migrate --status` shows what is applied.
+
+**Windows Smart App Control** may block native DLLs in a local virtualenv (e.g. argon2's), which stops the gateway tests
+from importing. Run the suite in a container then:
+`docker run --rm -v "${PWD}:/repo" -w /repo -e PYTHONPATH=/repo/src python:3.12-slim sh -c "pip install -q -e .[dev] ruff && ruff check . && pytest -q"`.
+
+CI (`.github/workflows/ci.yml`) runs lint and unit tests, the e2e under the real NATS permissions, the dashboard's
+type check, tests and build, and builds every image.
+
 The end-to-end test covers this whole flow:
 
 1. A 3-unit Hebrew nameplate order is modelled and all three units are packed onto **one** plate.

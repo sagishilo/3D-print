@@ -12,6 +12,17 @@
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "same-origin"
+		# Everything the dashboard loads is its own (fonts are bundled); the live feed is a same-origin wss://.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
+	# The gateway's readiness (NATS, Postgres, schema), for uptime checks from the LAN.
+	handle /api/health {
+		rewrite * /health
+		reverse_proxy gateway:8000
 	}
 
 	# API + camera streams: no buffering so MJPEG frames arrive immediately
@@ -31,4 +42,10 @@
 		try_files {path} /index.html
 		file_server
 	}
+}
+
+# Liveness of Caddy itself for the compose health check: plain HTTP inside the container, not published.
+http://:8081 {
+	respond /healthz "ok" 200
+	respond 404
 }

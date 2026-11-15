@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import os
 import socket
 import textwrap
@@ -24,6 +25,9 @@ from urllib.parse import urlparse
 import pytest
 
 NATS_URL = os.getenv("TEST_NATS_URL")
+# Optional: the agents connect as the restricted NATS "agents" user (infra/nats/nats.conf), while the test itself
+# acts as the operator (TEST_NATS_URL = the "services" user). Unset: everything uses TEST_NATS_URL.
+AGENTS_NATS_URL = os.getenv("TEST_NATS_AGENTS_URL") or NATS_URL
 DB_URL = os.getenv("TEST_DATABASE_URL")
 MQTT_URL = os.getenv("TEST_MQTT_URL")
 pytestmark = pytest.mark.skipif(not (NATS_URL and DB_URL), reason="needs TEST_NATS_URL and TEST_DATABASE_URL")
@@ -156,7 +160,7 @@ async def stack(tmp_path):
         grams = 1000
         loaded_on = "voron-01"
     """))
-    os.environ.update(NATS_URL=NATS_URL, DATABASE_URL=DB_URL, FLEET_CONFIG=str(cfg), ARTIFACT_DIR=str(tmp_path / "art"),
+    os.environ.update(NATS_URL=AGENTS_NATS_URL, DATABASE_URL=DB_URL, FLEET_CONFIG=str(cfg), ARTIFACT_DIR=str(tmp_path / "art"),
                       SIM_ACCESS_CODE="12345678")
     settings = Settings()
 
@@ -171,7 +175,7 @@ async def stack(tmp_path):
     }
     sim = asyncio.create_task(run_simulator(settings.fleet(), faults=faults, bind="127.0.0.1"))
     agents = asyncio.create_task(run_agents(list(AGENTS), settings, stop))
-    yield settings
+    yield dataclasses.replace(settings, nats_url=NATS_URL)    # the test sends operator commands
     stop.set()
     await asyncio.wait_for(agents, 10)
     sim.cancel()

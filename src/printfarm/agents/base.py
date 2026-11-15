@@ -36,6 +36,7 @@ from printfarm.bus.base import Bus, durable_name
 from printfarm.config import FleetCfg, Settings
 from printfarm.contracts import Envelope, Payload, new_message
 from printfarm.contracts.config_keys import CONFIG_DEFAULTS
+from printfarm.contracts.permissions import agent_may_send
 from printfarm.store import Database, OutboxRelay, inbox_claim, outbox_add
 
 HEARTBEAT_S = 10
@@ -171,7 +172,13 @@ class Agent:
         return handler
 
     async def emit(self, conn: AsyncConnection, payload: Payload, cause: Envelope | None = None, **kw) -> Envelope:
-        """Queue a message in the outbox, inside the caller's transaction."""
+        """Queue a message in the outbox, inside the caller's transaction.
+
+        Operator-only commands are refused here (and by the NATS ``agents`` user's permissions): an agent bug cannot
+        approve, pay, cancel or reconfigure anything on its own.
+        """
+        if not agent_may_send(payload.subject):
+            raise PermissionError(f"agents may not send {payload.subject}: it is an operator command (gateway only)")
         env = new_message(payload, source=self.source, cause=cause, **kw)
         await outbox_add(conn, self.name, env)
         self.log.info("emit %s corr=%s", payload.subject, env.correlationid)

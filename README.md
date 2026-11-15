@@ -243,6 +243,14 @@ The top bar shows whether the live feed is connected ("Live · 0.4 s ago"), the 
 
 The agents run as containers in this compose file and connect to NATS as the `agents` user (its password is in `.env`; it is passed to them through their environment, never in code). To run an agent on this PC outside Docker while developing, use `nats://agents:<NATS_AGENTS_PASSWORD>@127.0.0.1:4222` and see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+**Who may send what.** NATS has two users (`infra/nats/nats.conf`):
+
+- `services` (the gateway and the operator CLI) has full access.
+- `agents` may publish events, telemetry, dead letters and query replies, and only the five commands one agent sends another: model requests, job queueing and cancellation, and plate start.
+- Every operator decision (approve, pay, refund, cancel, pause or resume printers, settings, purchase orders, expenses, catalog changes) is refused for `agents`, both by NATS and by the agents' own code. So is deleting or purging a stream.
+
+An agent bug, or someone who gets hold of the agents' password, cannot approve, pay or cancel anything. The list lives in `src/printfarm/contracts/permissions.py`; a test keeps `nats.conf` equal to it.
+
 Every message is a CloudEvents envelope with a typed payload. All subject names live in one place, `src/printfarm/contracts/messages.py`, used by the agents, the gateway and the ledger alike:
 
 | Subject root | Meaning | Kept in |
@@ -274,9 +282,19 @@ Amounts are integers in agorot (`35400` = ₪354.00) and gross (VAT included). E
 | Start again | `docker compose up -d` (add `--profile sim` while you use simulated printers, `--profile p1a1` for P1/A1 cameras) |
 | Logs of one service | `docker compose logs finance --tail 50 -f` (Ctrl+C to stop) |
 | Apply code changes | `docker compose up -d --build` |
-| Back up the database | `docker compose exec -T postgres pg_dump -U printfarm -d printfarm -f /tmp/backup.sql` then `docker compose cp postgres:/tmp/backup.sql ".\backup-$(Get-Date -Format yyyyMMdd).sql"` |
+| Is everything up? | `docker compose ps` (every service `healthy`), or open `https://<this PC>/api/health` |
+| Database migrations | `docker compose run --rm migrate migrate --status` (what is applied and pending; `--check` exits 1 if anything is wrong) |
+| Back up now | `docker compose run --rm backup now` |
+| List backups | `docker compose run --rm backup list` |
+| Restore a backup | `docker compose stop gateway coordinator personalization fleet inventory finance telemetry`, then `docker compose run --rm backup restore <file from list>`, then `docker compose up -d` |
 
-Don't back up with `pg_dump ... > file.sql` in Windows PowerShell 5: it saves the file as UTF-16, and the restore then fails. The two-step command above avoids this.
+**Backups.** The `backup` service saves the database to the `backups` folder next to this README every night and keeps the newest 14. Change this with `BACKUP_INTERVAL_S` and `BACKUP_KEEP` in `.env`. The service shows `unhealthy` when the last good backup is older than two intervals. Copy the folder off this PC (a USB drive, cloud storage) now and then: a backup on the same disk does not survive the disk. The database holds everything that matters (orders, ledger, inventory, settings, unsent messages); NATS only holds messages in flight.
+
+**Migrations.** The `migrate` service applies new database migrations before anything else starts. It refuses to run, and changes nothing, if an applied migration file was edited, or if the database comes from a newer version than the code (an older image running against it). The gateway's health check reports either case, and the dashboard shows a banner.
+
+**Prints that ended unseen.** If a printer is restarted, a print is cancelled at the printer's screen, or a print ends while this PC or the network is down, the telemetry agent notices within about 20 seconds of the printer reporting again. It closes that plate as failed: its items are reprinted, and the bed is not assumed empty, so an operator clears it first.
+
+**Limits.** The gateway answers each device with 429 (and `Retry-After`) beyond 600 requests a minute, 60 commands a minute or 20 uploads a minute. Bodies are limited to 1 MB, 50 MB for a 3MF upload. Sign-ins lock for 15 minutes after 5 wrong passwords. Sign-ins, failed sign-ins, lockouts, sign-outs and reused refresh tokens go to the same audit log as commands. When the database or the message bus is down, requests answer 503 ("try again shortly"), not a crash, and the dashboard retries a read once. Every response carries an `X-Request-ID`; a server error shows it as "ref …", so you can find it in `docker compose logs gateway`.
 
 **Never run `docker compose down -v`** unless you mean to erase everything. `-v` deletes the database, the NATS history and Caddy's certificate authority, so every device would then have to trust a new certificate.
 
@@ -294,7 +312,8 @@ Don't back up with `pg_dump ... > file.sql` in Windows PowerShell 5: it saves th
 | Simulated printers for P1 (port-6000 camera), X1 (RTSPS camera) and Klipper (Crowsnest MJPEG), with injectable faults | |
 | Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required; X1 (H.264) cameras transcoded to MJPEG on demand | Recording camera video |
 | Live feed (`/ws`): events, telemetry and dead letters only, never commands; resumes after a reconnect from the last event seen, replays stored history; refuses other sites (4403) and visitors without a session (4401) | |
-| Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit, filament priced from the latest PO), duplicate-safe; settings from the dashboard (audited, confirmed) | Separate NATS permissions per user (both users have full access today) |
+| Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit, filament priced from the latest PO), duplicate-safe; settings from the dashboard (audited, confirmed) | Metrics dashboards (Prometheus/Grafana); per-agent Postgres roles |
+| Hardening: NATS permissions per user (agents cannot send operator commands or delete streams); rate limits, body limits, request ids, 503 on outages; audited sign-ins; checksummed migrations with `--status`/`--check`; nightly backups with restore; health checks for every service and a dashboard banner; CSP and security headers; CI (lint, unit, e2e under the real NATS permissions, web, image builds) | Off-site backup copies (yours to schedule) |
 | One JetStream topology and one migration path (`migrate` service) shared by every component | Social Listening and Trend Analyst (LLM agents) |
 
 The default finance settings (VAT 18%, 64 agorot/kWh, 150 W, ₪85/kg) are **placeholders**. Set real values with your accountant and from your electricity bill.
