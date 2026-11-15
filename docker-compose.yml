@@ -157,6 +157,8 @@ services:
   caddy:
     build:
       context: ./web
+      additional_contexts:
+        docs: ./docs              # docs/USER_GUIDE_HE.md, shown in the dashboard at /help
     environment:
       SITE_HOSTS: ${SITE_HOSTS:-localhost}
     ports:

@@ -475,3 +475,14 @@ test.describe('social listening', () => {
     await expect(page.locator('article').filter({ hasText: String(n) }).getByText(`extension:e2e browser ${n}`)).toBeVisible({ timeout: 60_000 })
   })
 })
+
+test('the Hebrew user guide opens from the sidebar and its contents links work', async ({ page }) => {
+  await signIn(page, '/live')
+  await page.getByTestId('nav-help').click()
+  const guide = page.getByTestId('user-guide')
+  await expect(guide.getByRole('heading', { level: 1 })).toHaveText('מדריך למשתמש · PrintFarm Ops')
+  await expect(guide).toHaveAttribute('dir', 'rtl')
+  await guide.getByRole('link', { name: 'Social Listening: סוכן הרשתות החברתיות' }).click()
+  await expect(page.locator('[id="6-social-listening-סוכן-הרשתות-החברתיות"]')).toBeInViewport()
+  await shot(page, 'user-guide')
+})

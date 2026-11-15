@@ -14,6 +14,8 @@ browser ──HTTPS──> caddy ──> gateway ──> postgres <──── 
 Every command below is **PowerShell**, run from the repository folder. Each step lists the output you should see and what to do if you see something else.
 Working on the code? See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+**מדריך למשתמש בעברית (Hebrew user guide):** [docs/USER_GUIDE_HE.md](docs/USER_GUIDE_HE.md). How to sign in and use every screen, step by step. It is also built into the dashboard: **User guide · מדריך** at the bottom of the sidebar, or `https://<this PC>/help`.
+
 ---
 
 ## Step 0: Prerequisites (once)

@@ -12,6 +12,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: {
+    fs: { allow: ['..'] }, // the user guide is imported from ../docs/USER_GUIDE_HE.md
     proxy: {
       '/api': { target, changeOrigin: true, secure: false },
       '/ws': { target, ws: true, changeOrigin: true, secure: false, rewriteWsOrigin: true },

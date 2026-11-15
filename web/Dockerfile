@@ -5,6 +5,8 @@ WORKDIR /web
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+# The Hebrew user guide (rendered at /help) lives in the repository's docs/: compose passes it as the "docs" context.
+COPY --from=docs USER_GUIDE_HE.md /docs/USER_GUIDE_HE.md
 # vue-tsc type-checks first; a type error fails the image build
 RUN npm run build
 

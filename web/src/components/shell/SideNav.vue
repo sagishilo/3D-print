@@ -64,6 +64,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
         <span class="sr-only">: {{ a.status }}</span>
       </RouterLink>
       <span v-if="!system.coreAgents.length" class="agent muted">Loading…</span>
+      <RouterLink to="/help" class="agent help" data-testid="nav-help" @click="$emit('navigate')">User guide · <span lang="he">מדריך למשתמש</span></RouterLink>
     </div>
   </nav>
 </template>
@@ -169,6 +170,10 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
   font-size: 12px;
   color: var(--muted);
   text-decoration: none;
+}
+.agent.help {
+  margin-top: 10px;
+  color: var(--accent);
 }
 .agent .dot {
   width: 6px;
