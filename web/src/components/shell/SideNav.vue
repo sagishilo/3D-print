@@ -29,7 +29,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
 </script>
 
 <template>
-  <nav aria-label="Main" class="sidenav">
+  <nav aria-label="Main" class="sidenav" data-tour="sidebar">
     <div class="brand">
       <div class="logo" aria-hidden="true"><Icon name="brand" :size="16" :stroke-width="2.2" /></div>
       <div class="brand-text">

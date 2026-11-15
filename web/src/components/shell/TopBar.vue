@@ -106,8 +106,8 @@ async function logout() {
     </div>
 
     <div class="right">
-      <StatusPill :tone="live.tone" :label="live.label" class="wide" data-testid="live-indicator" />
-      <StatusPill :tone="live.tone" :label="live.shortLabel" class="narrow" aria-hidden="true" />
+      <StatusPill :tone="live.tone" :label="live.label" class="wide" data-testid="live-indicator" data-tour="live-indicator" />
+      <StatusPill :tone="live.tone" :label="live.shortLabel" class="narrow" aria-hidden="true" data-tour="live-indicator" />
       <button
         type="button"
         class="icon-btn"

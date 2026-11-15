@@ -73,7 +73,7 @@ async function bedCleared() {
 </script>
 
 <template>
-  <article class="tile" :class="{ selected, checked }" :data-testid="`printer-${printer.id}`">
+  <article class="tile" :class="{ selected, checked }" :data-testid="`printer-${printer.id}`" data-tour="printer-tile">
     <CameraView :printer-id="printer.id" :available="printer.camera" :protocol="printer.protocol" :simulated="printer.simulated" />
     <label v-if="selectable" class="select" :title="`Select ${printer.id}`">
       <input type="checkbox" :checked="checked" :aria-label="`Select ${printer.id}`" @change="$emit('toggle', printer.id)" />

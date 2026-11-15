@@ -9,6 +9,8 @@ import { useInventory } from '@/stores/inventory'
 import { useLive } from '@/stores/live'
 import { usePrinters } from '@/stores/printers'
 import { useSystem } from '@/stores/system'
+import { useTour } from '@/stores/tour'
+import TourOverlay from '@/components/tour/TourOverlay.vue'
 
 import ApprovalsDrawer from './ApprovalsDrawer.vue'
 import HealthBanner from './HealthBanner.vue'
@@ -20,6 +22,7 @@ const live = useLive()
 const printers = usePrinters()
 const system = useSystem()
 const approvals = useApprovals()
+const tour = useTour()
 
 const navOpen = ref(false)
 const approvalsOpen = ref(false)
@@ -55,7 +58,12 @@ onBeforeUnmount(() => {
 
 watch(
   () => route.fullPath,
-  () => (navOpen.value = false),
+  () => (navOpen.value = !!tour.step?.openNav),
+)
+// The guided tour opens the sidebar on narrow screens for the step that shows it.
+watch(
+  () => tour.step?.openNav,
+  (open) => (navOpen.value = !!open),
 )
 </script>
 
@@ -71,6 +79,7 @@ watch(
       </main>
     </div>
     <ApprovalsDrawer :open="approvalsOpen" @close="approvalsOpen = false" />
+    <TourOverlay />
   </div>
 </template>
 

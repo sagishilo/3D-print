@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
 
 import guide from '../../docs/USER_GUIDE_HE.md?raw'
@@ -37,7 +38,7 @@ describe('user guide rendering', () => {
   })
 
   it('renders right-to-left in the dashboard', () => {
-    const w = mount(HelpView)
+    const w = mount(HelpView, { global: { plugins: [createPinia()] } })
     const el = w.get('[data-testid=user-guide]')
     expect(el.attributes('dir')).toBe('rtl')
     expect(el.find('h1').text()).toBe('מדריך למשתמש · PrintFarm Ops')

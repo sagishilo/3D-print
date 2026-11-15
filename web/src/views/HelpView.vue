@@ -1,11 +1,16 @@
 <script setup lang="ts">
 // מדריך למשתמש: docs/USER_GUIDE_HE.md, built into the dashboard (works without internet). Links inside the guide's
 // table of contents scroll to their section.
+import { computed } from 'vue'
+
 import guide from '../../../docs/USER_GUIDE_HE.md?raw'
 
 import { renderGuide } from '@/lib/markdown'
+import { useTour } from '@/stores/tour'
 
 const html = renderGuide(guide)
+const tour = useTour()
+const seen = computed(() => !tour.active && tour.seen())
 
 function onClick(e: MouseEvent) {
   const a = (e.target as HTMLElement).closest('a')
@@ -17,11 +22,67 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
+  <section class="tour-card" dir="rtl" lang="he" aria-labelledby="tour-card-title">
+    <div class="tour-icon" aria-hidden="true">🧭</div>
+    <div class="tour-text">
+      <h2 id="tour-card-title">חדשים כאן? בואו נעשה סיור</h2>
+      <p>סיור מודרך של כ-2 דקות על המסכים האמיתיים: איפה כל דבר נמצא, מה כל כפתור עושה, ולמה. במהלך הסיור הכפתורים נעולים, כך שאי אפשר לשנות כלום בטעות.</p>
+    </div>
+    <button type="button" class="btn btn-primary start" data-testid="tour-start" @click="tour.start()">
+      {{ seen ? 'התחל את הסיור שוב' : 'התחל סיור מודרך' }}
+    </button>
+  </section>
   <!-- eslint-disable-next-line vue/no-v-html -- our own guide, compiled into the build -->
   <article class="guide" dir="rtl" lang="he" data-testid="user-guide" @click="onClick" v-html="html" />
 </template>
 
 <style scoped>
+.tour-card {
+  max-width: 880px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: linear-gradient(120deg, var(--accent-bg), transparent 70%), var(--surface);
+}
+.tour-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+.tour-text {
+  flex: 1;
+  min-width: 0;
+}
+.tour-text h2 {
+  font: 700 18px var(--font-display);
+  margin: 0 0 4px;
+}
+.tour-text p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.start {
+  white-space: nowrap;
+  min-height: 44px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+@media (max-width: 600px) {
+  .tour-card {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: start;
+  }
+  .tour-icon {
+    display: none;
+  }
+}
 .guide {
   max-width: 880px;
   margin: 0 auto;

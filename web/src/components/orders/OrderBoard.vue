@@ -35,7 +35,7 @@ function onDrop(stage: Stage) {
 </script>
 
 <template>
-  <div class="board" role="list" aria-label="Order pipeline">
+  <div class="board" role="list" aria-label="Order pipeline" data-tour="order-board">
     <section
       v-for="col in columns"
       :key="col.stage"
