@@ -39,6 +39,7 @@ const PATHS: Record<string, string[]> = {
   logout: ['M15 4h4v16h-4M10 17l5-5-5-5M15 12H3'],
   menu: ['M4 6h16M4 12h16M4 18h16'],
   download: ['M12 4v12M7 11l5 5 5-5M5 20h14'],
+  copy: ['M9 9h10v11H9z', 'M5 15V4h10'],
 }
 
 const paths = computed(() => PATHS[props.name] ?? PATHS.alert)

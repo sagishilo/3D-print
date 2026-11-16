@@ -170,6 +170,17 @@ async def test_server_info_for_preflight(moonraker):
     assert r.json()["result"]["klippy_state"] == "ready"
 
 
+async def test_objects_query_for_the_onboarding_test(moonraker):
+    """GET /printer/objects/query returns just the named objects (the printer onboarding reads temperatures so)."""
+    _, port = moonraker
+    async with httpx.AsyncClient() as c:
+        r = await c.get(f"http://127.0.0.1:{port}/printer/objects/query", params={"extruder": "", "heater_bed": "", "print_stats": ""})
+    status = r.json()["result"]["status"]
+    assert set(status) == {"extruder", "heater_bed", "print_stats"}
+    assert status["print_stats"]["state"] == "standby"
+    assert isinstance(status["extruder"]["temperature"], float)
+
+
 # ---------------------------------------------------------------- Crowsnest webcam (Moonraker host)
 
 

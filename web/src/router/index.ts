@@ -24,6 +24,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Instant Catalog', tour: 'catalog' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline', tour: 'orders' } },
       { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Filament', tour: 'filament' } },
+      { path: 'fleet/add', name: 'printer-add', component: () => import('@/views/PrinterOnboardingView.vue'), meta: { title: 'Connect a printer', tour: 'onboarding' } },
       { path: 'fleet', name: 'fleet', component: () => import('@/views/FleetView.vue'), meta: { title: 'Printer Fleet', tour: 'fleet' } },
       { path: 'finance', name: 'finance', component: () => import('@/views/FinanceView.vue'), meta: { title: 'Finance', tour: 'finance' } },
       { path: 'help', name: 'help', component: () => import('@/views/HelpView.vue'), meta: { title: 'מדריך למשתמש', tour: 'help' } },

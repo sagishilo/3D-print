@@ -1,10 +1,10 @@
 // הדרכות עמוד (page tours): a deep dive into one screen, started from the "מדריך לעמוד" button on that screen. They use
 // the same overlay as the general tour (components/tour/TourOverlay.vue); this file holds their steps and the registry
 // of every tour.
-import { CATALOG, FILAMENT, FINANCE, HELP, SOCIAL, SYSTEM } from './page-tours-more'
+import { CATALOG, FILAMENT, FINANCE, HELP, ONBOARDING, SOCIAL, SYSTEM } from './page-tours-more'
 import { TOUR_STEPS, type TourAction, type TourStep } from './tour'
 
-export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help'
+export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding'
 
 export interface Tour {
   id: TourId
@@ -445,6 +445,15 @@ const FLEET: TourStep[] = [
     prepare: [CLOSE_DRAWER, { click: '[data-tour="tile-select"] input', unless: '[data-testid="batch-bar"]', undo: UNTICK }],
   },
   {
+    id: 'fleet-add',
+    route: '/fleet',
+    targets: ['[data-testid="add-printer"]'],
+    title: 'Add printer: מדפסת חדשה',
+    body: ['**Add printer** פותח מדריך חיבור צעד אחרי צעד, לפי סוג המדפסת, עם בדיקת חיבור אמיתית לפני ההוספה.'],
+    why: 'כך מחברים מדפסת בלי לנחש: הבדיקה אומרת בדיוק מה עובד, ומה לתקן.',
+    prepare: [CLOSE_DRAWER, UNTICK],
+  },
+  {
     id: 'fleet-log',
     route: '/fleet',
     targets: ['[data-testid="fleet-log"]'],
@@ -475,7 +484,8 @@ export const TOURS: Record<TourId, Tour> = {
   finance: { id: 'finance', title: 'מדריך לעמוד · Finance', steps: FINANCE },
   system: { id: 'system', title: 'מדריך לעמוד · System & Agents', steps: SYSTEM },
   help: { id: 'help', title: 'מדריך לעמוד · מדריך למשתמש', steps: HELP },
+  onboarding: { id: 'onboarding', title: 'מדריך לעמוד · Connect a new printer', steps: ONBOARDING },
 }
 
 /** One deep-dive tour per screen of the dashboard (route meta `tour` names it; the top bar shows its button). */
-export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help']
+export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding']

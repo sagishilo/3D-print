@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import Icon from '@/components/ui/Icon.vue'
 import { GROUPS, NAV } from '@/nav'
@@ -10,6 +10,7 @@ import { useSystem } from '@/stores/system'
 
 defineEmits<{ navigate: [] }>()
 
+const route = useRoute()
 const system = useSystem()
 const printers = usePrinters()
 const inventory = useInventory()
@@ -46,6 +47,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
           :key="item.to"
           :to="item.to"
           class="item"
+          :class="{ active: route.path.startsWith(`${item.to}/`) }"
           active-class="active"
           @click="$emit('navigate')"
         >

@@ -2,7 +2,7 @@
 // Printer Fleet (design screen 3): every printer with its controls, status filters, batch actions on a selection,
 // printer details (hardware, calibration, history) and the failure / event log.
 import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import FleetLog from '@/components/fleet/FleetLog.vue'
 import PrinterDrawer from '@/components/fleet/PrinterDrawer.vue'
@@ -101,7 +101,6 @@ async function batch(action: BatchAction) {
   selected.value = []
 }
 
-const addHelp = ref(false)
 </script>
 
 <template>
@@ -111,23 +110,10 @@ const addHelp = ref(false)
       <p>{{ printers.list.length }} printers · telemetry via MQTT / Moonraker · cameras via go2rtc → MJPEG</p>
     </div>
     <div class="head-actions">
-      <button type="button" class="btn" :aria-expanded="addHelp" @click="addHelp = !addHelp"><Icon name="plus" :size="14" />Add printer</button>
+      <RouterLink to="/fleet/add" class="btn btn-primary" data-testid="add-printer"><Icon name="plus" :size="14" />Add printer</RouterLink>
     </div>
   </div>
 
-  <section v-if="addHelp" class="panel help" data-testid="add-printer-help">
-    <div class="panel-head">
-      <h2>Adding a printer</h2>
-      <button type="button" class="icon-btn" aria-label="Close" @click="addHelp = false"><Icon name="x" /></button>
-    </div>
-    <ol>
-      <li>Give the printer a fixed IP address on your router (README step 10).</li>
-      <li>Add it to <span class="mono">config/fleet.toml</span>: its id, vendor, model, IP and the name of its access-code variable.</li>
-      <li>Put its access code in <span class="mono">cameras.env</span> and, for a camera, add a stream with the same id to <span class="mono">infra/go2rtc/go2rtc.yaml</span> (README steps 11–12).</li>
-      <li>Run <span class="mono">docker compose up -d</span>. The printer appears here once the telemetry agent connects.</li>
-    </ol>
-    <p class="panel-note">Printers are configured in files, not from the dashboard, so their access codes never pass through the browser.</p>
-  </section>
 
   <div v-for="a in live.alerts.slice(0, 3)" :key="a.key" class="banner" role="alert">
     <Icon name="alert" :size="18" />
@@ -209,14 +195,6 @@ const addHelp = ref(false)
 </template>
 
 <style scoped>
-.help ol {
-  margin: 0;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
 .banner {
   display: flex;
   align-items: center;

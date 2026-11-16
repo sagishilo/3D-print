@@ -23,6 +23,7 @@ log = logging.getLogger("pf.gateway")
 REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 WINDOW_S = 60.0
 MAX_CLIENTS = 10_000          # tracked (ip, bucket) pairs; the oldest are forgotten beyond this
+COMMAND_LIKE = ("/api/v1/social/captures", "/api/v1/printers/test-connection")   # POSTs limited like commands
 
 
 class RateLimiter:
@@ -57,7 +58,7 @@ def bucket_for(method: str, path: str) -> str | None:
         return None
     if method == "POST" and path.startswith("/api/v1/catalog/uploads"):
         return "uploads"
-    if method == "POST" and (path.startswith("/api/v1/commands") or path == "/api/v1/social/captures"):
+    if method == "POST" and (path.startswith("/api/v1/commands") or path in COMMAND_LIKE):
         return "commands"
     return "api"
 

@@ -204,7 +204,10 @@ test.describe('printer fleet', () => {
   })
 
   test('batch actions apply to the printers in a fitting state', async ({ page }) => {
+    test.setTimeout(300_000)
     await signIn(page, '/fleet')
+    // The checks below need an idle farm: let plates queued by other tests (catalog batches) finish first.
+    await expect(page.getByRole('group', { name: 'Filter by state' })).not.toContainText(/printing|heating|paused/, { timeout: 240_000 })
     await page.getByRole('button', { name: 'Select all' }).click()
     const bar = page.getByTestId('batch-bar')
     await expect(bar).toContainText('3 selected')
@@ -399,6 +402,8 @@ test.describe('instant catalog', () => {
 
     // into the batch: the bar shows plates, time and filament as the scheduler would pack them
     await card.getByTestId(`add-${sku}`).click()
+    // Wait for the batch to take the suggested quantity first, or it can overwrite the 2 typed below.
+    await expect(page.getByTestId('batch-bar')).toContainText(`${sku} ×`)
     await card.getByTestId(`qty-${sku}`).fill('2')
     await card.getByTestId(`qty-${sku}`).blur()
     const bar = page.getByTestId('batch-bar')

@@ -3,6 +3,7 @@
 HTTP:  GET  /server/info                  -> {"result": {"klippy_state": "ready", ...}}
        POST /server/files/upload          -> multipart "file" (+ "root"), stored in the printer's memory
        GET  /server/files/list            -> uploaded files
+       GET  /printer/objects/query?extruder&heater_bed  -> {"result": {"status": {...}}} (the named objects)
        GET  /webcam/?action=snapshot|stream  Crowsnest-style JPEG / MJPEG
 WS:    /websocket                         -> JSON-RPC 2.0 (printer.objects.subscribe, printer.print.start, ...)
 
@@ -226,7 +227,7 @@ async def _front(p: SimPrinter, ws_port: int, reader: asyncio.StreamReader, writ
             await uw.drain()
             await asyncio.gather(_pipe(reader, uw), _pipe(ur, writer))
             return
-        await _http(p, method, url.path, parse_qs(url.query), headers, reader, writer)
+        await _http(p, method, url.path, parse_qs(url.query, keep_blank_values=True), headers, reader, writer)
     except (ConnectionError, asyncio.IncompleteReadError):
         pass
     finally:
@@ -238,6 +239,10 @@ async def _http(p, method, path, query, headers, reader, writer) -> None:
     if method == "GET" and path == "/server/info":
         await _json(writer, "200 OK", {"result": {"klippy_connected": True, "klippy_state": "ready",
                                                   "moonraker_version": "printfarm-simulator"}})
+    elif method == "GET" and path == "/printer/objects/query":
+        status = moonraker_status(p)
+        await _json(writer, "200 OK", {"result": {"eventtime": time.monotonic(),
+                                                  "status": {k: status[k] for k in query if k in status}}})
     elif method == "GET" and path == "/server/files/list":
         await _json(writer, "200 OK", {"result": [{"path": n, "size": len(d)} for n, d in sorted(p.files.items())]})
     elif method == "POST" and path == "/server/files/upload":

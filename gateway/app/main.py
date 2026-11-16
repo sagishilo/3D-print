@@ -26,7 +26,7 @@ from printfarm.bus.nats_bus import NatsBus
 from printfarm.contracts.catalog import MAX_UPLOAD_BYTES
 from printfarm.store import schema
 
-from . import approvals, auth, cameras, catalog, finance, inventory, live, orders, printers, social, system
+from . import approvals, auth, cameras, catalog, finance, inventory, live, onboarding, orders, printers, social, system
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
@@ -90,7 +90,7 @@ async def _unexpected(request: Request, exc: Exception):
     log.exception("unhandled error on %s %s rid=%s", request.method, request.url.path, _rid(request))
     return JSONResponse({"detail": "internal error", "request_id": _rid(request)}, status_code=500)
 
-for module in (auth, live, system, printers, cameras, approvals, orders, inventory, finance, catalog, social):
+for module in (auth, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog, social):
     app.include_router(module.router)
 
 

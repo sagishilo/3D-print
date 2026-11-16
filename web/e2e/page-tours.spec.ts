@@ -14,7 +14,7 @@ test.skip(!PASSWORD, 'set PRINTFARM_PASSWORD to the admin password of the runnin
 const ROUTE = Object.fromEntries(PAGE_TOURS.map((id) => [id, TOURS[id].steps[0].route])) as Record<TourId, string>
 
 /** Steps whose element depends on what the farm is doing right now (no printer waiting for clearing, no AMS, …). */
-const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams', 'social-card', 'catalog-card', 'catalog-batch', 'finance-vat'])
+const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams', 'social-card', 'catalog-card', 'catalog-batch', 'finance-vat', 'onboarding-test'])
 
 async function signIn(page: Page, path: string) {
   await page.goto(path)
