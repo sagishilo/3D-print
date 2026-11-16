@@ -99,19 +99,19 @@ const kpis = computed(() => {
       <h1>System &amp; Agents</h1>
       <p>Agent health, NATS JetStream, dead-letter queue and automation config</p>
     </div>
-    <button type="button" class="btn" @click="refresh"><Icon name="refresh" :size="14" />Refresh</button>
+    <button type="button" class="btn" data-tour="system-refresh" @click="refresh"><Icon name="refresh" :size="14" />Refresh</button>
   </div>
 
-  <TabBar v-model="tab" :tabs="tabs" label="System sections" />
+  <TabBar v-model="tab" :tabs="tabs" label="System sections" data-tour="system-tabs" />
 
   <p v-if="system.error" class="error" role="alert"><Icon name="alert" :size="14" /> {{ system.error }}</p>
 
   <template v-if="tab === 'overview'">
-    <div class="kpis">
+    <div class="kpis" data-tour="system-kpis">
       <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.subTone" />
     </div>
     <div class="wide-narrow">
-      <section class="panel">
+      <section class="panel" data-tour="agents-panel">
         <div class="panel-head">
           <h2>Agents</h2>
           <span class="panel-note">heartbeat every 10 s via the heartbeats KV</span>

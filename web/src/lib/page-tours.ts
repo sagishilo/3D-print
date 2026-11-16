@@ -1,9 +1,10 @@
 // הדרכות עמוד (page tours): a deep dive into one screen, started from the "מדריך לעמוד" button on that screen. They use
 // the same overlay as the general tour (components/tour/TourOverlay.vue); this file holds their steps and the registry
 // of every tour.
+import { CATALOG, FILAMENT, FINANCE, HELP, SOCIAL, SYSTEM } from './page-tours-more'
 import { TOUR_STEPS, type TourAction, type TourStep } from './tour'
 
-export type TourId = 'general' | 'live' | 'orders' | 'fleet'
+export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help'
 
 export interface Tour {
   id: TourId
@@ -158,8 +159,8 @@ const LIVE: TourStep[] = [
     route: '/live',
     targets: ['[data-testid="page-tour-live"]'],
     title: 'סיימתם את המסך הזה 🎉',
-    body: ['אפשר לחזור להדרכה הזאת בכל רגע בלחיצה על **מדריך לעמוד**.'],
-    why: 'גם במסכים **Order Pipeline** ו-**Printer Fleet** יש הדרכה משלהם, באותו כפתור.',
+    body: ['אפשר לחזור להדרכה בכל רגע: הכפתור **מדריך לעמוד** נמצא תמיד באותו מקום, בפס העליון.'],
+    why: 'לכל מסך במערכת יש הדרכה משלו, באותו כפתור.',
   },
 ]
 
@@ -288,7 +289,7 @@ const ORDERS: TourStep[] = [
     route: '/orders',
     targets: ['[data-testid="page-tour-orders"]'],
     title: 'זהו, זה מסלול ההזמנות 🎉',
-    body: ['אפשר לחזור להדרכה הזאת בכל רגע בלחיצה על **מדריך לעמוד**.'],
+    body: ['אפשר לחזור להדרכה בכל רגע: הכפתור **מדריך לעמוד** נמצא תמיד באותו מקום, בפס העליון.'],
     why: 'אם משהו בלוח לא ברור, לחיצה על הכרטיס תמיד מסבירה מה הצעד הבא.',
   },
 ]
@@ -457,7 +458,7 @@ const FLEET: TourStep[] = [
     route: '/fleet',
     targets: ['[data-testid="page-tour-fleet"]'],
     title: 'סיימתם את צי המדפסות 🎉',
-    body: ['אפשר לחזור להדרכה הזאת בכל רגע בלחיצה על **מדריך לעמוד**.'],
+    body: ['אפשר לחזור להדרכה בכל רגע: הכפתור **מדריך לעמוד** נמצא תמיד באותו מקום, בפס העליון.'],
     why: 'לפני כיול ראשון, כדאי לעבור שוב על שלב הבטיחות.',
     prepare: [CLOSE_DRAWER, UNTICK],
   },
@@ -468,6 +469,13 @@ export const TOURS: Record<TourId, Tour> = {
   live: { id: 'live', title: 'מדריך לעמוד · Live floor', steps: LIVE },
   orders: { id: 'orders', title: 'מדריך לעמוד · Order Pipeline', steps: ORDERS },
   fleet: { id: 'fleet', title: 'מדריך לעמוד · Printer Fleet', steps: FLEET },
+  social: { id: 'social', title: 'מדריך לעמוד · Social & Trends', steps: SOCIAL },
+  catalog: { id: 'catalog', title: 'מדריך לעמוד · Instant Catalog', steps: CATALOG },
+  filament: { id: 'filament', title: 'מדריך לעמוד · Filament', steps: FILAMENT },
+  finance: { id: 'finance', title: 'מדריך לעמוד · Finance', steps: FINANCE },
+  system: { id: 'system', title: 'מדריך לעמוד · System & Agents', steps: SYSTEM },
+  help: { id: 'help', title: 'מדריך לעמוד · מדריך למשתמש', steps: HELP },
 }
 
-export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet']
+/** One deep-dive tour per screen of the dashboard (route meta `tour` names it; the top bar shows its button). */
+export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help']

@@ -101,7 +101,7 @@ async function revoke(id: string, name: string) {
     <p class="panel-note">Spend: {{ spendLine(social.stats, social.budget) }}</p>
     <p class="panel-note" data-testid="accuracy">Accuracy: {{ accuracyLine(social.stats?.accuracy) }}</p>
 
-    <div class="panel-head sub">
+    <div class="panel-head sub" data-tour="capture-extension">
       <h2>Capture extension</h2>
       <span class="panel-note">one token per browser</span>
     </div>

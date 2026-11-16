@@ -21,7 +21,7 @@ const daysLeft = computed(() => {
 </script>
 
 <template>
-  <button type="button" class="spool" :class="spool.status" :data-testid="`spool-${spool.spool_id}`" @click="$emit('open', spool.spool_id)">
+  <button type="button" class="spool" :class="spool.status" :data-testid="`spool-${spool.spool_id}`" data-tour="spool-card" @click="$emit('open', spool.spool_id)">
     <div class="row">
       <span class="name">{{ spool.material }} · {{ spool.color }}</span>
       <StatusPill :tone="tone" :label="label" />

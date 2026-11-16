@@ -23,7 +23,7 @@ const part = computed(() => {
 </script>
 
 <template>
-  <article class="card" :class="{ inactive: !product.active, picked: qty > 0 }" :data-testid="`sku-${product.sku}`">
+  <article class="card" :class="{ inactive: !product.active, picked: qty > 0 }" :data-testid="`sku-${product.sku}`" data-tour="sku-card">
     <svg class="thumb" :viewBox="`0 0 ${view} ${view}`" role="img" :aria-label="`${product.footprint_mm[0]} × ${product.footprint_mm[1]} mm on a ${bed[0]} × ${bed[1]} mm bed`">
       <rect class="bed" x="0" y="0" :width="bed[0]" :height="bed[1]" rx="6" />
       <rect class="part" :x="part.x" :y="part.y" :width="part.w" :height="part.d" rx="2" />
@@ -61,7 +61,7 @@ const part = computed(() => {
     <span v-if="product.in_production" class="muted small">{{ product.in_production }} in production for stock</span>
 
     <div class="actions">
-      <button type="button" class="btn btn-sm" :disabled="product.sliced" :data-testid="`slice-${product.sku}`" @click="emit('slice')">
+      <button type="button" class="btn btn-sm" :disabled="product.sliced" :data-testid="`slice-${product.sku}`" data-tour="sku-slice" @click="emit('slice')">
         {{ product.sliced ? 'Sliced ✓' : 'Slice now' }}
       </button>
       <button type="button" class="btn btn-sm" :aria-label="`Edit ${product.sku}`" @click="emit('edit')"><Icon name="gear" :size="14" /></button>
@@ -73,7 +73,7 @@ const part = computed(() => {
         </label>
         <button type="button" class="btn btn-sm btn-ok" :data-testid="`in-batch-${product.sku}`" title="Remove from the batch" @click="emit('qty', 0)">In batch ✓</button>
       </template>
-      <button v-else type="button" class="btn btn-sm btn-primary" :disabled="!product.active" :data-testid="`add-${product.sku}`" :title="`adds ${suggested}: sold this week minus stock in production`" @click="emit('add', suggested)">
+      <button v-else type="button" class="btn btn-sm btn-primary" :disabled="!product.active" :data-testid="`add-${product.sku}`" data-tour="sku-add" :title="`adds ${suggested}: sold this week minus stock in production`" @click="emit('add', suggested)">
         <Icon name="plus" :size="14" />Add to batch
       </button>
     </div>

@@ -85,12 +85,12 @@ function exportLeads() {
   <p v-if="social.error" class="err" role="alert">{{ social.error }}</p>
   <p v-if="s" class="model-line small" :class="{ 'text-warn': s.agent.llm !== 'claude' }" data-testid="model-line">{{ modelLine(s) }}</p>
 
-  <div class="kpis">
+  <div class="kpis" data-tour="social-kpis">
     <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.subTone" />
   </div>
 
   <div class="layout">
-    <section class="panel feed" aria-label="Buying-intent feed">
+    <section class="panel feed" aria-label="Buying-intent feed" data-tour="capture-feed">
       <div class="panel-head">
         <h2>Buying-intent feed</h2>
         <div class="filters" role="group" aria-label="Show">

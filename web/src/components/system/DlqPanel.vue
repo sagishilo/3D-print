@@ -95,7 +95,7 @@ async function replayAll() {
 
 <template>
   <div class="dlq" :class="{ split: selected }">
-    <section class="panel">
+    <section class="panel" data-tour="dlq">
       <div class="panel-head">
         <h2>Dead letter queue</h2>
         <button type="button" class="btn btn-sm" :disabled="busy || !system.dlq.length" @click="replayAll">

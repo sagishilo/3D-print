@@ -1,6 +1,6 @@
-// End-to-end: the page tours (הדרכות עמוד) of Live floor, Order Pipeline and Printer Fleet in a real browser against the
-// simulator stack. Each is started from its screen's "מדריך לעמוד" button; every step must highlight the element it
-// names (the spotlight surrounds it, the bubble is on screen beside it), or say why it is not there right now.
+// End-to-end: the page tours (הדרכות עמוד) of every screen in a real browser against the simulator stack. Each is
+// started from the "מדריך לעמוד" button in the top bar (same place on every screen); every step must highlight the
+// element it names (the spotlight surrounds it, the bubble is on screen beside it), or say why it is not there now.
 import { expect, type Locator, type Page, test } from '@playwright/test'
 
 import { PAGE_TOURS, TOURS, type TourId } from '../src/lib/page-tours'
@@ -11,10 +11,10 @@ const SHOTS = process.env.PW_SCREENSHOTS ?? ''
 
 test.skip(!PASSWORD, 'set PRINTFARM_PASSWORD to the admin password of the running stack')
 
-const ROUTE: Record<string, string> = { live: '/live', orders: '/orders', fleet: '/fleet' }
+const ROUTE = Object.fromEntries(PAGE_TOURS.map((id) => [id, TOURS[id].steps[0].route])) as Record<TourId, string>
 
 /** Steps whose element depends on what the farm is doing right now (no printer waiting for clearing, no AMS, …). */
-const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams'])
+const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams', 'social-card', 'catalog-card', 'catalog-batch', 'finance-vat'])
 
 async function signIn(page: Page, path: string) {
   await page.goto(path)
@@ -41,9 +41,10 @@ async function expectStep(page: Page, tour: TourId, step: TourStep, n: number): 
   await expect(page.getByTestId('tour-title')).toHaveText(TOURS[tour].title)
   await expect(page.getByTestId('tour-count')).toHaveText(`שלב ${n} מתוך ${TOURS[tour].steps.length}`)
   await expect(bubble.getByRole('heading', { level: 2 })).toHaveText(step.title)
-  await expect(page.getByText('מחפש את המקום על המסך…')).toHaveCount(0, { timeout: 10_000 })
+  // Wait until the tour has decided: highlighted, or reported missing.
+  await expect(bubble).toHaveAttribute('data-status', /^(anchored|missing)$/, { timeout: 10_000 })
 
-  if ((await bubble.getAttribute('data-anchored')) === 'false') {
+  if ((await bubble.getAttribute('data-status')) === 'missing') {
     expect(MAY_BE_MISSING.has(step.id), `${step.id}: its element should be on the screen`).toBe(true)
     await expect(page.getByTestId('tour-missing')).toBeVisible()
     return false
@@ -102,17 +103,50 @@ for (const id of PAGE_TOURS) {
       }
       if (step.id === 'fleet-select') await expect(page.getByTestId('printer-drawer')).toHaveCount(0) // closed again
       if (step.id === 'fleet-batch') await expect(page.getByTestId('batch-bar').getByRole('button', { name: /Bed cleared/ })).toBeVisible()
+      if (step.id === 'finance-income') await expect(page.getByRole('tab', { name: 'Income', selected: true })).toBeVisible()
+      if (step.id === 'finance-settings') await expect(page.getByRole('tab', { name: 'Settings', selected: true })).toBeVisible()
+      if (step.id === 'system-nats') await expect(page.getByRole('tab', { name: 'NATS', selected: true })).toBeVisible()
+      if (step.id === 'catalog-batch' && anchored) await expect(page.getByTestId('queue-batch')).toBeVisible()
 
       await expect(page.getByTestId('tour-next')).toHaveText(i === tour.steps.length - 1 ? 'סיום' : 'הבא')
       await page.getByTestId('tour-next').click()
     }
 
     await expect(page.getByTestId('tour')).toHaveCount(0)
-    // The tour leaves the screen as it found it.
+    // The tour leaves the screen as it found it: no drawer, no selection or batch, back on the first tab.
     await expect(page.getByTestId('printer-drawer')).toHaveCount(0)
     await expect(page.getByTestId('batch-bar')).toHaveCount(0)
+    if (id === 'finance' || id === 'system') await expect(page.getByRole('tab', { name: 'Overview', selected: true })).toBeVisible()
   })
 }
+
+test('the tour button is at the same place and looks the same on every screen', async ({ page }) => {
+  await signIn(page, '/live')
+  await expect(page.getByTestId('page-tour-live')).toBeVisible()
+  let first: { box: { x: number; y: number; width: number; height: number }; style: string } | null = null
+  for (const id of PAGE_TOURS) {
+    await page.goto(ROUTE[id])
+    const button = page.getByTestId(`page-tour-${id}`)
+    await expect(button).toBeVisible()
+    await expect(page.locator('[data-testid^="page-tour-"]')).toHaveCount(1) // one button, for this screen
+    await expect(button).toHaveText('?מדריך לעמוד')
+    const box = (await button.boundingBox())!
+    const style = await button.evaluate((el) => {
+      const c = getComputedStyle(el)
+      return [c.color, c.backgroundColor, c.borderColor, c.fontSize, c.height].join(' | ')
+    })
+    // In the top bar, at its far right.
+    const bar = (await page.locator('.topbar').boundingBox())!
+    expect(box.y).toBeGreaterThanOrEqual(bar.y)
+    expect(box.y + box.height).toBeLessThanOrEqual(bar.y + bar.height)
+    expect(bar.x + bar.width - (box.x + box.width)).toBeLessThan(40)
+    if (!first) first = { box, style }
+    else {
+      expect(box, `${id}: same place`).toEqual(first.box)
+      expect(style, `${id}: same look`).toBe(first.style)
+    }
+  }
+})
 
 test('leaving the fleet tour in the middle closes the panel it opened and unticks the printer', async ({ page }) => {
   await signIn(page, '/fleet')
@@ -144,10 +178,12 @@ test.describe('on a phone', () => {
     await expect(page.getByTestId('page-tour-live')).toBeVisible() // signed in
     for (const id of PAGE_TOURS) {
       if (page.url().endsWith(ROUTE[id]) === false) await page.goto(ROUTE[id])
+      // On a phone the button is just the "?", still in the top bar.
+      await expect(page.getByTestId(`page-tour-${id}`)).toHaveText('?', { useInnerText: true })
       await page.getByTestId(`page-tour-${id}`).click()
       for (const [i, step] of TOURS[id].steps.entries()) {
         await expectStep(page, id, step, i + 1)
-        if (SHOTS && ['live-camera', 'orders-board', 'fleet-calibration-safety'].includes(step.id))
+        if (SHOTS && ['live-camera', 'orders-board', 'fleet-calibration-safety', 'social-review', 'finance-kpis', 'system-agents'].includes(step.id))
           await page.screenshot({ path: `${SHOTS}/phone-${id}-${step.id}.png` })
         await page.getByTestId('tour-next').click()
       }

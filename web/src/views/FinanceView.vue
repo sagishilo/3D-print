@@ -134,7 +134,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </div>
 
   <div class="toolbar">
-    <div class="seg" role="group" aria-label="Period">
+    <div class="seg" role="group" aria-label="Period" data-tour="finance-period">
       <button v-for="p in PERIODS" :key="p.id" type="button" :class="{ on: finance.period === p.id }" :aria-pressed="finance.period === p.id" @click="finance.period = p.id">{{ p.label }}</button>
     </div>
     <label class="sr-only" for="fin-month">Month</label>
@@ -152,11 +152,11 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </p>
   <p v-if="finance.error" class="err" role="alert">{{ finance.error }}</p>
 
-  <TabBar v-model="tab" :tabs="tabs" label="Finance sections" />
+  <TabBar v-model="tab" :tabs="tabs" label="Finance sections" data-tour="finance-tabs" />
 
   <!-- ------------------------------------------------ overview -->
   <template v-if="tab === 'overview' && r">
-    <div class="kpis five">
+    <div class="kpis five" data-tour="finance-kpis">
       <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.tone" />
     </div>
     <div class="grid-2">
@@ -195,7 +195,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </template>
 
   <!-- ------------------------------------------------ income -->
-  <section v-else-if="tab === 'income'" class="panel">
+  <section v-else-if="tab === 'income'" class="panel" data-tour="finance-income">
     <div class="panel-head"><h2>Income · {{ r?.period.label }}</h2><button type="button" class="btn btn-sm" @click="money = { mode: 'payment' }">Record payment</button></div>
     <div class="table-wrap">
       <table class="data">
@@ -219,7 +219,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </section>
 
   <!-- ------------------------------------------------ expenses -->
-  <section v-else-if="tab === 'expenses'" class="panel">
+  <section v-else-if="tab === 'expenses'" class="panel" data-tour="finance-expenses">
     <div class="panel-head"><h2>Expenses · {{ r?.period.label }}</h2><button type="button" class="btn btn-sm" @click="money = { mode: 'expense' }">Add expense</button></div>
     <div class="table-wrap">
       <table class="data">

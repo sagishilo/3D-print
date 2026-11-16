@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// "מדריך לעמוד": starts the deep-dive tour of the screen it sits on (lib/page-tours.ts).
+// "מדריך לעמוד": starts the deep-dive tour of the current screen (lib/page-tours.ts). The top bar shows it on every
+// screen, at the same place, for the tour named by the route's `tour` meta.
 import type { TourId } from '@/lib/page-tours'
 import { useTour } from '@/stores/tour'
 
@@ -10,12 +11,13 @@ const tours = useTour()
 <template>
   <button
     type="button"
-    class="btn btn-sm page-tour"
+    class="btn page-tour"
     :data-testid="`page-tour-${props.tour}`"
     title="הדרכה מודרכת על המסך הזה: כל כפתור, מה הוא עושה ולמה"
+    aria-label="מדריך לעמוד: הדרכה על המסך הזה"
     @click="tours.start(props.tour)"
   >
-    <span class="q" aria-hidden="true">?</span><span lang="he" dir="rtl">מדריך לעמוד</span>
+    <span class="q" aria-hidden="true">?</span><span class="label" lang="he" dir="rtl">מדריך לעמוד</span>
   </button>
 </template>
 
@@ -39,5 +41,14 @@ const tours = useTour()
   align-items: center;
   justify-content: center;
   font: 700 11px var(--font);
+}
+/* Phones: the top bar is one row there, so just the "?" (the name stays in aria-label and title). */
+@media (max-width: 600px) {
+  .page-tour {
+    padding: 0 9px;
+  }
+  .label {
+    display: none;
+  }
 }
 </style>

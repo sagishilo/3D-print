@@ -4,7 +4,6 @@ import { computed, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import EventFeed from '@/components/live/EventFeed.vue'
-import PageTourButton from '@/components/tour/PageTourButton.vue'
 import PrinterTile from '@/components/live/PrinterTile.vue'
 import TelemetryReplay from '@/components/live/TelemetryReplay.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -56,7 +55,6 @@ const gapText = computed(() => {
       <ul class="counts" aria-label="Printer states" data-tour="state-counts">
         <li v-for="c in counts" :key="c.s" class="pill" :class="`tone-${c.tone}`"><span class="dot" aria-hidden="true" />{{ c.n }} {{ c.s }}</li>
       </ul>
-      <PageTourButton tour="live" />
     </div>
   </div>
 

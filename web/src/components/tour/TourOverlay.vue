@@ -60,6 +60,9 @@ function undoAll() {
 const total = computed(() => tour.steps.length)
 const n = computed(() => (tour.index ?? 0) + 1)
 
+const padded = (r: DOMRect | undefined): Rect | null =>
+  r ? { top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 } : null
+
 function measure() {
   if (target && !target.isConnected) target = null
   const r = target?.getBoundingClientRect()
@@ -68,7 +71,7 @@ function measure() {
     scrolledAt = performance.now()
     reveal(target)
   }
-  const next: Rect | null = r ? { top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 } : null
+  const next = padded(r)
   const cur = rect.value
   if (!next !== !cur || (next && cur && (next.top !== cur.top || next.left !== cur.left || next.width !== cur.width || next.height !== cur.height)))
     rect.value = next
@@ -100,6 +103,7 @@ async function show() {
     if (el) {
       target = el
       reveal(el)
+      rect.value = padded(el.getBoundingClientRect()) // spotlight in the same render that ends "searching"
       break
     }
     if (Date.now() > until) {
@@ -177,6 +181,7 @@ const bubbleStyle = computed(() => ({ top: `${placement.value.top}px`, left: `${
       data-testid="tour-bubble"
       :data-step="tour.step.id"
       :data-anchored="rect ? 'true' : 'false'"
+      :data-status="searching ? 'searching' : rect ? 'anchored' : missing ? 'missing' : 'free'"
     >
       <header>
         <span class="count"><span class="tour-name" data-testid="tour-title">{{ tour.title }}</span> · <span data-testid="tour-count">שלב {{ n }} מתוך {{ total }}</span></span>

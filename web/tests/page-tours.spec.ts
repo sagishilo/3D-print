@@ -9,9 +9,12 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
 import calibration from '../../src/printfarm/contracts/calibration.py?raw'
 
+import TopBar from '@/components/shell/TopBar.vue'
 import PageTourButton from '@/components/tour/PageTourButton.vue'
 import TourOverlay from '@/components/tour/TourOverlay.vue'
 import { PAGE_TOURS, TOURS, type TourId } from '@/lib/page-tours'
+import { NAV } from '@/nav'
+import { routes } from '@/router'
 import type { TourStep } from '@/lib/tour'
 import { useTour } from '@/stores/tour'
 
@@ -40,19 +43,29 @@ const text = (tour: TourId, id: string) => {
 }
 
 describe('page tours', () => {
-  it('exist for Live, Orders and Fleet and stay on their own screen', () => {
-    expect(PAGE_TOURS).toEqual(['live', 'orders', 'fleet'])
-    const route: Record<string, string> = { live: '/live', orders: '/orders', fleet: '/fleet' }
+  it('exist for every screen of the dashboard and stay on their own screen', () => {
+    // Every logged-in route (the sign-in page has no shell) names its page tour; every page tour belongs to a route.
+    const shell = routes.find((r) => r.path === '/')!.children!.filter((r) => r.component)
+    expect(shell.length).toBeGreaterThanOrEqual(9)
+    const byRoute = new Map(shell.map((r) => [`/${r.path}`, r.meta?.tour]))
+    for (const [path, tour] of byRoute) {
+      expect(tour, `${path} has a page tour`).toBeTruthy()
+      expect(PAGE_TOURS, path).toContain(tour)
+    }
+    expect([...byRoute.values()].sort()).toEqual([...PAGE_TOURS].sort())
+    for (const n of NAV) expect(byRoute.get(n.to), `sidebar ${n.to}`).toBeTruthy()
+
     for (const id of PAGE_TOURS) {
       const t = TOURS[id]
+      const path = [...byRoute].find(([, tour]) => tour === id)![0]
       expect(t.title).toContain('מדריך לעמוד')
-      expect(t.steps.length).toBeGreaterThanOrEqual(10)
-      for (const s of t.steps) expect(s.route, `${id}/${s.id}`).toBe(route[id])
+      expect(t.steps.length, id).toBeGreaterThanOrEqual(4)
+      for (const s of t.steps) expect(s.route, `${id}/${s.id}`).toBe(path)
       expect(new Set(t.steps.map((s) => s.id)).size).toBe(t.steps.length)
-      // They start and end at the screen's own "מדריך לעמוד" button.
+      // Each starts at the "מדריך לעמוד" button that opened it.
       expect(t.steps[0].targets).toEqual([`[data-testid="page-tour-${id}"]`])
-      expect(t.steps.at(-1)!.targets).toEqual([`[data-testid="page-tour-${id}"]`])
     }
+    for (const id of ['live', 'orders', 'fleet'] as const) expect(TOURS[id].steps.length).toBeGreaterThanOrEqual(10)
   })
 
   it('are plain Hebrew with a "why it matters" on every step', () => {
@@ -161,6 +174,28 @@ describe('PageTourButton', () => {
     await w.trigger('click')
     expect(useTour().tourId).toBe('fleet')
     expect(useTour().step?.id).toBe('fleet-intro')
+  })
+})
+
+describe('the top bar', () => {
+  it('shows the tour button of the current screen, at the same place on every screen', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const router = createRouter({ history: createMemoryHistory(), routes: routes.find((r) => r.path === '/')!.children!.filter((r) => r.component).map((r) => ({ path: `/${r.path}`, meta: r.meta, component: { render: () => null } })) })
+    for (const id of PAGE_TOURS) {
+      const path = routes.find((r) => r.path === '/')!.children!.find((r) => r.meta?.tour === id)!.path
+      await router.push(`/${path}`)
+      const w = mount(TopBar, { global: { plugins: [router, pinia] } })
+      const buttons = w.findAll('[data-testid^="page-tour-"]')
+      expect(buttons.map((b) => b.attributes('data-testid')), path).toEqual([`page-tour-${id}`])
+      // The last control of the top bar, at its far right.
+      const right = w.find('.right')
+      expect(right.element.lastElementChild?.getAttribute('data-testid'), path).toBe(`page-tour-${id}`)
+      await buttons[0].trigger('click')
+      expect(useTour().tourId).toBe(id)
+      useTour().stop()
+      w.unmount()
+    }
   })
 })
 

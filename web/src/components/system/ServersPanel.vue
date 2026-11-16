@@ -50,7 +50,7 @@ const rows = computed(() => {
 </script>
 
 <template>
-  <section class="panel">
+  <section class="panel" data-tour="servers">
     <div class="panel-head">
       <h2>Servers</h2>
       <span class="panel-note">refreshes every 5 s</span>

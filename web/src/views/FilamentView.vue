@@ -126,7 +126,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
       <h1>Filament Inventory &amp; Auto-Reorder</h1>
       <p>Grams booked per finished plate · active spools count down live while they print · reorder when grams − rate × (lead + buffer) ≤ min</p>
     </div>
-    <form class="scan" @submit.prevent="onScan">
+    <form class="scan" data-tour="spool-scan" @submit.prevent="onScan">
       <label class="sr-only" for="scan">Scan a spool label</label>
       <input id="scan" v-model="scan" class="input" placeholder="Scan or type a spool label" autocomplete="off" data-testid="scan" />
       <button type="submit" class="btn"><Icon name="search" :size="14" />Find</button>
@@ -134,7 +134,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
     </form>
   </div>
 
-  <div class="kpis">
+  <div class="kpis" data-tour="filament-kpis">
     <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.tone" />
   </div>
 
@@ -152,7 +152,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel" data-tour="spools">
     <div class="panel-head">
       <h2>Spools</h2>
       <label class="small muted"><input v-model="showEmpty" type="checkbox" /> show empty spools</label>

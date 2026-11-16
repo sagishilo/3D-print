@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
+import PageTourButton from '@/components/tour/PageTourButton.vue'
 import Icon from '@/components/ui/Icon.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { command, errorText } from '@/lib/api'
@@ -17,6 +18,9 @@ import { useToasts } from '@/stores/toasts'
 defineEmits<{ menu: []; approvals: [] }>()
 
 const router = useRouter()
+const route = useRoute()
+// Every screen's page tour starts from the same place: the far right of the top bar (nothing beside it changes width).
+const pageTour = computed(() => route.meta.tour)
 const auth = useAuth()
 const live = useLive()
 const approvals = useApprovals()
@@ -124,6 +128,7 @@ async function logout() {
       <button type="button" class="btn user" :aria-label="`Log out ${auth.user ?? ''}`" @click="logout">
         <span class="avatar" aria-hidden="true">{{ (auth.user ?? '?')[0].toUpperCase() }}</span><span class="wide">{{ auth.user }} · Log out</span>
       </button>
+      <PageTourButton v-if="pageTour" :key="pageTour" :tour="pageTour" />
     </div>
   </header>
 </template>

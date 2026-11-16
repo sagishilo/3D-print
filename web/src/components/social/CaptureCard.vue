@@ -19,7 +19,7 @@ const reason = computed(() => {
 </script>
 
 <template>
-  <article class="card" :class="{ selected, lead: c.status === 'lead' }" :data-testid="`capture-${c.capture_id}`">
+  <article class="card" :class="{ selected, lead: c.status === 'lead' }" :data-testid="`capture-${c.capture_id}`" data-tour="capture-card">
     <header>
       <span class="src">{{ c.group_name || 'Pasted post' }}</span>
       <span class="muted small">{{ c.captured_by }} · {{ ago(Date.parse(c.received_at)) }}</span>
@@ -35,7 +35,7 @@ const reason = computed(() => {
       <span class="spacer" />
       <div class="label" role="group" aria-label="Your verdict">
         <button type="button" class="btn btn-sm" :class="{ on: c.label === 'buyer' }" :aria-pressed="c.label === 'buyer'"
-          :data-testid="`label-buyer-${c.capture_id}`" @click="emit('label', 'buyer')">Buyer</button>
+          :data-testid="`label-buyer-${c.capture_id}`" data-tour="capture-labels" @click="emit('label', 'buyer')">Buyer</button>
         <button type="button" class="btn btn-sm" :class="{ on: c.label === 'not_buyer' }" :aria-pressed="c.label === 'not_buyer'"
           :data-testid="`label-not-${c.capture_id}`" @click="emit('label', 'not_buyer')">Not buyer</button>
       </div>

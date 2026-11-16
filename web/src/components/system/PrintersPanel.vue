@@ -16,7 +16,7 @@ function lastSeen(at: string | undefined): string {
 </script>
 
 <template>
-  <section class="panel">
+  <section class="panel" data-tour="system-printers">
     <div class="panel-head">
       <h2>Printers</h2>
       <span class="panel-note">telemetry via MQTT / Moonraker</span>

@@ -71,7 +71,7 @@ async function queue() {
   </div>
 
   <div class="toolbar">
-    <div class="cats" role="group" aria-label="Category">
+    <div class="cats" role="group" aria-label="Category" data-tour="catalog-categories">
       <button type="button" class="cat" :class="{ on: catalog.category === null }" :aria-pressed="catalog.category === null" @click="catalog.category = null">
         All <span class="n">{{ total }}</span>
       </button>
@@ -132,7 +132,7 @@ async function queue() {
       <span v-if="est?.too_big.length" class="text-danger small">too big for the bed: {{ est.too_big.join(', ') }}</span>
     </div>
     <div class="go">
-      <button type="button" class="btn" @click="catalog.clearBatch()">Clear</button>
+      <button type="button" class="btn" data-tour="batch-clear" @click="catalog.clearBatch()">Clear</button>
       <button type="button" class="btn btn-primary" :disabled="!est || !est.pieces" data-testid="queue-batch" @click="queue">Queue batch</button>
     </div>
   </section>

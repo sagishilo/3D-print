@@ -5,7 +5,6 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import FleetLog from '@/components/fleet/FleetLog.vue'
-import PageTourButton from '@/components/tour/PageTourButton.vue'
 import PrinterDrawer from '@/components/fleet/PrinterDrawer.vue'
 import PrinterTile from '@/components/live/PrinterTile.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -112,7 +111,6 @@ const addHelp = ref(false)
       <p>{{ printers.list.length }} printers · telemetry via MQTT / Moonraker · cameras via go2rtc → MJPEG</p>
     </div>
     <div class="head-actions">
-      <PageTourButton tour="fleet" />
       <button type="button" class="btn" :aria-expanded="addHelp" @click="addHelp = !addHelp"><Icon name="plus" :size="14" />Add printer</button>
     </div>
   </div>
