@@ -22,6 +22,7 @@ const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
     draggable="true"
     tabindex="0"
     :data-testid="`order-${card.order_id}`"
+    data-tour="order-card"
     :aria-label="`Order ${card.order_id}, ${card.customer_name}: ${card.status}`"
     @click="$emit('open', card.order_id)"
     @keydown.enter="$emit('open', card.order_id)"

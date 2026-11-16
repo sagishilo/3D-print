@@ -75,6 +75,12 @@ textarea {
   color: var(--muted);
   margin-top: 4px;
 }
+.page-head .head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 /* ---------------------------------------------------------------- buttons */
 .btn {

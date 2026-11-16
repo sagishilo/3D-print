@@ -2,6 +2,20 @@
 // geometry that places the speech bubble next to the highlighted element. The overlay is components/tour/TourOverlay.vue,
 // the state is stores/tour.ts.
 
+/**
+ * Something the tour does to the page before a step, so the element exists: open a printer's details, switch a tab,
+ * tick a printer. The overlay clicks `click` (skipped when `unless` matches or nothing matches), and when the tour ends
+ * it clicks each remembered `undo` so the page is left as it was.
+ */
+export interface TourAction {
+  click: string
+  /** Skip the click when this selector already matches (the drawer is already open, the tab already selected). */
+  unless?: string
+  /** Wait (up to 3 s) for `click` to appear; without it a missing element is skipped at once. */
+  wait?: boolean
+  undo?: TourAction
+}
+
 export interface TourStep {
   id: string
   /** The screen the step is shown on. */
@@ -17,6 +31,10 @@ export interface TourStep {
   missing?: string
   /** Open the sidebar on narrow screens (it slides in from the side there). */
   openNav?: boolean
+  /** Done before the element is looked for. */
+  prepare?: TourAction[]
+  /** Scroll a tall element to the top of the screen (its header stays visible) instead of centring it. */
+  scrollTo?: 'start'
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -88,6 +106,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: 'orders',
     route: '/orders',
     targets: ['[data-tour="order-board"]'],
+    scrollTo: 'start',
     title: 'לוח ההזמנות: Order Pipeline',
     body: [
       'כל הזמנה היא כרטיס שזז משמאל לימין, טור אחרי טור: פנייה ← התקבלה ← מכינים את הקובץ ← משבצים למדפסת ← מדפיסים ← בדיקת איכות (QC) ← נשלחה.',

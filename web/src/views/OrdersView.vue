@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import NewOrderDialog from '@/components/orders/NewOrderDialog.vue'
+import PageTourButton from '@/components/tour/PageTourButton.vue'
 import OrderBoard from '@/components/orders/OrderBoard.vue'
 import OrderDrawer from '@/components/orders/OrderDrawer.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -111,7 +112,10 @@ const plates = computed(() =>
       <h1>Order Pipeline</h1>
       <p>Drag to move · dropping into Personalization or Slicing dispatches a NATS job · Printing is driven by printers</p>
     </div>
-    <button type="button" class="btn btn-primary" data-testid="new-order-button" @click="creating = true"><Icon name="plus" :size="14" />New manual order</button>
+    <div class="head-actions">
+      <PageTourButton tour="orders" />
+      <button type="button" class="btn btn-primary" data-testid="new-order-button" @click="creating = true"><Icon name="plus" :size="14" />New manual order</button>
+    </div>
   </div>
 
   <div class="kpis">
@@ -133,11 +137,11 @@ const plates = computed(() =>
         <option value="week">Due: this week</option>
         <option value="overdue">Overdue</option>
       </select>
-      <button type="button" class="btn btn-sm" :class="{ on: stuckOnly }" :aria-pressed="stuckOnly" @click="stuckOnly = !stuckOnly">Stuck &gt; 2 h</button>
+      <button type="button" class="btn btn-sm" data-tour="stuck-filter" :class="{ on: stuckOnly }" :aria-pressed="stuckOnly" @click="stuckOnly = !stuckOnly">Stuck &gt; 2 h</button>
     </div>
   </div>
 
-  <p class="auto">
+  <p class="auto" data-tour="auto-advance">
     Auto-advance:
     <RouterLink v-for="s in autoSwitches" :key="s.key" :to="{ path: '/system', query: { tab: 'config' } }" class="chip" :class="{ accent: s.value }">
       {{ s.label }} · {{ s.value ? 'on' : 'off' }}

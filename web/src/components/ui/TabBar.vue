@@ -22,6 +22,7 @@ function onKey(e: KeyboardEvent) {
       type="button"
       role="tab"
       :aria-selected="model === t.id"
+      :data-tab="t.id"
       :tabindex="model === t.id ? 0 : -1"
       :class="{ active: model === t.id }"
       @click="model = t.id"

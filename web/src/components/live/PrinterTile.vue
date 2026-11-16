@@ -75,7 +75,7 @@ async function bedCleared() {
 <template>
   <article class="tile" :class="{ selected, checked }" :data-testid="`printer-${printer.id}`" data-tour="printer-tile">
     <CameraView :printer-id="printer.id" :available="printer.camera" :protocol="printer.protocol" :simulated="printer.simulated" />
-    <label v-if="selectable" class="select" :title="`Select ${printer.id}`">
+    <label v-if="selectable" class="select" data-tour="tile-select" :title="`Select ${printer.id}`">
       <input type="checkbox" :checked="checked" :aria-label="`Select ${printer.id}`" @change="$emit('toggle', printer.id)" />
     </label>
     <div class="body">
@@ -86,7 +86,7 @@ async function bedCleared() {
       <span class="sub" :class="{ warn: needsClearing }">
         {{ sub }} · {{ printer.material }} {{ printer.color }}{{ printer.model ? ` · ${printer.model.toUpperCase()}` : '' }}
       </span>
-      <div class="temps">
+      <div class="temps" data-tour="tile-temps">
         <div>
           <span class="label">Nozzle</span>
           <span class="value">{{ temp(s?.nozzle_temp) }}<span class="unit"> / {{ temp(s?.nozzle_target) }} °C</span></span>
@@ -96,7 +96,7 @@ async function bedCleared() {
           <span class="value">{{ temp(s?.bed_temp) }}<span class="unit"> / {{ temp(s?.bed_target) }} °C</span></span>
         </div>
       </div>
-      <div class="progress">
+      <div class="progress" data-tour="tile-progress">
         <div class="meta">
           <span>{{ pct(s?.progress) }} · layer {{ s?.layer ?? '—' }} / {{ s?.total_layers ?? '—' }}</span>
           <span>ETA {{ status === 'printing' ? duration(s?.remaining_s) : '—' }}</span>
@@ -105,23 +105,23 @@ async function bedCleared() {
           <div :style="{ width: `${progress}%` }" :class="`fill-${STATUS_TONE[status]}`" />
         </div>
       </div>
-      <div class="actions">
-        <button v-if="status === 'printing' || status === 'heating'" type="button" class="btn btn-sm btn-danger" :disabled="busy" :aria-label="`Pause ${printer.id}`" @click="pause">
+      <div class="actions" data-tour="tile-actions">
+        <button v-if="status === 'printing' || status === 'heating'" type="button" class="btn btn-sm btn-danger" :disabled="busy" :aria-label="`Pause ${printer.id}`" data-tour="tile-pause" @click="pause">
           <Icon name="pause" :size="14" />Pause
         </button>
-        <button v-if="status === 'paused'" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Resume ${printer.id}`" @click="resume">
+        <button v-if="status === 'paused'" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Resume ${printer.id}`" data-tour="tile-resume" @click="resume">
           <Icon name="play" :size="14" />Resume
         </button>
         <button v-if="running && details" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Cancel the print on ${printer.id}`" @click="cancel">
           <Icon name="stop" :size="14" />Cancel
         </button>
-        <button v-if="needsClearing" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Bed of ${printer.id} cleared`" @click="bedCleared">
+        <button v-if="needsClearing" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Bed of ${printer.id} cleared`" data-tour="bed-cleared" @click="bedCleared">
           <Icon name="check" :size="14" />Bed cleared
         </button>
-        <button v-if="history" type="button" class="btn btn-sm" :aria-pressed="selected" @click="$emit('history', printer.id)">
+        <button v-if="history" type="button" class="btn btn-sm" :aria-pressed="selected" data-tour="tile-history" @click="$emit('history', printer.id)">
           <Icon name="history" :size="14" />History
         </button>
-        <button v-if="details" type="button" class="btn btn-sm" :aria-label="`Details of ${printer.id}`" @click="$emit('details', printer.id)">
+        <button v-if="details" type="button" class="btn btn-sm" :aria-label="`Details of ${printer.id}`" data-tour="tile-details" @click="$emit('details', printer.id)">
           Details
         </button>
       </div>

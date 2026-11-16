@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import FleetLog from '@/components/fleet/FleetLog.vue'
+import PageTourButton from '@/components/tour/PageTourButton.vue'
 import PrinterDrawer from '@/components/fleet/PrinterDrawer.vue'
 import PrinterTile from '@/components/live/PrinterTile.vue'
 import Icon from '@/components/ui/Icon.vue'
@@ -110,7 +111,10 @@ const addHelp = ref(false)
       <h1>Printer Fleet</h1>
       <p>{{ printers.list.length }} printers · telemetry via MQTT / Moonraker · cameras via go2rtc → MJPEG</p>
     </div>
-    <button type="button" class="btn" :aria-expanded="addHelp" @click="addHelp = !addHelp"><Icon name="plus" :size="14" />Add printer</button>
+    <div class="head-actions">
+      <PageTourButton tour="fleet" />
+      <button type="button" class="btn" :aria-expanded="addHelp" @click="addHelp = !addHelp"><Icon name="plus" :size="14" />Add printer</button>
+    </div>
   </div>
 
   <section v-if="addHelp" class="panel help" data-testid="add-printer-help">
@@ -140,7 +144,7 @@ const addHelp = ref(false)
   </div>
 
   <div class="toolbar">
-    <div class="chips" role="group" aria-label="Filter by state">
+    <div class="chips" role="group" aria-label="Filter by state" data-tour="fleet-filters">
       <button type="button" class="chip-btn" :class="{ on: filter === 'all' }" :aria-pressed="filter === 'all'" @click="filter = 'all'">
         All {{ printers.list.length }}
       </button>

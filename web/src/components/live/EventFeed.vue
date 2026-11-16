@@ -45,7 +45,7 @@ const replayState = computed(() => {
 </script>
 
 <template>
-  <section class="panel feed">
+  <section class="panel feed" data-tour="event-feed">
     <div class="panel-head">
       <h2>Live events{{ printerId ? ` · ${printerId}` : '' }}</h2>
       <div class="replay">

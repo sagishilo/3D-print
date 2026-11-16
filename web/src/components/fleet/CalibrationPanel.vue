@@ -73,7 +73,7 @@ async function start(r: Routine) {
 
 <template>
   <div class="calibration">
-    <p class="intro">
+    <p class="intro" data-tour="calibration-intro">
       Routines run only on an online, idle printer, one at a time; the scheduler sends it no plate meanwhile. Every
       run is checked against the printer's own state and recorded below.
     </p>
@@ -84,7 +84,7 @@ async function start(r: Routine) {
     </div>
     <p v-else-if="blocked" class="blocked">{{ blocked }}</p>
 
-    <ul class="routines">
+    <ul class="routines" data-tour="calibration-routines">
       <li v-for="r in detail.routines" :key="r.key" :data-testid="`routine-${r.key}`">
         <div class="text">
           <span class="name">{{ r.label }}</span>

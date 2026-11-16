@@ -130,7 +130,7 @@ describe('tour store', () => {
 
   it('skipping does not count as finished', () => {
     const t = useTour()
-    t.start(3)
+    t.start('general', 3)
     t.stop()
     expect(t.active).toBe(false)
     expect(t.seen()).toBe(false)

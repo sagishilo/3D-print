@@ -95,7 +95,7 @@ const snapshotHref = computed(() => `/api/v1/cameras/${encodeURIComponent(props.
 </script>
 
 <template>
-  <div ref="root" class="cam" :style="{ height: `${height ?? 168}px` }" role="img" :aria-label="`${printerId} camera: ${view.label}`">
+  <div ref="root" class="cam" data-tour="camera" :style="{ height: `${height ?? 168}px` }" role="img" :aria-label="`${printerId} camera: ${view.label}`">
     <img v-if="frameUrl" :src="frameUrl" alt="" :class="{ held: state !== 'live' }" />
     <span v-if="!frameUrl || state !== 'live'" class="note">{{ view.note || (frameUrl ? '' : 'Waiting for the first frame…') }}</span>
     <span class="tl">

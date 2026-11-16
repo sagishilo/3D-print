@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // The guided tour on screen: dims the page, cuts a spotlight around the step's element and puts a speech bubble next to
-// it. While the tour is open the page underneath does not take clicks, so nothing can be changed by accident.
+// it. While the tour is open the page underneath does not take clicks, so nothing can be changed by accident. A step
+// can prepare the page first (open a printer's details, switch a tab); those changes are undone when the tour ends.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { findTarget, placeBubble, richText, type Placement, type Rect } from '@/lib/tour'
+import { findTarget, placeBubble, richText, type Placement, type Rect, type TourAction } from '@/lib/tour'
 import { useTour } from '@/stores/tour'
 
 const tour = useTour()
@@ -22,6 +23,39 @@ let target: HTMLElement | null = null
 let frame = 0
 let token = 0
 let scrolledAt = 0
+const undos = new Map<string, TourAction>()
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const matches = (sel?: string) => !!sel && !!document.querySelector(sel)
+
+/** Bring the element into view: centred, or a tall one with its top just under the sticky top bar. */
+function reveal(el: HTMLElement) {
+  const start = tour.step?.scrollTo === 'start'
+  el.scrollIntoView({ block: start ? 'start' : 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior })
+  if (start) window.scrollBy({ top: -(document.querySelector('.topbar')?.getBoundingClientRect().height ?? 0) - 24, behavior: 'instant' as ScrollBehavior })
+}
+
+/** One preparing click (see TourAction); its undo is remembered for the end of the tour. */
+async function act(a: TourAction, mine: number) {
+  if (matches(a.unless)) return
+  let el = document.querySelector<HTMLElement>(a.click)
+  const until = Date.now() + 3000
+  while (!el && a.wait && mine === token && Date.now() < until) {
+    await sleep(100)
+    el = document.querySelector<HTMLElement>(a.click)
+  }
+  if (!el || mine !== token) return
+  el.click()
+  if (a.undo) undos.set(a.undo.click, a.undo)
+  await nextTick()
+  await sleep(150)
+}
+
+/** Leave the page as the tour found it: close what it opened, untick what it ticked. */
+function undoAll() {
+  for (const a of [...undos.values()].reverse()) if (!matches(a.unless)) document.querySelector<HTMLElement>(a.click)?.click()
+  undos.clear()
+}
 
 const total = computed(() => tour.steps.length)
 const n = computed(() => (tour.index ?? 0) + 1)
@@ -32,7 +66,7 @@ function measure() {
   // A screen that is still loading can push the element out of view after it was scrolled to: bring it back.
   if (target && r && (r.bottom < 0 || r.top > window.innerHeight) && performance.now() - scrolledAt > 300) {
     scrolledAt = performance.now()
-    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior })
+    reveal(target)
   }
   const next: Rect | null = r ? { top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 } : null
   const cur = rect.value
@@ -58,12 +92,14 @@ async function show() {
   searching.value = step.targets.length > 0
   if (router.currentRoute.value.path !== step.route) await router.push(step.route).catch(() => undefined)
   await nextTick()
-  const until = Date.now() + 6000
+  for (const a of step.prepare ?? []) await act(a, mine)
+  // A step that can be missing (nothing waits for clearing right now) says so sooner.
+  const until = Date.now() + (step.missing ? 3500 : 6000)
   while (step.targets.length && mine === token) {
     const el = findTarget(step.targets)
     if (el) {
       target = el
-      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' as ScrollBehavior })
+      reveal(el)
       break
     }
     if (Date.now() > until) {
@@ -91,16 +127,17 @@ function onKey(e: KeyboardEvent) {
 }
 
 watch(
-  () => tour.index,
-  (i, before) => {
+  () => [tour.tourId, tour.index] as const,
+  ([, i], before) => {
     if (i === null) {
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKey, true)
       token++
       target = null
+      undoAll()
       return
     }
-    if (before === null || before === undefined) {
+    if (!before || before[1] === null) {
       window.addEventListener('keydown', onKey, true)
       frame = requestAnimationFrame(measure)
     }
@@ -109,6 +146,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  undos.clear()
   cancelAnimationFrame(frame)
   window.removeEventListener('keydown', onKey, true)
 })
@@ -141,7 +179,7 @@ const bubbleStyle = computed(() => ({ top: `${placement.value.top}px`, left: `${
       :data-anchored="rect ? 'true' : 'false'"
     >
       <header>
-        <span class="count" data-testid="tour-count">שלב {{ n }} מתוך {{ total }}</span>
+        <span class="count"><span class="tour-name" data-testid="tour-title">{{ tour.title }}</span> · <span data-testid="tour-count">שלב {{ n }} מתוך {{ total }}</span></span>
         <button type="button" class="close" aria-label="סגירת הסיור" data-testid="tour-close" @click="tour.stop()">✕</button>
       </header>
       <div class="dots" aria-hidden="true">
@@ -231,6 +269,9 @@ header {
 .count {
   font: 600 12px var(--font);
   color: var(--accent);
+}
+.tour-name {
+  color: var(--muted);
 }
 .close {
   background: none;
