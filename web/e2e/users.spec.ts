@@ -4,6 +4,7 @@
 import { type Browser, expect, type Page, test } from '@playwright/test'
 
 const PASSWORD = process.env.PRINTFARM_PASSWORD ?? ''
+const USER = process.env.PRINTFARM_USER ?? 'admin'          // an owner of the running stack
 const SHOTS = process.env.PW_SCREENSHOTS ?? ''
 
 test.skip(!PASSWORD, 'set PRINTFARM_PASSWORD to the admin password of the running stack')
@@ -58,10 +59,10 @@ async function firstSignIn(browser: Browser, username: string, temp: string): Pr
 const temps: Record<string, string> = {}
 
 test('the owner adds an operator and a viewer, each with a one-time password', async ({ page }) => {
-  await signIn(page, 'admin', PASSWORD)
+  await signIn(page, USER, PASSWORD)
   await page.getByRole('link', { name: 'Users' }).click()
   await expect(page).toHaveURL(/\/users$/)
-  await expect(page.getByTestId('user-admin')).toContainText('you')
+  await expect(page.getByTestId(`user-${USER}`)).toContainText('you')
   temps[OPERATOR] = await addUser(page, OPERATOR, 'operator')
   temps[VIEWER] = await addUser(page, VIEWER, 'viewer')
   await shot(page, '1-list')
@@ -110,7 +111,7 @@ test('a viewer reads, changes nothing, and is signed out when disabled', async (
   await shot(viewer, '3-viewer')
 
   // the owner disables the viewer: their next request is refused and they land on the sign-in page
-  await signIn(page, 'admin', PASSWORD, '/users')
+  await signIn(page, USER, PASSWORD, '/users')
   await page.getByTestId(`toggle-${VIEWER}`).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Disable' }).click()
   await expect(page.getByTestId(`user-${VIEWER}`)).toContainText('Disabled')
@@ -120,13 +121,13 @@ test('a viewer reads, changes nothing, and is signed out when disabled', async (
 })
 
 test('the audit log shows who did what, filtered by person and action', async ({ page }) => {
-  await signIn(page, 'admin', PASSWORD, '/system?tab=audit')
+  await signIn(page, USER, PASSWORD, '/system?tab=audit')
   const audit = page.getByTestId('audit')
   await expect(audit).toBeVisible()
   await page.getByTestId('audit-actor').selectOption(OPERATOR)
   await expect(audit.locator('tbody')).toContainText('Sign in')
   await expect(audit.locator('tbody')).toContainText('Password change')
-  await page.getByTestId('audit-actor').selectOption('admin')
+  await page.getByTestId('audit-actor').selectOption(USER)
   await page.getByTestId('audit-action').selectOption('users')
   const rows = audit.locator('tbody tr.selectable')
   await expect(rows.filter({ hasText: 'Add user' }).first()).toBeVisible()
@@ -137,7 +138,7 @@ test('the audit log shows who did what, filtered by person and action', async ({
 })
 
 test('cleanup: the operator is disabled too', async ({ page }) => {
-  await signIn(page, 'admin', PASSWORD, '/users')
+  await signIn(page, USER, PASSWORD, '/users')
   await page.getByTestId(`toggle-${OPERATOR}`).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Disable' }).click()
   await expect(page.getByTestId(`user-${OPERATOR}`)).toContainText('Disabled')

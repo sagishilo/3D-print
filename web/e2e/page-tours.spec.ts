@@ -7,6 +7,7 @@ import { PAGE_TOURS, TOURS, type TourId } from '../src/lib/page-tours'
 import type { TourStep } from '../src/lib/tour'
 
 const PASSWORD = process.env.PRINTFARM_PASSWORD ?? ''
+const USER = process.env.PRINTFARM_USER ?? 'admin'          // an owner of the running stack
 const SHOTS = process.env.PW_SCREENSHOTS ?? ''
 
 test.skip(!PASSWORD, 'set PRINTFARM_PASSWORD to the admin password of the running stack')
@@ -21,6 +22,7 @@ const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams'
 
 async function signIn(page: Page, path: string) {
   await page.goto(path)
+  await page.locator('#user').fill(USER)
   await page.locator('#pass').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
 }

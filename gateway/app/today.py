@@ -12,6 +12,7 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Request
 
@@ -129,7 +130,8 @@ def approvals(rows: list[dict], now: datetime) -> list[Item]:
 def purchase_orders(rows: list[dict], now: datetime) -> list[Item]:
     out = []
     for p in rows:
-        what = f"{p.get('quantity') or ''} × {p['material']}" if p.get("item_id") else f"{p['spools']} × {p['material']} {p['color']}"
+        what = (f"{float(p.get('quantity') or 0):g} × {p['material']}" if p.get("item_id")
+                else f"{p['spools']} × {p['material']} {p['color']}")
         if p["status"] == "placed":
             out.append(Item(id=f"po:{p['po_id']}", kind="po", priority="week", age_s=_age(p.get("created_at"), now),
                             title=f"Order {what} from the supplier", why="The purchase is decided: order it, then confirm the total.",
@@ -306,3 +308,98 @@ async def _below(db, analytics, pricing) -> int:
 
 async def _dlq_total(bus) -> int:
     return int((await bus.js.stream_info("DLQ")).state.messages or 0)
+
+
+# ---------------------------------------------------------------- the summary above the list (KPIs and charts)
+
+TZ = "Asia/Jerusalem"
+OPEN_STATES = ("LEAD", "RECEIVED", "PERSONALIZING", "SCHEDULING", "PRINTING", "QC", "NEEDS_ATTENTION")
+PRINTING = ("printing", "paused", "calibrating")
+
+
+def utilization(printers: list[dict], states: dict[str, str]) -> dict:
+    """How many printers are online and how many of them are working (printing, paused mid-print, calibrating)."""
+    online = [p for p in printers if p.get("online")]
+    busy = [p for p in online if states.get(p["printer_id"]) in PRINTING or (p.get("busy") and p["printer_id"] not in states)]
+    pct = round(len(busy) * 100 / len(online)) if online else 0
+    return {"total": len(printers), "online": len(online), "printing": len(busy), "utilization_pct": pct}
+
+
+def days_series(rows: list[dict], end, days: int = 7) -> list[dict]:
+    """One point per day (oldest first), zero for days without rows."""
+    by = {str(r["day"]): r for r in rows}
+    out = []
+    for n in range(days - 1, -1, -1):
+        d = str(end - timedelta(days=n))
+        r = by.get(d, {})
+        out.append({"day": d, "orders": int(r.get("orders") or 0),
+                    "revenue_agorot": int(r["revenue_agorot"]) if r.get("revenue_agorot") is not None else 0})
+    return out
+
+
+@router.get("/api/v1/today/summary")
+async def summary(request: Request, niche: str | None = None, claims: dict = Depends(auth.require_auth)):
+    """The KPI strip and the two charts of Today: printers at work, today's orders and revenue, stock alerts,
+    7 days of revenue and orders, open orders per stage and (operators) revenue per niche. ?niche= filters the
+    orders and the money; printers and alerts are the whole farm."""
+    db, bus = request.app.state.db, request.app.state.bus
+    scope = niche_scope(niche)
+    money = auth.allows(claims.get("role"), "operator")
+    end = datetime.now(UTC).astimezone(ZoneInfo(TZ)).date()
+    in_niche = (" AND EXISTS (SELECT 1 FROM coordinator.order_items n WHERE n.order_id = o.order_id AND n.niche = %s)"
+                if scope else "")
+    np = (scope,) if scope else ()
+
+    printers = await _safe(lambda: db.fetchall("SELECT printer_id, online, busy FROM fleet.printers"), [])
+    states: dict[str, str] = {}
+    for p in printers:
+        raw = await _safe(lambda pid=p["printer_id"]: bus.kv_get("printer_status", pid), None)
+        if raw:
+            try:
+                st = json.loads(raw)
+                states[p["printer_id"]] = (st.get("data") or {}).get("status") or ""
+            except ValueError:
+                pass
+
+    orders_by_day = await _safe(lambda: db.fetchall(
+        f"SELECT (o.created_at AT TIME ZONE '{TZ}')::date AS day, count(*) AS orders FROM coordinator.orders o "
+        f"WHERE o.channel <> 'stock' AND o.created_at > now() - interval '8 days'{in_niche} GROUP BY 1", np), [])
+    revenue_by_day = await _safe(lambda: db.fetchall(
+        "SELECT entry_date AS day, sum(net_agorot) AS revenue_agorot FROM reporting.niche_revenue_v "
+        "WHERE entry_date > %s" + (" AND niche = %s" if scope else "") + " GROUP BY 1",
+        (end - timedelta(days=7), *np)), []) if money else []
+    merged: dict[str, dict] = {}
+    for r in orders_by_day:
+        merged.setdefault(str(r["day"]), {"day": r["day"]})["orders"] = r["orders"]
+    for r in revenue_by_day:
+        merged.setdefault(str(r["day"]), {"day": r["day"]})["revenue_agorot"] = r["revenue_agorot"]
+    week = days_series(list(merged.values()), end)
+
+    stages = await _safe(lambda: db.fetchall(
+        "SELECT s.state, count(*) AS n FROM coordinator.orders o JOIN coordinator.sagas s ON s.saga_id = o.order_id "
+        f"WHERE o.channel <> 'stock' AND s.state = ANY(%s){in_niche} GROUP BY 1", (list(OPEN_STATES), *np)), [])
+    by_stage = {r["state"]: int(r["n"]) for r in stages}
+    niches = await _safe(lambda: db.fetchall(
+        "SELECT v.niche, coalesce(n.name, v.niche) AS name, coalesce(n.color, 8) AS color, sum(v.net_agorot) AS revenue_agorot "
+        "FROM reporting.niche_revenue_v v LEFT JOIN catalog.niches n ON n.slug = v.niche WHERE v.entry_date > %s "
+        "GROUP BY 1, 2, 3 HAVING sum(v.net_agorot) <> 0 ORDER BY 4 DESC", (end - timedelta(days=7),)), []) if money else []
+
+    alerts = await _safe(lambda: db.fetchall(
+        "SELECT kind, count(*) AS n FROM inventory.alerts WHERE resolved_at IS NULL GROUP BY 1"), [])
+    shelf_low = await _safe(lambda: db.fetchval(
+        "SELECT count(*) FROM coordinator.finished_goods WHERE min_stock > 0 AND on_hand - reserved < min_stock"), 0)
+    alert_kinds = {r["kind"]: int(r["n"]) for r in alerts}
+    today_row = week[-1]
+    return {
+        "printers": utilization(printers, states),
+        "orders_today": today_row["orders"],
+        "revenue_today_agorot": today_row["revenue_agorot"] if money else None,
+        "alerts": {"filament": alert_kinds.get("low_stock", 0) + alert_kinds.get("spool_short", 0)
+                   + alert_kinds.get("spool_empty", 0), "parts": alert_kinds.get("low_item", 0),
+                   "shelf": int(shelf_low or 0)},
+        "week": [{**d, "revenue_agorot": d["revenue_agorot"] if money else None} for d in week],
+        "stages": [{"state": s, "count": by_stage.get(s, 0)} for s in OPEN_STATES],
+        "niches": [{"niche": r["niche"], "name": r["name"], "color": r["color"], "revenue_agorot": int(r["revenue_agorot"])}
+                   for r in niches],
+        "money": money,
+    }

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 
 const PASSWORD = process.env.PRINTFARM_PASSWORD ?? ''
+const USER = process.env.PRINTFARM_USER ?? 'admin'          // an owner of the running stack
 const PROJECT = process.env.PRINTFARM_COMPOSE_PROJECT ?? ''
 const SHOTS = process.env.PW_SCREENSHOTS ?? ''
 
@@ -16,6 +17,7 @@ async function shot(page: Page, name: string) {
 
 async function signIn(page: Page, path = '/live') {
   await page.goto(path)
+  await page.locator('#user').fill(USER)
   await page.locator('#pass').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
 }
@@ -47,6 +49,7 @@ test('sign-in sends you back to the screen you asked for', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('alert')).toContainText('Wrong username or password')
   await shot(page, '0-sign-in-error')
+  await page.locator('#user').fill(USER)
   await page.locator('#pass').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL(/\/system\?tab=agents$/)
@@ -107,10 +110,10 @@ test('automation setting is changed through an audited command', async ({ page }
   await expect(reorder).toHaveAttribute('aria-checked', 'true')
   await reorder.click()
   await expect(reorder).toHaveAttribute('aria-checked', 'false')
-  await expect(page.getByText('Last change: Auto-reorder filament disabled by admin')).toBeVisible()
+  await expect(page.getByText(`Last change: Auto-reorder filament disabled by ${USER}`)).toBeVisible()
   await shot(page, '5-system-config')
   await reorder.click()
-  await expect(page.getByText('Last change: Auto-reorder filament enabled by admin')).toBeVisible()
+  await expect(page.getByText(`Last change: Auto-reorder filament enabled by ${USER}`)).toBeVisible()
 
   // switching off the safety auto-pause asks first; cancelling changes nothing
   const autoPause = page.getByRole('switch', { name: 'Failure detection auto-pause' })
@@ -377,7 +380,7 @@ test.describe('finance', () => {
     await page.getByTestId('set-confirm').check()
     await page.getByRole('button', { name: 'Save settings' }).click()
     await expect(page.getByTestId('placeholder-banner')).toBeHidden({ timeout: 20_000 })
-    await expect(page.getByTestId('finance-settings')).toContainText('confirmed by admin')
+    await expect(page.getByTestId('finance-settings')).toContainText(`confirmed by ${USER}`)
   })
 })
 

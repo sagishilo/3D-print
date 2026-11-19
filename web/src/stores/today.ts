@@ -5,12 +5,13 @@ import { computed, ref, watch } from 'vue'
 
 import { api, command, errorText } from '@/lib/api'
 import { withNiche } from '@/lib/niches'
-import { type TodayItem, type TodayList, visible } from '@/lib/today'
+import { type TodayItem, type TodayList, type TodaySummary, visible } from '@/lib/today'
 import { useNiche } from '@/stores/niche'
 import { usePrefs } from '@/stores/prefs'
 
 export const useToday = defineStore('today', () => {
   const list = ref<TodayList | null>(null)
+  const summary = ref<TodaySummary | null>(null)
   const error = ref('')
   const loaded = ref(false)
   const done = ref<Set<string>>(new Set())      // acted on here: hidden until the next answer drops them
@@ -20,7 +21,12 @@ export const useToday = defineStore('today', () => {
 
   async function load() {
     try {
-      list.value = await api<TodayList>(withNiche('/api/v1/today', niche.current))
+      const [l, s] = await Promise.all([
+        api<TodayList>(withNiche('/api/v1/today', niche.current)),
+        api<TodaySummary>(withNiche('/api/v1/today/summary', niche.current)).catch(() => null),   // the strip is extra: the list still shows
+      ])
+      list.value = l
+      summary.value = s && s.printers && s.alerts && Array.isArray(s.week) ? s : null      // an older gateway: no strip
       done.value = new Set()
       error.value = ''
     } catch (err) {
@@ -55,5 +61,5 @@ export const useToday = defineStore('today', () => {
     reloadSoon(1500)
   }
 
-  return { list, error, loaded, groups, count, urgent, load, reloadSoon, act }
+  return { list, summary, error, loaded, groups, count, urgent, load, reloadSoon, act }
 })

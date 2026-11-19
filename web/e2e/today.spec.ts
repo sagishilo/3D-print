@@ -4,6 +4,7 @@
 import { expect, type Page, test } from '@playwright/test'
 
 const PASSWORD = process.env.PRINTFARM_PASSWORD ?? ''
+const USER = process.env.PRINTFARM_USER ?? 'admin'          // an owner of the running stack
 const SHOTS = process.env.PW_SCREENSHOTS ?? ''
 
 test.skip(!PASSWORD, 'set PRINTFARM_PASSWORD to the admin password of the running stack')
@@ -14,7 +15,7 @@ const CUSTOMER = `Today customer ${stamp}`
 
 async function signIn(page: Page, path = '/') {
   await page.goto(path)
-  await page.locator('#user').fill('admin')
+  await page.locator('#user').fill(USER)
   await page.locator('#pass').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByTestId('user-menu')).toBeVisible()
@@ -44,6 +45,17 @@ test('signing in opens Today; a new lead is confirmed from it and disappears', a
   expect(r.status()).toBe(202)
   const line = page.getByTestId(`today-item-lead:${orderId}`)
   await expect(line).toContainText(`Confirm the order of ${CUSTOMER}`, { timeout: 20_000 })     // the live feed reloads Today
+  // the new layout: KPIs, the 7-day charts, the breakdown, and filters that keep or hide the lead
+  await expect(page.getByTestId('kpi-printers')).toContainText('printing')
+  await expect(page.getByTestId('kpi-orders')).toContainText('order')
+  await expect(page.getByTestId('chart-orders')).toBeVisible()
+  await expect(page.getByTestId('chart-revenue')).toBeVisible()
+  await expect(page.getByTestId('today-breakdown')).toBeVisible()
+  await page.getByTestId('filter-production').click()
+  await expect(line).toHaveCount(0)
+  await page.getByTestId('filter-sales').click()
+  await expect(line).toContainText('Order')
+  await page.getByTestId('filter-all').click()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/m7-today.png`, fullPage: true })
   await page.getByTestId(`today-act-lead:${orderId}`).click()
   await page.locator('dialog.confirm').getByRole('button', { name: 'Confirm' }).click()
@@ -80,4 +92,17 @@ test('the command palette works from the keyboard alone', async ({ page }) => {
   await page.keyboard.type('bambu')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/fleet\?printer=bambu/)
+})
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('Today fits the screen: cards, charts and task cards stack', async ({ page }) => {
+    await signIn(page)
+    await expect(page.getByTestId('kpi-urgent')).toBeVisible()
+    await expect(page.getByTestId('today-tasks')).toBeVisible()
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/m7-today-phone.png`, fullPage: true })
+  })
 })

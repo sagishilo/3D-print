@@ -115,3 +115,45 @@ def test_the_endpoint_groups_items_and_skips_a_failing_source(client):
 def test_today_needs_a_session():
     with gateway_client() as anonymous:
         assert anonymous.get("/api/v1/today").status_code == 401
+
+
+# ---------------------------------------------------------------- the summary (KPI strip and charts)
+
+
+def test_utilization_counts_printers_at_work():
+    printers = [{"printer_id": "a", "online": True, "busy": True}, {"printer_id": "b", "online": True, "busy": False},
+                {"printer_id": "c", "online": True, "busy": False}, {"printer_id": "d", "online": False, "busy": False}]
+    u = today.utilization(printers, {"a": "printing", "b": "paused", "c": "idle"})
+    assert u == {"total": 4, "online": 3, "printing": 2, "utilization_pct": 67}
+    assert today.utilization([], {})["utilization_pct"] == 0
+
+
+def test_seven_days_with_the_gaps_filled():
+    from datetime import date
+
+    week = today.days_series([{"day": date(2026, 11, 19), "orders": 3, "revenue_agorot": 9000},
+                              {"day": date(2026, 11, 17), "orders": 1}], date(2026, 11, 19))
+    assert [d["day"] for d in week][0] == "2026-11-13" and len(week) == 7
+    assert week[-1] == {"day": "2026-11-19", "orders": 3, "revenue_agorot": 9000}
+    assert week[-3] == {"day": "2026-11-17", "orders": 1, "revenue_agorot": 0}
+
+
+def test_the_summary_endpoint(client):
+    db = client.app.state.db
+    db.rows["SELECT printer_id, online, busy FROM fleet.printers"] = [{"printer_id": "x1", "online": True, "busy": True}]
+    db.rows["FROM inventory.alerts WHERE resolved_at IS NULL GROUP BY"] = [{"kind": "low_stock", "n": 2},
+                                                                          {"kind": "low_item", "n": 1}]
+    db.rows["SELECT s.state, count(*)"] = [{"state": "QC", "n": 4}]
+    db.values["FROM coordinator.finished_goods WHERE min_stock"] = 3
+    r = client.get("/api/v1/today/summary").json()
+    assert r["printers"]["printing"] == 1 and r["printers"]["utilization_pct"] == 100
+    assert r["alerts"] == {"filament": 2, "parts": 1, "shelf": 3}
+    assert next(s for s in r["stages"] if s["state"] == "QC")["count"] == 4 and len(r["week"]) == 7
+    assert r["money"] is True and r["revenue_today_agorot"] == 0
+    assert client.get("/api/v1/today/summary?niche=Bad!").status_code == 400
+
+
+def test_purchase_quantities_read_as_people_write_them():
+    items = today.purchase_orders([{"po_id": "p1", "material": "Gift box S", "color": "", "spools": 0, "status": "placed",
+                                    "item_id": "box-s", "quantity": 50.0, "created_at": ago(1)}], NOW)
+    assert items[0].title == "Order 50 × Gift box S from the supplier"

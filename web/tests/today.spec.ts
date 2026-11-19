@@ -53,7 +53,8 @@ describe('the Today screen', () => {
     useAuth().prefs = { mode: 'simple' }
     const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
     await flushPromises()
-    expect(w.get('[data-testid="today-now"]').text()).toContain('Clear the bed of x1')
+    expect(w.get('[data-testid="today-item-bed:x1"]').text()).toContain('Clear the bed of x1')
+    expect(w.get('[data-testid="today-item-bed:x1"]').text()).toContain('Bed clear')          // the category
     expect(w.find('[data-testid="today-item-agents"]').exists()).toBe(false)          // Simple mode
     expect(w.get('[data-testid="today-go-qc:o2"]').attributes('href')).toBe('/orders?order=o2')
     await w.get('[data-testid="today-act-bed:x1"]').trigger('click')
@@ -136,5 +137,63 @@ describe('the palette', () => {
     await flushPromises()
     expect(push).toHaveBeenCalledWith('/orders?new=1')
     w.unmount()
+  })
+})
+
+const SUMMARY = {
+  printers: { total: 4, online: 4, printing: 3, utilization_pct: 75 }, orders_today: 5, revenue_today_agorot: 42000,
+  alerts: { filament: 1, parts: 2, shelf: 0 },
+  week: ['2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19']
+    .map((day, i) => ({ day, orders: i, revenue_agorot: i * 1000 })),
+  stages: [{ state: 'LEAD', count: 2 }, { state: 'QC', count: 4 }, { state: 'PRINTING', count: 0 }],
+  niches: [{ niche: 'gifts', name: 'Personalised gifts', color: 4, revenue_agorot: 21000 }], money: true,
+}
+
+describe('the redesigned Today', () => {
+  it('shows the KPI strip, the 7-day charts and where orders pile up', async () => {
+    serve(on('GET', '/api/v1/today', () => json(200, LIST)), on('GET', '/api/v1/today/summary', () => json(200, SUMMARY)))
+    useAuth().prefs = { mode: 'expert' }
+    const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
+    await flushPromises()
+    expect(w.get('[data-testid="kpi-printers"]').text()).toContain('3/4')
+    expect(w.get('[data-testid="kpi-printers"]').text()).toContain('75% busy')
+    expect(w.get('[data-testid="kpi-urgent"]').text()).toContain('2')                 // Expert: the bed and the agents
+    expect(w.get('[data-testid="kpi-orders"]').text()).toContain('5')
+    expect(w.get('[data-testid="kpi-orders"]').text()).toContain('₪420')
+    expect(w.get('[data-testid="kpi-stock"]').text()).toContain('1 filament · 2 parts · 0 shelf')
+    expect(w.get('[data-testid="chart-revenue"]').text()).toContain('₪210')           // the week's total
+    expect(w.get('[data-testid="chart-orders"]').find('svg').attributes('aria-label')).toContain('6')
+    expect(w.find('[data-testid="stages-QC"]').text()).toContain('4')
+    expect(w.find('[data-testid="stages-PRINTING"]').exists()).toBe(false)            // empty stages are left out
+    await w.get('[data-testid="breakdown-niche"]').trigger('click')
+    expect(w.get('[data-testid="niches-gifts"]').text()).toContain('Personalised gifts')
+    // a table view of the same numbers
+    await w.get('[data-testid="chart-orders"]').get('button').trigger('click')
+    expect(w.get('[data-testid="chart-orders"]').find('table').exists()).toBe(true)
+  })
+
+  it('filters the tasks in one click, and the urgent KPI is a shortcut', async () => {
+    serve(on('GET', '/api/v1/today', () => json(200, LIST)), on('GET', '/api/v1/today/summary', () => json(200, SUMMARY)))
+    useAuth().prefs = { mode: 'simple' }
+    const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
+    await flushPromises()
+    expect(w.get('[data-testid="filter-now"]').text()).toContain('1')
+    await w.get('[data-testid="filter-production"]').trigger('click')
+    expect(w.findAll('[data-testid^="today-item-"]').map((x) => x.attributes('data-testid'))).toEqual(['today-item-bed:x1', 'today-item-qc:o2'])
+    await w.get('[data-testid="filter-sales"]').trigger('click')
+    expect(w.get('[data-testid="filter-empty"]').text()).toContain('Nothing in this filter')
+    await w.get('[data-testid="kpi-urgent"]').trigger('click')
+    expect(w.findAll('[data-testid^="today-item-"]').map((x) => x.attributes('data-testid'))).toEqual(['today-item-bed:x1'])
+  })
+
+  it('shows viewers no money', async () => {
+    signedInAs('viewer')
+    serve(on('GET', '/api/v1/today', () => json(200, LIST)),
+      on('GET', '/api/v1/today/summary', () => json(200, { ...SUMMARY, money: false, revenue_today_agorot: null, niches: [] })))
+    const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
+    await flushPromises()
+    expect(w.find('[data-testid="chart-revenue"]').exists()).toBe(false)
+    expect(w.find('[data-testid="breakdown-niche"]').exists()).toBe(false)
+    expect(w.get('[data-testid="kpi-orders"]').text()).not.toContain('₪')
   })
 })
