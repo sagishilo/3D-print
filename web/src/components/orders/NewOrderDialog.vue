@@ -7,6 +7,7 @@ import Icon from '@/components/ui/Icon.vue'
 import { errorText } from '@/lib/api'
 import { shekels } from '@/lib/format'
 import { CHANNELS, type Line, PRODUCTS, priceOrder, toAgorot, unitPrice } from '@/lib/orders'
+import { takeQuoteForOrder } from '@/lib/pricing'
 import { useCatalog } from '@/stores/catalog'
 import { useOrders } from '@/stores/orders'
 import { useToasts } from '@/stores/toasts'
@@ -84,9 +85,27 @@ async function submit() {
   }
 }
 
-onMounted(() => {
+// From the price calculator (Wave 1 / M5): the quoted SKU, quantity, price and shipping.
+const quote = takeQuoteForOrder()
+if (quote) {
+  const l = catalogLine()
+  Object.assign(l, { sku: quote.sku, quantity: quote.quantity, price: (quote.unit_price_agorot / 100).toFixed(2) })
+  lines.value = [l]
+  form.shipping = (quote.shipping_agorot / 100).toFixed(2)
+  form.customer_name = quote.customer_name ?? ''
+  form.notes = quote.notes ?? ''
+}
+
+onMounted(async () => {
   nameInput.value?.focus()
-  if (!catalog.loaded) void catalog.load()
+  if (!catalog.loaded) await catalog.load()
+  if (quote) {
+    // the SKU's filament and name from the catalog; the quoted price stays
+    const l = lines.value[0]!
+    const price = l.price
+    pickSku(l)
+    l.price = price
+  }
 })
 </script>
 

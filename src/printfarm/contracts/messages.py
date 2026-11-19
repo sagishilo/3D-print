@@ -472,6 +472,7 @@ class UpsertCatalogProduct(Command):
     est_minutes: float | None = Field(default=None, gt=0, le=10_000)
     active: bool = True
     niche: str | None = Field(default=None, pattern=NICHE_PATTERN)   # None: keep (a new SKU: unassigned)
+    post_minutes: float | None = Field(default=None, ge=0, le=600)   # post-processing labour per piece; None: keep
     tags: list[str] | None = Field(default=None, max_length=8)      # extra niches; None: keep
     changed_by: str = ""
 
@@ -1217,8 +1218,20 @@ class UpdateFinanceSettings(Command):
     default_printer_watts: float = Field(gt=0, le=5000)
     default_filament_agorot_per_gram: float = Field(gt=0, le=1000)
     turnover_ceiling_agorot: int | None = Field(default=None, ge=0)
+    # Wave 1 / M5 (None: keep): post-processing labour per hour, and the % of the gross price each channel keeps
+    labour_agorot_per_hour: float | None = Field(default=None, ge=0, le=100_000)
+    channel_fees: dict[str, float] | None = None
     confirm: bool = False
     updated_by: str = ""
+
+    @model_validator(mode="after")
+    def _fees(self) -> UpdateFinanceSettings:
+        for channel, pct in (self.channel_fees or {}).items():
+            if channel not in CHANNELS:
+                raise ValueError(f"unknown channel {channel!r}")
+            if not 0 <= pct <= 50:
+                raise ValueError(f"the {channel} fee is a percentage from 0 to 50")
+        return self
 
 
 class FinanceSettingsChanged(Event):

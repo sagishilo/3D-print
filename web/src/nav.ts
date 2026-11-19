@@ -16,6 +16,7 @@ export const NAV: NavItem[] = [
   { to: '/social', label: 'Social & Trends', icon: 'activity', group: 'Sell' },
   { to: '/catalog', label: 'Instant Catalog', icon: 'grid', group: 'Sell' },
   { to: '/niches', label: 'Niches', icon: 'tag', group: 'Sell', minRole: 'owner' },
+  { to: '/pricing', label: 'Price calculator', icon: 'calc', group: 'Sell', minRole: 'operator' },
   { to: '/live', label: 'Live floor', icon: 'live', group: 'Make' },
   { to: '/orders', label: 'Order Pipeline', icon: 'columns', group: 'Make' },
   { to: '/fleet', label: 'Printer Fleet', icon: 'monitor', group: 'Make' },

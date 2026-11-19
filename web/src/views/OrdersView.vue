@@ -76,7 +76,12 @@ function closeOrder() {
   const { order: _drop, ...rest } = route.query
   void router.replace({ query: rest })
 }
-const creating = ref(false)
+// ?new=quote: the price calculator handed over a quote (lib/pricing.ts keepQuoteForOrder): open the dialog with it.
+const creating = ref(route.query.new === 'quote')
+if (creating.value) {
+  const { new: _new, ...others } = route.query
+  void router.replace({ query: others })
+}
 
 async function onDrop(card: OrderCard, action: DropAction) {
   if (!action.ok) return toasts.error(`Order ${card.order_id} not moved`, action.reason)

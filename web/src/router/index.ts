@@ -26,6 +26,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'social', name: 'social', component: () => import('@/views/SocialView.vue'), meta: { title: 'Social & Trends', tour: 'social' } },
       { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Instant Catalog', tour: 'catalog' } },
       { path: 'niches', name: 'niches', component: () => import('@/views/NichesView.vue'), meta: { title: 'Niches', tour: 'niches', minRole: 'owner' } },
+      { path: 'pricing', name: 'pricing', component: () => import('@/views/PricingView.vue'), meta: { title: 'Price calculator', tour: 'pricing', minRole: 'operator' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline', tour: 'orders' } },
       { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Inventory', tour: 'filament' } },
       { path: 'fleet/add', name: 'printer-add', component: () => import('@/views/PrinterOnboardingView.vue'), meta: { title: 'Connect a printer', tour: 'onboarding', minRole: 'operator' } },

@@ -33,6 +33,7 @@ const form = reactive({
   grams: p?.estimated ? String(p.est_grams) : '',
   minutes: p?.estimated ? String(p.est_minutes) : '',
   active: p?.active ?? true,
+  post: p?.post_minutes ? String(p.post_minutes) : '',
   niche: p?.niche ?? niche.current ?? UNASSIGNED,
   tags: [...(p?.tags ?? [])] as string[],
 })
@@ -100,6 +101,7 @@ const invalid = computed(() => {
   if (s) return s
   if (!form.name.trim()) return 'the name is missing'
   if (!(Number(form.price) >= 0) || form.price === '') return 'enter the price'
+  if (form.post !== '' && !(Number(form.post) >= 0 && Number(form.post) <= 600)) return 'finishing minutes: 0 to 600'
   if (upload.value && upload.value.info.plates > 1) return 'the file holds several sliced plates: export one plate per file'
   if (!fromSlicer.value && !(Number(form.grams) > 0 && Number(form.minutes) > 0)) return 'enter the grams and print minutes (the template is not sliced)'
   return null
@@ -123,6 +125,7 @@ async function submit() {
       est_minutes: fromSlicer.value ? null : Number(form.minutes),
       active: form.active,
       niche: form.niche,
+      post_minutes: form.post === '' ? 0 : Number(form.post),
       tags: form.tags.filter((t) => t !== form.niche),
     })
     const lines = bomRows.value.filter((r) => r.item_id && Number(r.qty) > 0).map((r) => ({ item_id: r.item_id, qty: Number(r.qty) }))
@@ -198,6 +201,7 @@ onMounted(() => {
           <legend>Also in <span class="muted">(extra niches, optional)</span></legend>
           <label v-for="n in tagChoices" :key="n.slug" class="check"><input v-model="form.tags" type="checkbox" :value="n.slug" :data-testid="`product-tag-${n.slug}`" /> {{ n.name }}</label>
         </fieldset>
+        <label>Finishing minutes per piece <span class="muted">(sanding, assembly: priced as labour)</span><input v-model="form.post" class="input" inputmode="decimal" placeholder="0" data-testid="post-minutes" /></label>
         <label v-if="p" class="check"><input v-model="form.active" type="checkbox" /> On sale (off: no new orders or batches)</label>
       </div>
 

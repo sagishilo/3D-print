@@ -44,6 +44,7 @@ const PATHS: Record<string, string[]> = {
   lock: ['M6 11h12v10H6z', 'M8 11V7a4 4 0 0 1 8 0v4'],
   'chevron-down': ['M6 9l6 6 6-6'],
   tag: ['M3 12V4h8l10 10-8 8z', 'M7.5 7.5h.01'],
+  calc: ['M6 3h12v18H6z', 'M9 7h6', 'M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01'],
 }
 
 const paths = computed(() => PATHS[props.name] ?? PATHS.alert)

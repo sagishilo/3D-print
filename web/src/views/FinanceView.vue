@@ -7,6 +7,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import MoneyDialog from '@/components/finance/MoneyDialog.vue'
+import UnitEconomicsPanel from '@/components/finance/UnitEconomicsPanel.vue'
 import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
@@ -15,6 +16,7 @@ import TabBar from '@/components/ui/TabBar.vue'
 import { errorText } from '@/lib/api'
 import { CATEGORY_LABEL, changeLabel, daysSince, exportUrl, type PeriodKind, shortLabel } from '@/lib/finance'
 import { dateTime, shekels, title } from '@/lib/format'
+import { CHANNELS } from '@/lib/orders'
 import { useFinance } from '@/stores/finance'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
@@ -88,7 +90,9 @@ const mixTotal = computed(() => r.value?.current.expenses_agorot ?? 0)
 const money = ref<{ mode: 'payment' | 'expense'; orderId?: string } | null>(null)
 
 // ---------------------------------------------------------------- settings
-const form = reactive({ business_type: 'murshe', vat: '', tariff: '', watts: '', perGram: '', ceiling: '', confirm: false })
+const form = reactive({ business_type: 'murshe', vat: '', tariff: '', watts: '', perGram: '', ceiling: '', labour: '', fees: {} as Record<string, string>, confirm: false })
+// Channels a sale can come from (the shelf is not a sale): each may keep a % of the gross price (Wave 1 / M5).
+const FEE_CHANNELS = CHANNELS.filter((c) => c !== 'stock' && c !== 'api')
 watch(
   () => finance.settings,
   (s) => {
@@ -96,7 +100,9 @@ watch(
     Object.assign(form, {
       business_type: s.business_type, vat: String(Math.round(s.vat_rate * 10000) / 100), tariff: String(s.electricity_agorot_per_kwh),
       watts: String(s.default_printer_watts), perGram: String(s.default_filament_agorot_per_gram),
-      ceiling: s.turnover_ceiling_agorot != null ? String(s.turnover_ceiling_agorot / 100) : '', confirm: false,
+      ceiling: s.turnover_ceiling_agorot != null ? String(s.turnover_ceiling_agorot / 100) : '',
+      labour: String((s.labour_agorot_per_hour ?? 4000) / 100),
+      fees: Object.fromEntries(FEE_CHANNELS.map((c) => [c, s.channel_fees?.[c] ? String(s.channel_fees[c]) : ''])), confirm: false,
     })
   },
   { immediate: true },
@@ -106,7 +112,9 @@ async function saveSettings() {
     await finance.saveSettings({
       business_type: form.business_type, vat_rate: Number(form.vat) / 100, electricity_agorot_per_kwh: Number(form.tariff),
       default_printer_watts: Number(form.watts), default_filament_agorot_per_gram: Number(form.perGram),
-      turnover_ceiling_agorot: form.ceiling === '' ? null : Math.round(Number(form.ceiling) * 100), confirm: form.confirm,
+      turnover_ceiling_agorot: form.ceiling === '' ? null : Math.round(Number(form.ceiling) * 100),
+      labour_agorot_per_hour: Math.round(Number(form.labour || 0) * 100),
+      channel_fees: Object.fromEntries(Object.entries(form.fees).map(([c, v]) => [c, Number(v || 0)])), confirm: form.confirm,
     })
     toasts.ok('Settings saved', 'New bookings use them; earlier entries keep the values they were booked with.')
     finance.reloadSoon()
@@ -116,7 +124,7 @@ async function saveSettings() {
 }
 const PLACEHOLDER_LABEL: Record<string, string> = {
   vat_rate: 'VAT rate', electricity_agorot_per_kwh: 'electricity tariff', default_printer_watts: 'printer watts',
-  default_filament_agorot_per_gram: 'filament price',
+  default_filament_agorot_per_gram: 'filament price', labour_agorot_per_hour: 'labour rate',
 }
 </script>
 
@@ -243,7 +251,8 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </section>
 
   <!-- ------------------------------------------------ products -->
-  <section v-else-if="tab === 'products'" class="panel" data-testid="niche-margins">
+  <UnitEconomicsPanel v-else-if="tab === 'products'" />
+  <section v-if="tab === 'products'" class="panel" data-testid="niche-margins">
     <div class="panel-head"><h2>Revenue and margin per niche · {{ r?.period.label }}</h2><span class="panel-note">each payment split across its order’s lines · adds up to the income ledger</span></div>
     <div class="table-wrap">
       <table class="data">
@@ -346,6 +355,11 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
       <label>Printer watts (average)<input v-model="form.watts" class="input" inputmode="decimal" /></label>
       <label>Filament agorot per gram (when no PO price)<input v-model="form.perGram" class="input" inputmode="decimal" /></label>
       <label>Turnover ceiling ₪ (osek patur)<input v-model="form.ceiling" class="input" inputmode="decimal" /></label>
+      <label>Labour ₪ per hour (post-processing)<input v-model="form.labour" class="input" inputmode="decimal" data-testid="set-labour" /></label>
+      <fieldset class="fees wide">
+        <legend>Channel fees · % of the gross price the channel keeps</legend>
+        <label v-for="c in FEE_CHANNELS" :key="c">{{ title(c) }}<input v-model="form.fees[c]" class="input" inputmode="decimal" placeholder="0" :data-testid="`set-fee-${c}`" /></label>
+      </fieldset>
       <label class="check wide"><input v-model="form.confirm" type="checkbox" data-testid="set-confirm" /> I checked these values with my accountant</label>
       <button v-can="'owner'" type="submit" class="btn btn-primary">Save settings</button>
     </form>
@@ -512,6 +526,18 @@ tr.dim td {
   gap: 4px;
   font-size: 12px;
   color: var(--muted);
+}
+.settings .fees {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.settings .fees legend {
+  font-size: 13px;
+  margin-bottom: 6px;
 }
 .settings .check {
   flex-direction: row;

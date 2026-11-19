@@ -10,7 +10,7 @@ Filament enters P&L once, when the spools are bought; the allocated rows only sp
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
@@ -26,6 +26,8 @@ class FinanceSettings:
     electricity_agorot_per_kwh: Decimal = Decimal("64")
     default_printer_watts: Decimal = Decimal("150")
     default_filament_agorot_per_gram: Decimal = Decimal("8.5")
+    labour_agorot_per_hour: Decimal = Decimal("4000")          # post-processing labour (Wave 1 / M5)
+    channel_fees: dict[str, float] = field(default_factory=dict)   # % of the gross price each channel keeps
 
     @classmethod
     def from_row(cls, row) -> FinanceSettings:
@@ -35,6 +37,8 @@ class FinanceSettings:
             electricity_agorot_per_kwh=Decimal(row["electricity_agorot_per_kwh"]),
             default_printer_watts=Decimal(row["default_printer_watts"]),
             default_filament_agorot_per_gram=Decimal(row["default_filament_agorot_per_gram"]),
+            labour_agorot_per_hour=Decimal(row.get("labour_agorot_per_hour", 4000)),
+            channel_fees=dict(row.get("channel_fees") or {}),
         )
 
 

@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from psycopg.types.json import Jsonb
+
 from printfarm.agents.base import Agent, on
 from printfarm.agents.finance.ledger import FinanceSettings, business_day, plate_allocations, split_income, split_vat
 from printfarm.contracts.messages import (
@@ -145,6 +147,12 @@ class FinanceAgent(Agent):
              Decimal(str(cmd.default_printer_watts)), Decimal(str(cmd.default_filament_agorot_per_gram)),
              cmd.turnover_ceiling_agorot, who, cmd.confirm, who, cmd.confirm),
         )
+        if cmd.labour_agorot_per_hour is not None:
+            await conn.execute("UPDATE finance.settings SET labour_agorot_per_hour = %s WHERE id = 1",
+                               (Decimal(str(cmd.labour_agorot_per_hour)),))
+        if cmd.channel_fees is not None:
+            await conn.execute("UPDATE finance.settings SET channel_fees = %s WHERE id = 1",
+                               (Jsonb({k: v for k, v in cmd.channel_fees.items() if v > 0}),))
         self.log.warning("finance settings changed by %s (%s, VAT %.2f%%)%s", who, cmd.business_type, cmd.vat_rate * 100,
                          " and confirmed" if cmd.confirm else "")
         await self.emit(conn, FinanceSettingsChanged(business_type=cmd.business_type, vat_rate=cmd.vat_rate,

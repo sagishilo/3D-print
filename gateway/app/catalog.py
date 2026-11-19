@@ -32,7 +32,7 @@ _ITEM = re.compile(r"^([A-Z0-9][A-Z0-9-]{1,31}):(\d{1,3})$")
 PRODUCTS_SQL = f"""
   SELECT p.sku, p.name, p.category, p.material, p.color, p.price_agorot, p.file_name, p.sliced, p.printer_model,
          p.footprint_w, p.footprint_d, p.est_grams, p.est_minutes, p.estimated, p.active, p.created_at, p.updated_at,
-         p.updated_by, p.niche,
+         p.updated_by, p.niche, p.post_minutes,
          coalesce((SELECT json_agg(t.niche ORDER BY t.niche) FROM catalog.product_tags t WHERE t.sku = p.sku), '[]')
            AS tags,
          coalesce((SELECT f.on_hand - f.reserved FROM coordinator.finished_goods f WHERE f.sku = p.sku), 0) AS on_shelf,

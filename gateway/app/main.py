@@ -37,6 +37,7 @@ from . import (
     niches,
     onboarding,
     orders,
+    pricing,
     printers,
     social,
     system,
@@ -109,7 +110,7 @@ async def _unexpected(request: Request, exc: Exception):
     return JSONResponse({"detail": "internal error", "request_id": _rid(request)}, status_code=500)
 
 for module in (auth, users, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog,
-               niches, social):
+               niches, pricing, social):
     app.include_router(module.router)
 
 

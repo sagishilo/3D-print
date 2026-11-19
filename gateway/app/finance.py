@@ -27,7 +27,7 @@ from . import auth
 from .niches import niche_scope
 
 router = APIRouter(prefix="/api/v1/finance", dependencies=[Depends(auth.OPERATOR)])   # not viewers
-PLACEHOLDERS = {"vat_rate": 0.18, "electricity_agorot_per_kwh": 64, "default_printer_watts": 150,
+PLACEHOLDERS = {"vat_rate": 0.18, "electricity_agorot_per_kwh": 64, "default_printer_watts": 150, "labour_agorot_per_hour": 4000,
                 "default_filament_agorot_per_gram": 8.5}
 
 

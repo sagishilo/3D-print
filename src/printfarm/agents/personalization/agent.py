@@ -168,6 +168,8 @@ class PersonalizationAgent(Agent):
                   "active": cmd.active, "updated_by": by, **file}
         if cmd.niche is not None:
             values["niche"] = cmd.niche
+        if cmd.post_minutes is not None:
+            values["post_minutes"] = cmd.post_minutes
         if row is None:
             cols = [*values, "created_by"]
             await conn.execute(

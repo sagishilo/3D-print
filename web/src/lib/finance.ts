@@ -109,6 +109,8 @@ export interface VatReport {
   current: PeriodInfo
   turnover_gross_agorot: number
   turnover_ceiling_agorot: number | null
+  labour_agorot_per_hour?: number // post-processing labour (Wave 1 / M5)
+  channel_fees?: Record<string, number> // % of the gross price each channel keeps
 }
 
 export interface FinanceSettings {
@@ -118,6 +120,8 @@ export interface FinanceSettings {
   default_printer_watts: number
   default_filament_agorot_per_gram: number
   turnover_ceiling_agorot: number | null
+  labour_agorot_per_hour?: number // post-processing labour (Wave 1 / M5)
+  channel_fees?: Record<string, number> // % of the gross price each channel keeps
   confirmed: boolean
   confirmed_by: string | null
   confirmed_at: string | null
@@ -127,7 +131,7 @@ export interface FinanceSettings {
   filament_prices: { material: string; color: string; agorot_per_gram: number; po_id: string; at: string }[]
 }
 
-export const EXPENSE_CATEGORIES = ['filament', 'electricity', 'shipping', 'packaging', 'equipment', 'software', 'marketing', 'misc'] as const
+export const EXPENSE_CATEGORIES = ['filament', 'electricity', 'shipping', 'packaging', 'parts', 'equipment', 'software', 'marketing', 'misc'] as const
 
 export const CATEGORY_LABEL: Record<string, string> = {
   filament: 'Filament (spool purchases)',
@@ -137,6 +141,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
   equipment: 'Equipment',
   software: 'Software & hosting',
   marketing: 'Marketing',
+  parts: 'Parts & consumables',
   misc: 'Misc',
 }
 
