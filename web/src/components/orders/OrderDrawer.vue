@@ -15,6 +15,7 @@ import { useConfirm } from '@/stores/confirm'
 import { useLive } from '@/stores/live'
 import { useOrders } from '@/stores/orders'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const props = defineProps<{ orderId: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -149,13 +150,13 @@ async function recordPayment() {
         <!-- ------------------------------------------------ what can be done now -->
         <section v-if="!['SHIPPED', 'CANCELLED'].includes(o.state)" class="actions" data-testid="order-actions">
           <template v-if="o.state === 'LEAD'">
-            <button type="button" class="btn btn-primary" :disabled="busy" @click="confirmLead">Confirm order</button>
+            <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" @click="confirmLead">Confirm order</button>
           </template>
           <template v-else-if="o.state === 'RECEIVED'">
-            <button type="button" class="btn btn-primary" :disabled="busy" @click="personalize">Start personalization</button>
+            <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" @click="personalize">Start personalization</button>
           </template>
           <template v-else-if="o.state === 'PERSONALIZING'">
-            <button type="button" class="btn btn-primary" :disabled="busy || !allModelsReady" @click="schedule">Send to printing</button>
+            <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy || !allModelsReady" @click="schedule">Send to printing</button>
             <span v-if="!allModelsReady" class="muted small">Waiting for every nameplate model.</span>
           </template>
           <template v-else-if="o.state === 'NEEDS_ATTENTION' && o.attention?.from === 'PERSONALIZING'">
@@ -165,11 +166,11 @@ async function recordPayment() {
                 Item {{ i.item_id }} · {{ i.model.error }}
                 <input v-model="texts[i.item_id]" class="input" maxlength="40" dir="auto" :data-testid="`retry-text-${i.item_id}`" />
               </label>
-              <button type="button" class="btn btn-primary" :disabled="busy" @click="retryTexts">Retry personalization</button>
+              <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" @click="retryTexts">Retry personalization</button>
             </div>
           </template>
           <template v-else-if="o.state === 'NEEDS_ATTENTION'">
-            <button type="button" class="btn btn-primary" :disabled="busy" @click="retryUnits">Print failed units again</button>
+            <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" @click="retryUnits">Print failed units again</button>
           </template>
           <template v-else-if="o.state === 'QC'">
             <div v-if="o.qc !== 'passed'" class="qc">
@@ -181,18 +182,18 @@ async function recordPayment() {
                 </label>
               </fieldset>
               <div class="row">
-                <button type="button" class="btn btn-primary" :disabled="busy" data-testid="qc-pass" @click="passQc"><Icon name="check" :size="14" />Pass</button>
-                <button type="button" class="btn btn-danger" :disabled="busy" data-testid="qc-fail" @click="failQc">Fail · reprint</button>
+                <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" data-testid="qc-pass" @click="passQc"><Icon name="check" :size="14" />Pass</button>
+                <button v-can="'operator'" type="button" class="btn btn-danger" :disabled="busy" data-testid="qc-fail" @click="failQc">Fail · reprint</button>
               </div>
             </div>
             <div v-else class="ship">
               <label>Carrier<input v-model="ship.carrier" class="input" maxlength="60" placeholder="Israel Post, pickup, …" /></label>
               <label>Tracking<input v-model="ship.tracking" class="input" maxlength="80" /></label>
-              <button type="button" class="btn btn-primary" :disabled="busy" data-testid="ship" @click="doShip">Mark shipped</button>
+              <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" data-testid="ship" @click="doShip">Mark shipped</button>
             </div>
           </template>
           <span v-else-if="o.state === 'SCHEDULING' || o.state === 'PRINTING'" class="muted small">Printers drive this stage.</span>
-          <button v-if="canCancel" type="button" class="btn btn-sm cancel" :disabled="busy" @click="cancel">Cancel order</button>
+          <button v-can="'operator'" v-if="canCancel" type="button" class="btn btn-sm cancel" :disabled="busy" @click="cancel">Cancel order</button>
         </section>
 
         <!-- ------------------------------------------------ items and prices -->
@@ -243,7 +244,7 @@ async function recordPayment() {
               <option v-for="m in PAYMENT_METHODS" :key="m" :value="m">{{ m.replace('_', ' ') }}</option>
             </select>
           </label>
-          <button type="submit" class="btn" :disabled="busy">Record payment</button>
+          <button v-can="'operator'" type="submit" class="btn" :disabled="busy">Record payment</button>
         </form>
 
         <!-- ------------------------------------------------ units, QC and history -->

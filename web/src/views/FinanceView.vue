@@ -16,6 +16,7 @@ import { CATEGORY_LABEL, changeLabel, daysSince, exportUrl, type PeriodKind, sho
 import { dateTime, shekels, title } from '@/lib/format'
 import { useFinance } from '@/stores/finance'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const route = useRoute()
 const router = useRouter()
@@ -128,8 +129,8 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
       <a class="btn" :href="exportUrl(tab === 'expenses' ? 'expenses' : 'income', finance.period, finance.month)" download data-testid="export-csv">
         <Icon name="download" :size="14" />Export CSV
       </a>
-      <button type="button" class="btn" data-testid="record-payment" @click="money = { mode: 'payment' }"><Icon name="plus" :size="14" />Record payment</button>
-      <button type="button" class="btn btn-primary" data-testid="add-expense" @click="money = { mode: 'expense' }"><Icon name="plus" :size="14" />Add expense</button>
+      <button v-can="'operator'" type="button" class="btn" data-testid="record-payment" @click="money = { mode: 'payment' }"><Icon name="plus" :size="14" />Record payment</button>
+      <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="add-expense" @click="money = { mode: 'expense' }"><Icon name="plus" :size="14" />Add expense</button>
     </div>
   </div>
 
@@ -196,7 +197,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
 
   <!-- ------------------------------------------------ income -->
   <section v-else-if="tab === 'income'" class="panel" data-tour="finance-income">
-    <div class="panel-head"><h2>Income · {{ r?.period.label }}</h2><button type="button" class="btn btn-sm" @click="money = { mode: 'payment' }">Record payment</button></div>
+    <div class="panel-head"><h2>Income · {{ r?.period.label }}</h2><button v-can="'operator'" type="button" class="btn btn-sm" @click="money = { mode: 'payment' }">Record payment</button></div>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Date</th><th>Order</th><th>Customer</th><th>Method</th><th class="num">Gross</th><th class="num">VAT</th><th class="num">Net</th><th>Receipt no.</th><th>Source</th></tr></thead>
@@ -220,7 +221,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
 
   <!-- ------------------------------------------------ expenses -->
   <section v-else-if="tab === 'expenses'" class="panel" data-tour="finance-expenses">
-    <div class="panel-head"><h2>Expenses · {{ r?.period.label }}</h2><button type="button" class="btn btn-sm" @click="money = { mode: 'expense' }">Add expense</button></div>
+    <div class="panel-head"><h2>Expenses · {{ r?.period.label }}</h2><button v-can="'operator'" type="button" class="btn btn-sm" @click="money = { mode: 'expense' }">Add expense</button></div>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Date</th><th>Category</th><th>Detail</th><th class="num">Net</th><th class="num">VAT</th><th>Kind</th></tr></thead>
@@ -273,7 +274,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
         <span>{{ x.customer_name }}</span>
         <span class="muted" :class="{ 'text-warn': (daysSince(x.shipped_at) ?? 0) > 30 }">shipped {{ daysSince(x.shipped_at) ?? '?' }} d ago</span>
         <b class="mono">{{ shekels(x.due_agorot) }}</b>
-        <button type="button" class="btn btn-sm" @click="money = { mode: 'payment', orderId: x.order_id }">Record payment</button>
+        <button v-can="'operator'" type="button" class="btn btn-sm" @click="money = { mode: 'payment', orderId: x.order_id }">Record payment</button>
       </li>
     </ul>
     <p v-if="!finance.receivables.length" class="empty">Nothing owed.</p>
@@ -324,7 +325,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
       <label>Filament agorot per gram (when no PO price)<input v-model="form.perGram" class="input" inputmode="decimal" /></label>
       <label>Turnover ceiling ₪ (osek patur)<input v-model="form.ceiling" class="input" inputmode="decimal" /></label>
       <label class="check wide"><input v-model="form.confirm" type="checkbox" data-testid="set-confirm" /> I checked these values with my accountant</label>
-      <button type="submit" class="btn btn-primary">Save settings</button>
+      <button v-can="'owner'" type="submit" class="btn btn-primary">Save settings</button>
     </form>
     <h3>Filament prices from purchase orders</h3>
     <ul class="list">

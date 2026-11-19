@@ -275,7 +275,7 @@ TESTS = {"bambu": test_bambu, "moonraker": test_moonraker, "generic": test_gener
 
 
 @router.post("/test-connection")
-async def test_connection(body: ConnectionTest, request: Request, claims: dict = Depends(auth.require_csrf)) -> dict:
+async def test_connection(body: ConnectionTest, request: Request, claims: dict = Depends(auth.OPERATOR_CHANGE)) -> dict:
     checks = await TESTS[body.vendor](body)
     ok = all(c["ok"] for c in checks if not c["optional"])
     # Audited without the access code or API key: who tested which address, and the outcome.

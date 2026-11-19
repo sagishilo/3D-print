@@ -10,6 +10,7 @@ import { type Spool, where } from '@/lib/filament'
 import { useInventory } from '@/stores/inventory'
 import { usePrinters } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const props = defineProps<{ spool: Spool | null; tag?: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -76,7 +77,7 @@ const markEmpty = () => run('Spool marked empty', () => inventory.adjust(s().spo
         <label>Left now (g, empty = full)<input v-model="reg.remaining" class="input" inputmode="numeric" /></label>
         <label>Shelf<input v-model="reg.location" class="input" maxlength="40" placeholder="B2" /></label>
         <label class="wide">Label / RFID (becomes the spool id)<input v-model="reg.tag" class="input" maxlength="80" /></label>
-        <button type="submit" class="btn btn-primary wide" :disabled="busy">Register spool</button>
+        <button v-can="'operator'" type="submit" class="btn btn-primary wide" :disabled="busy">Register spool</button>
       </form>
 
       <template v-else>
@@ -96,22 +97,22 @@ const markEmpty = () => run('Spool marked empty', () => inventory.adjust(s().spo
               </select>
             </label>
             <label>Slot<input v-model="act.slot" class="input" maxlength="40" placeholder="AMS 1 · slot 2" /></label>
-            <button type="button" class="btn" :disabled="busy || !act.printer || spool!.status === 'empty'" @click="load">Load</button>
+            <button v-can="'operator'" type="button" class="btn" :disabled="busy || !act.printer || spool!.status === 'empty'" @click="load">Load</button>
           </div>
         </div>
         <div v-if="spool!.printer_id" class="block">
           <h3>Back on the shelf</h3>
           <div class="row">
             <label>Shelf<input v-model="act.location" class="input" maxlength="40" placeholder="B2" /></label>
-            <button type="button" class="btn" :disabled="busy" @click="unload">Unload</button>
+            <button v-can="'operator'" type="button" class="btn" :disabled="busy" @click="unload">Unload</button>
           </div>
         </div>
         <div class="block">
           <h3>Weigh</h3>
           <div class="row">
             <label>Net weight (g)<input v-model="act.grams" class="input" inputmode="numeric" data-testid="weigh-grams" /></label>
-            <button type="button" class="btn" :disabled="busy" @click="weigh">Save weight</button>
-            <button type="button" class="btn btn-danger" :disabled="busy || spool!.status === 'empty'" @click="markEmpty">Mark empty</button>
+            <button v-can="'operator'" type="button" class="btn" :disabled="busy" @click="weigh">Save weight</button>
+            <button v-can="'operator'" type="button" class="btn btn-danger" :disabled="busy || spool!.status === 'empty'" @click="markEmpty">Mark empty</button>
           </div>
         </div>
       </template>

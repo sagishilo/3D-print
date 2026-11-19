@@ -64,7 +64,7 @@ async def tokens(request: Request):
 
 
 @router.post("/tokens", status_code=201)
-async def create_token(body: TokenIn, request: Request, claims: dict = Depends(auth.require_csrf)):
+async def create_token(body: TokenIn, request: Request, claims: dict = Depends(auth.OWNER_CHANGE)):
     token = TOKEN_PREFIX + secrets.token_urlsafe(32)
     token_id = f"tok-{secrets.token_hex(4)}"
     db = request.app.state.db
@@ -76,7 +76,7 @@ async def create_token(body: TokenIn, request: Request, claims: dict = Depends(a
 
 
 @router.post("/tokens/{token_id}/revoke")
-async def revoke_token(token_id: str, request: Request, claims: dict = Depends(auth.require_csrf)):
+async def revoke_token(token_id: str, request: Request, claims: dict = Depends(auth.OWNER_CHANGE)):
     n = await request.app.state.db.execute(
         "UPDATE gateway.capture_tokens SET revoked_at = now() WHERE token_id = %s AND revoked_at IS NULL", (token_id,))
     if not n:

@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AgentsTable from '@/components/system/AgentsTable.vue'
+import AuditPanel from '@/components/system/AuditPanel.vue'
 import BackupsPanel from '@/components/system/BackupsPanel.vue'
 import DlqPanel from '@/components/system/DlqPanel.vue'
 import NatsPanel from '@/components/system/NatsPanel.vue'
@@ -15,14 +16,16 @@ import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import { count, duration } from '@/lib/format'
+import { useAuth } from '@/stores/auth'
 import { useSystem } from '@/stores/system'
 
-type TabId = 'overview' | 'agents' | 'nats' | 'dlq' | 'config'
-const TAB_IDS: TabId[] = ['overview', 'agents', 'nats', 'dlq', 'config']
+type TabId = 'overview' | 'agents' | 'nats' | 'dlq' | 'config' | 'audit'
+const TAB_IDS: TabId[] = ['overview', 'agents', 'nats', 'dlq', 'config', 'audit']
 
 const route = useRoute()
 const router = useRouter()
 const system = useSystem()
+const auth = useAuth()
 
 const tabs = computed(() => [
   { id: 'overview', label: 'Overview' },
@@ -30,9 +33,13 @@ const tabs = computed(() => [
   { id: 'nats', label: 'NATS' },
   { id: 'dlq', label: `DLQ · ${system.dlqTotal}` },
   { id: 'config', label: 'Config' },
+  ...(auth.can('owner') ? [{ id: 'audit', label: 'Audit log' }] : []),   // owners only (the gateway checks too)
 ])
 const tab = computed<TabId>({
-  get: () => (TAB_IDS.includes(route.query.tab as TabId) ? (route.query.tab as TabId) : 'overview'),
+  get: () => {
+    const t = route.query.tab as TabId
+    return TAB_IDS.includes(t) && (t !== 'audit' || auth.can('owner')) ? t : 'overview'
+  },
   set: (t) => void router.replace({ query: t === 'overview' ? {} : { tab: t } }),
 })
 
@@ -149,6 +156,8 @@ const kpis = computed(() => {
   </template>
 
   <DlqPanel v-else-if="tab === 'dlq'" />
+
+  <AuditPanel v-else-if="tab === 'audit'" />
 
   <div v-else class="grid-2">
     <SettingsPanel />

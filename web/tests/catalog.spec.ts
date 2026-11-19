@@ -19,11 +19,12 @@ import {
 import { priceOrder } from '@/lib/orders'
 import { useCatalog } from '@/stores/catalog'
 
-import { json, on, serve } from './helpers'
+import { json, on, serve, signedInAs } from './helpers'
 
 beforeEach(() => {
   localStorage.clear()
   setActivePinia(createPinia())
+  signedInAs()
 })
 afterEach(() => vi.unstubAllGlobals())
 

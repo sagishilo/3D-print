@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import Icon from '@/components/ui/Icon.vue'
 import { type CatalogProduct, CATEGORY_LABEL, minutes, trendLabel } from '@/lib/catalog'
 import { shekels } from '@/lib/format'
+import { vCan } from '@/directives/can'
 
 const props = defineProps<{ product: CatalogProduct; qty: number; bed: [number, number] }>()
 const emit = defineEmits<{ add: [qty: number]; qty: [qty: number]; slice: []; edit: [] }>()
@@ -61,10 +62,10 @@ const part = computed(() => {
     <span v-if="product.in_production" class="muted small">{{ product.in_production }} in production for stock</span>
 
     <div class="actions">
-      <button type="button" class="btn btn-sm" :disabled="product.sliced" :data-testid="`slice-${product.sku}`" data-tour="sku-slice" @click="emit('slice')">
+      <button v-can="'operator'" type="button" class="btn btn-sm" :disabled="product.sliced" :data-testid="`slice-${product.sku}`" data-tour="sku-slice" @click="emit('slice')">
         {{ product.sliced ? 'Sliced ✓' : 'Slice now' }}
       </button>
-      <button type="button" class="btn btn-sm" :aria-label="`Edit ${product.sku}`" @click="emit('edit')"><Icon name="gear" :size="14" /></button>
+      <button v-can="'operator'" type="button" class="btn btn-sm" :aria-label="`Edit ${product.sku}`" @click="emit('edit')"><Icon name="gear" :size="14" /></button>
       <span class="grow" />
       <template v-if="qty > 0">
         <label class="qty">
@@ -73,7 +74,7 @@ const part = computed(() => {
         </label>
         <button type="button" class="btn btn-sm btn-ok" :data-testid="`in-batch-${product.sku}`" title="Remove from the batch" @click="emit('qty', 0)">In batch ✓</button>
       </template>
-      <button v-else type="button" class="btn btn-sm btn-primary" :disabled="!product.active" :data-testid="`add-${product.sku}`" data-tour="sku-add" :title="`adds ${suggested}: sold this week minus stock in production`" @click="emit('add', suggested)">
+      <button v-can="'operator'" v-else type="button" class="btn btn-sm btn-primary" :disabled="!product.active" :data-testid="`add-${product.sku}`" data-tour="sku-add" :title="`adds ${suggested}: sold this week minus stock in production`" @click="emit('add', suggested)">
         <Icon name="plus" :size="14" />Add to batch
       </button>
     </div>

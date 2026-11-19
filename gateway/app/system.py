@@ -215,7 +215,7 @@ async def _audit(request: Request, claims: dict, subject: str, payload: dict) ->
 
 
 @router.post("/dlq/{seq}/replay", status_code=202)
-async def dlq_replay(seq: int, request: Request, claims: dict = Depends(auth.require_csrf)):
+async def dlq_replay(seq: int, request: Request, claims: dict = Depends(auth.OWNER_CHANGE)):
     """Publish the dead-lettered message again. Consumers that already handled it skip it (inbox), the one that
     failed gets another chance; the JetStream de-duplication id is new so the replay is not dropped."""
     js = request.app.state.bus.js
@@ -232,7 +232,7 @@ async def dlq_replay(seq: int, request: Request, claims: dict = Depends(auth.req
 
 
 @router.post("/dlq/{seq}/discard")
-async def dlq_discard(seq: int, request: Request, claims: dict = Depends(auth.require_csrf)):
+async def dlq_discard(seq: int, request: Request, claims: dict = Depends(auth.OWNER_CHANGE)):
     js = request.app.state.bus.js
     item = _dlq_item(await _dlq_get(js, seq))
     await _audit(request, claims, "dlq.discard", {"dlq_seq": seq, "subject": item["original_subject"],
@@ -308,3 +308,52 @@ async def backups():
     except (OSError, ValueError):
         st = None
     return backup_health(st, time.time())
+
+
+# ---------------------------------------------------------------- audit log (owner): who did what, when
+AUDIT_PAGE = 100
+
+
+@router.get("/audit", dependencies=[Depends(auth.OWNER)])
+async def audit(request: Request, actor: str | None = None, action: str | None = None, outcome: str | None = None,
+                since: str | None = None, until: str | None = None, before_id: int | None = None, limit: int = AUDIT_PAGE):
+    """Newest first. ``action`` matches the start of the subject (``users`` matches users.create, users.update...),
+    ``since`` / ``until`` are dates (YYYY-MM-DD, until inclusive), ``before_id`` pages back."""
+    where, params = [], []
+    if actor:
+        where.append("actor = %s")
+        params.append(actor)
+    if action:
+        where.append("subject LIKE %s")
+        params.append(action.replace("%", "").replace("_", r"\_") + "%")
+    if outcome == "failed":
+        where.append("(outcome LIKE 'failed%%' OR outcome IN ('refused', 'locked out'))")
+    for value, op, shift in ((since, ">=", ""), (until, "<", " + interval '1 day'")):
+        if value:
+            try:
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, f"dates are YYYY-MM-DD, not {value}") from None
+            where.append(f"created_at {op} (%s::date{shift}) AT TIME ZONE 'Asia/Jerusalem'")
+            params.append(value)
+    if before_id:
+        where.append("id < %s")
+        params.append(before_id)
+    limit = max(1, min(limit, 500))
+    rows = await request.app.state.db.fetchall(
+        "SELECT id, created_at, actor, subject, outcome, payload FROM gateway.audit_log"
+        + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT %s", (*params, limit + 1))
+    more = len(rows) > limit
+    rows = rows[:limit]
+    return {"entries": rows, "next_before_id": rows[-1]["id"] if more and rows else None}
+
+
+@router.get("/audit/facets", dependencies=[Depends(auth.OWNER)])
+async def audit_facets(request: Request):
+    """The people and the kinds of action in the log (the audit screen's filter lists)."""
+    db = request.app.state.db
+    actors = await db.fetchall("SELECT actor, max(created_at) AS last FROM gateway.audit_log GROUP BY actor "
+                               "ORDER BY last DESC LIMIT 200")
+    actions = await db.fetchall("SELECT subject AS action, count(*) AS n FROM gateway.audit_log GROUP BY 1 "
+                                "ORDER BY 2 DESC LIMIT 200")
+    return {"actors": [r["actor"] for r in actors], "actions": [r["action"] for r in actions]}

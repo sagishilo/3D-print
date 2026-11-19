@@ -12,14 +12,17 @@ import { command, errorText, printerCommand } from '@/lib/api'
 import { BATCH_LABEL, type BatchAction, describePlan, planBatch } from '@/lib/fleet'
 import { clock } from '@/lib/format'
 import type { Printer } from '@/lib/types'
+import { useAuth } from '@/stores/auth'
 import { useConfirm } from '@/stores/confirm'
 import { useLive } from '@/stores/live'
 import { type DisplayStatus, displayStatus, STATUS_TONE, usePrinters } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const route = useRoute()
 const router = useRouter()
 const printers = usePrinters()
+const auth = useAuth()
 const live = useLive()
 const confirm = useConfirm()
 const toasts = useToasts()
@@ -110,7 +113,7 @@ async function batch(action: BatchAction) {
       <p>{{ printers.list.length }} printers · telemetry via MQTT / Moonraker · cameras via go2rtc → MJPEG</p>
     </div>
     <div class="head-actions">
-      <RouterLink to="/fleet/add" class="btn btn-primary" data-testid="add-printer"><Icon name="plus" :size="14" />Add printer</RouterLink>
+      <RouterLink v-if="auth.can('operator')" to="/fleet/add" class="btn btn-primary" data-testid="add-printer"><Icon name="plus" :size="14" />Add printer</RouterLink>
     </div>
   </div>
 
@@ -152,7 +155,7 @@ async function batch(action: BatchAction) {
   <div v-if="selection.length" class="batch" role="region" aria-label="Batch actions" data-testid="batch-bar">
     <span class="count"><b>{{ selection.length }}</b> selected</span>
     <div class="batch-actions">
-      <button
+      <button v-can="'operator'"
         v-for="a in ACTIONS"
         :key="a"
         type="button"

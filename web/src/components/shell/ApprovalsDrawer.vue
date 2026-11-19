@@ -6,6 +6,7 @@ import { errorText } from '@/lib/api'
 import { dateTime } from '@/lib/format'
 import { useApprovals } from '@/stores/approvals'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -43,8 +44,8 @@ async function decide(id: string, approved: boolean) {
         </div>
         <p class="summary">{{ a.summary }}</p>
         <div class="row actions">
-          <button type="button" class="btn btn-sm" :disabled="busy === a.approval_id" @click="decide(a.approval_id, false)">Reject</button>
-          <button type="button" class="btn btn-sm btn-primary" :disabled="busy === a.approval_id" @click="decide(a.approval_id, true)">
+          <button v-can="'operator'" type="button" class="btn btn-sm" :disabled="busy === a.approval_id" @click="decide(a.approval_id, false)">Reject</button>
+          <button v-can="'operator'" type="button" class="btn btn-sm btn-primary" :disabled="busy === a.approval_id" @click="decide(a.approval_id, true)">
             <Icon name="check" :size="14" />Approve
           </button>
         </div>

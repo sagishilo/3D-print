@@ -10,6 +10,7 @@ import { accuracyLine, copyText, spendLine } from '@/lib/social'
 import { useConfirm } from '@/stores/confirm'
 import { useSocial } from '@/stores/social'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const social = useSocial()
 const toasts = useToasts()
@@ -95,7 +96,7 @@ async function revoke(id: string, name: string) {
       <div class="num">
         <input :id="`set-${s.key}`" class="input mono" inputmode="decimal" :value="shown(s.key, s.value)" :data-testid="`set-${s.key}`"
           @input="draft[s.key] = ($event.target as HTMLInputElement).value" />
-        <button type="submit" class="btn btn-sm" :disabled="draft[s.key] === undefined">Save</button>
+        <button v-can="'owner'" type="submit" class="btn btn-sm" :disabled="draft[s.key] === undefined">Save</button>
       </div>
     </form>
     <p class="panel-note">Spend: {{ spendLine(social.stats, social.budget) }}</p>
@@ -112,7 +113,7 @@ async function revoke(id: string, name: string) {
     </p>
     <form class="token-form" @submit.prevent="makeToken">
       <input v-model="label" class="input" maxlength="60" placeholder="e.g. my laptop" aria-label="Token name" data-testid="token-label" />
-      <button type="submit" class="btn btn-sm" :disabled="!label.trim()">New token</button>
+      <button v-can="'owner'" type="submit" class="btn btn-sm" :disabled="!label.trim()">New token</button>
     </form>
     <div v-if="fresh" class="fresh" role="status" data-testid="token-fresh">
       <span>Copy it now: it is shown only once.</span>
@@ -126,7 +127,7 @@ async function revoke(id: string, name: string) {
       <li v-for="t in social.tokens" :key="t.token_id" :class="{ revoked: t.revoked_at }">
         <span><b>{{ t.label }}</b> <span class="muted small">· {{ t.uses }} capture{{ t.uses === 1 ? '' : 's' }}{{ t.last_used_at ? ` · last ${dateTime(t.last_used_at)}` : '' }}</span></span>
         <span v-if="t.revoked_at" class="muted small">revoked</span>
-        <button v-else type="button" class="btn btn-sm" @click="revoke(t.token_id, t.label)">Revoke</button>
+        <button v-can="'owner'" v-else type="button" class="btn btn-sm" @click="revoke(t.token_id, t.label)">Revoke</button>
       </li>
     </ul>
   </section>

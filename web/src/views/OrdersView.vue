@@ -21,6 +21,7 @@ import { useOrders } from '@/stores/orders'
 import { usePrinters } from '@/stores/printers'
 import { useSystem } from '@/stores/system'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const route = useRoute()
 const router = useRouter()
@@ -112,7 +113,7 @@ const plates = computed(() =>
       <p>Drag to move · dropping into Personalization or Slicing dispatches a NATS job · Printing is driven by printers</p>
     </div>
     <div class="head-actions">
-      <button type="button" class="btn btn-primary" data-testid="new-order-button" @click="creating = true"><Icon name="plus" :size="14" />New manual order</button>
+      <button type="button" class="btn btn-primary" data-testid="new-order-button" v-can="'operator'" @click="creating = true"><Icon name="plus" :size="14" />New manual order</button>
     </div>
   </div>
 

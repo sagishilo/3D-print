@@ -10,6 +10,7 @@ import type { DeadLetter } from '@/lib/types'
 import { useConfirm } from '@/stores/confirm'
 import { useSystem } from '@/stores/system'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const props = withDefaults(defineProps<{ limit?: number }>(), { limit: 100 })
 
@@ -98,7 +99,7 @@ async function replayAll() {
     <section class="panel" data-tour="dlq">
       <div class="panel-head">
         <h2>Dead letter queue</h2>
-        <button type="button" class="btn btn-sm" :disabled="busy || !system.dlq.length" @click="replayAll">
+        <button v-can="'owner'" type="button" class="btn btn-sm" :disabled="busy || !system.dlq.length" @click="replayAll">
           <Icon name="refresh" :size="14" />Replay all
         </button>
       </div>
@@ -148,10 +149,10 @@ async function replayAll() {
       </p>
       <pre class="code">{{ inspected }}</pre>
       <div class="actions">
-        <button type="button" class="btn btn-primary" :disabled="busy" data-testid="dlq-replay" @click="replay(selected)">
+        <button v-can="'owner'" type="button" class="btn btn-primary" :disabled="busy" data-testid="dlq-replay" @click="replay(selected)">
           <Icon name="refresh" :size="14" />Replay
         </button>
-        <button type="button" class="btn btn-danger" :disabled="busy" data-testid="dlq-discard" @click="discard(selected)">
+        <button v-can="'owner'" type="button" class="btn btn-danger" :disabled="busy" data-testid="dlq-discard" @click="discard(selected)">
           <Icon name="x" :size="14" />Discard
         </button>
       </div>

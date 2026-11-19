@@ -8,10 +8,13 @@ import Icon from '@/components/ui/Icon.vue'
 import { errorText } from '@/lib/api'
 import { ago, shekels } from '@/lib/format'
 import { copyText, LEAD_LABEL, type Lead, replyText, score } from '@/lib/social'
+import { useAuth } from '@/stores/auth'
 import { useSocial } from '@/stores/social'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const props = defineProps<{ leads: Lead[]; draftModel: string }>()
+const auth = useAuth()
 const social = useSocial()
 const toasts = useToasts()
 
@@ -74,6 +77,7 @@ function onKey(e: KeyboardEvent) {
   if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable)) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
   const k = e.key.toLowerCase()
+  if (['a', 'p', 'r'].includes(k) && !auth.can('operator')) return   // viewers only read
   if (k === 'j') index.value = Math.min(index.value + 1, props.leads.length - 1)
   else if (k === 'k') index.value = Math.max(index.value - 1, 0)
   else if (k === 'a') void approveAndCopy()
@@ -124,13 +128,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       </ol>
 
       <div class="actions">
-        <button type="button" class="btn btn-primary" :disabled="!open || busy" data-testid="approve-copy" @click="approveAndCopy">
+        <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="!open || busy" data-testid="approve-copy" @click="approveAndCopy">
           <Icon name="check" :size="14" />Approve &amp; Copy
         </button>
         <a v-if="lead.post_url" class="btn" :href="lead.post_url" target="_blank" rel="noopener noreferrer">Open post <Icon name="external" :size="12" /></a>
-        <button type="button" class="btn" :disabled="lead.status !== 'approved' || busy" data-testid="mark-posted" @click="markPosted">Mark as posted</button>
+        <button v-can="'operator'" type="button" class="btn" :disabled="lead.status !== 'approved' || busy" data-testid="mark-posted" @click="markPosted">Mark as posted</button>
         <span class="spacer" />
-        <button type="button" class="btn btn-danger" :disabled="!open || busy" data-testid="reject" @click="reject">Reject</button>
+        <button v-can="'operator'" type="button" class="btn btn-danger" :disabled="!open || busy" data-testid="reject" @click="reject">Reject</button>
       </div>
       <p class="panel-note">
         {{ LEAD_LABEL[lead.status] }} · drafted by Social Listening ({{ draftModel }}) · nothing is posted until you paste it

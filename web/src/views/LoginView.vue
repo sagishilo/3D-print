@@ -3,6 +3,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import PasswordChangeForm from '@/components/account/PasswordChangeForm.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { ApiError, errorText } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
@@ -15,6 +16,9 @@ const username = ref('admin')
 const password = ref('')
 const error = ref('')
 const busy = ref(false)
+// Shown while a temporary password must be replaced. Local state (not auth.mustChangePassword itself): saving the new
+// password clears that flag, and the form must stay mounted until it has said it is done.
+const choosing = ref(!!auth.user && auth.mustChangePassword)
 
 /** Only same-site paths: never send the user to another origin after logging in. */
 function nextPath(): string {
@@ -30,14 +34,20 @@ function message(err: unknown): string {
   return `Could not sign in: ${errorText(err)}`
 }
 
+async function passwordChosen() {
+  choosing.value = false
+  await router.replace(nextPath())
+}
+
 async function submit() {
   if (busy.value) return
   busy.value = true
   error.value = ''
   try {
-    await auth.login(username.value.trim(), password.value)
+    const me = await auth.login(username.value.trim(), password.value)
     password.value = ''
-    await router.replace(nextPath())
+    if (me.must_change_password) choosing.value = true
+    else await router.replace(nextPath())
   } catch (err) {
     error.value = message(err)
   } finally {
@@ -53,10 +63,17 @@ async function submit() {
         <div class="logo" aria-hidden="true"><Icon name="brand" :size="18" :stroke-width="2.2" /></div>
         <span class="name">PrintFarm Ops</span>
       </div>
-      <form class="card" novalidate @submit.prevent="submit">
+      <section v-if="choosing" class="card" data-testid="password-required">
+        <div class="heading">
+          <h1>Choose your password</h1>
+          <p>Signed in as {{ auth.displayName }}</p>
+        </div>
+        <PasswordChangeForm required @done="passwordChosen" />
+      </section>
+      <form v-else class="card" novalidate @submit.prevent="submit">
         <div class="heading">
           <h1>Sign in</h1>
-          <p>Single admin account · local operator console</p>
+          <p>Local operator console · each person signs in with their own account</p>
         </div>
         <div class="field">
           <label for="user">Username</label>

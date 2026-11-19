@@ -1,6 +1,9 @@
 // Test helpers: a scripted fetch for the gateway's REST API.
 import { vi } from 'vitest'
 
+import type { Role } from '@/lib/roles'
+import { useAuth } from '@/stores/auth'
+
 export interface Call {
   url: string
   method: string
@@ -44,3 +47,13 @@ export const on =
   (method: string, path: string | RegExp, reply: (call: Call) => Response): Route =>
   (call) =>
     call.method === method && (typeof path === 'string' ? call.url === path : path.test(call.url)) ? reply(call) : undefined
+
+/** A signed-in user in the active Pinia (components check the role before offering actions). */
+export function signedInAs(role: Role = 'owner', username = 'admin'): void {
+  const a = useAuth()
+  a.user = username
+  a.uid = 1
+  a.displayName = username
+  a.role = role
+  a.checked = true
+}

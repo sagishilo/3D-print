@@ -26,7 +26,7 @@ from printfarm.bus.nats_bus import NatsBus
 from printfarm.contracts.catalog import MAX_UPLOAD_BYTES
 from printfarm.store import schema
 
-from . import approvals, auth, cameras, catalog, finance, inventory, live, onboarding, orders, printers, social, system
+from . import approvals, auth, cameras, catalog, finance, inventory, live, onboarding, orders, printers, social, system, users
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
 from .config import settings
 from .db import Db
@@ -42,6 +42,9 @@ async def lifespan(app: FastAPI):
     app.state.ws_clients = 0
     app.state.db = Db(settings.database_url)
     await app.state.db.open()
+    app.state.users = users.PgUsers(app.state.db)
+    if await users.bootstrap(app.state.users, settings.admin_username, settings.admin_password_hash):
+        log.info("first owner created from ADMIN_USERNAME / ADMIN_PASSWORD_HASH")
     app.state.bus = await NatsBus.connect(settings.nats_url, name="gateway")  # also ensures the shared JetStream topology
     app.state.http = httpx.AsyncClient(base_url=settings.go2rtc_url, timeout=httpx.Timeout(10, read=None))
     app.state.nats_http = httpx.AsyncClient(base_url=settings.nats_monitor_url, timeout=3)
@@ -90,7 +93,7 @@ async def _unexpected(request: Request, exc: Exception):
     log.exception("unhandled error on %s %s rid=%s", request.method, request.url.path, _rid(request))
     return JSONResponse({"detail": "internal error", "request_id": _rid(request)}, status_code=500)
 
-for module in (auth, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog, social):
+for module in (auth, users, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog, social):
     app.include_router(module.router)
 
 
@@ -177,6 +180,8 @@ async def command_catalog(_c: dict = Depends(auth.require_auth)):
 async def command(name: str, request: Request, claims: dict = Depends(auth.require_csrf)):
     if name not in COMMANDS:
         raise HTTPException(404, f"unknown command {name}")
+    if not auth.allows(claims.get("role"), COMMANDS[name].min_role):
+        raise HTTPException(403, f"your role ({claims.get('role')}) cannot do this: it needs {COMMANDS[name].min_role}")
     body = await _json_object(request)
     if name in CATALOG_LINES:
         body = await catalog.resolve_lines(request.app.state.db, body)
@@ -205,7 +210,8 @@ async def capture_token_check(request: Request, authorization: str | None = Head
 
 
 @app.post("/api/v1/commands/printers/{printer_id}/{action}", status_code=202)
-async def printer_command(printer_id: str, action: str, request: Request, claims: dict = Depends(auth.require_csrf)):
+async def printer_command(printer_id: str, action: str, request: Request,
+                          claims: dict = Depends(auth.OPERATOR_CHANGE)):
     if action not in PRINTER_ACTIONS or not PRINTER_ID.match(printer_id):
         raise HTTPException(400, "bad printer command")
     body = {**await _json_object(request), "printer_id": printer_id}

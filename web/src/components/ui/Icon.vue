@@ -40,6 +40,8 @@ const PATHS: Record<string, string[]> = {
   menu: ['M4 6h16M4 12h16M4 18h16'],
   download: ['M12 4v12M7 11l5 5 5-5M5 20h14'],
   copy: ['M9 9h10v11H9z', 'M5 15V4h10'],
+  users: ['M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M2 21v-1a6 6 0 0 1 12 0v1', 'M16 3.5a4 4 0 0 1 0 7.5', 'M18 14a6 6 0 0 1 4 6v1'],
+  lock: ['M6 11h12v10H6z', 'M8 11V7a4 4 0 0 1 8 0v4'],
 }
 
 const paths = computed(() => PATHS[props.name] ?? PATHS.alert)

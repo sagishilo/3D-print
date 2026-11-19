@@ -12,6 +12,7 @@ import { batchLine, type CatalogProduct, CATEGORY_LABEL, estimateLine, shortages
 import { useCatalog } from '@/stores/catalog'
 import { useConfirm } from '@/stores/confirm'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const catalog = useCatalog()
 const confirm = useConfirm()
@@ -67,7 +68,7 @@ async function queue() {
       <h1>High-Demand Instant-Print Catalog</h1>
       <p>Local 3MF templates · ranked by units sold in the last 7 days · batches packed the way the scheduler packs plates</p>
     </div>
-    <button type="button" class="btn btn-primary" data-testid="import-3mf" @click="dialog = { product: null }"><Icon name="plus" :size="14" />Import 3MF</button>
+    <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="import-3mf" @click="dialog = { product: null }"><Icon name="plus" :size="14" />Import 3MF</button>
   </div>
 
   <div class="toolbar">
@@ -133,7 +134,7 @@ async function queue() {
     </div>
     <div class="go">
       <button type="button" class="btn" data-tour="batch-clear" @click="catalog.clearBatch()">Clear</button>
-      <button type="button" class="btn btn-primary" :disabled="!est || !est.pieces" data-testid="queue-batch" @click="queue">Queue batch</button>
+      <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="!est || !est.pieces" data-testid="queue-batch" @click="queue">Queue batch</button>
     </div>
   </section>
 

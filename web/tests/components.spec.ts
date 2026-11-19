@@ -9,9 +9,12 @@ import type { AgentRow, Printer, Setting } from '@/lib/types'
 import { useConfirm } from '@/stores/confirm'
 import { useSystem } from '@/stores/system'
 
-import { json, on, serve } from './helpers'
+import { json, on, serve, signedInAs } from './helpers'
 
-beforeEach(() => setActivePinia(createPinia()))
+beforeEach(() => {
+  setActivePinia(createPinia())
+  signedInAs()
+})
 afterEach(() => vi.unstubAllGlobals())
 
 const setting = (over: Partial<Setting>): Setting => ({

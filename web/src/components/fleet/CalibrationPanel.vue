@@ -11,6 +11,7 @@ import type { CalibrationRun, PrinterDetail, Routine, Tone } from '@/lib/types'
 import { useConfirm } from '@/stores/confirm'
 import { displayStatus, usePrinters } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const props = defineProps<{ detail: PrinterDetail }>()
 const emit = defineEmits<{ requested: [] }>()
@@ -102,7 +103,7 @@ async function start(r: Routine) {
           />
           °C
         </label>
-        <button type="button" class="btn btn-sm" :disabled="!!blocked || busy !== null" @click="start(r)">
+        <button v-can="'operator'" type="button" class="btn btn-sm" :disabled="!!blocked || busy !== null" @click="start(r)">
           <Icon name="play" :size="14" />Run
         </button>
       </li>

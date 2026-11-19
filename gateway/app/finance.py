@@ -26,7 +26,7 @@ from printfarm.contracts.catalog import STOCK_CHANNEL
 
 from . import auth
 
-router = APIRouter(prefix="/api/v1/finance", dependencies=[Depends(auth.require_auth)])
+router = APIRouter(prefix="/api/v1/finance", dependencies=[Depends(auth.OPERATOR)])   # not viewers
 PLACEHOLDERS = {"vat_rate": 0.18, "electricity_agorot_per_kwh": 64, "default_printer_watts": 150,
                 "default_filament_agorot_per_gram": 8.5}
 

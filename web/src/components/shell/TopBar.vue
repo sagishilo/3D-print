@@ -3,12 +3,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import PageTourButton from '@/components/tour/PageTourButton.vue'
+import UserMenu from './UserMenu.vue'
 import Icon from '@/components/ui/Icon.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { command, errorText } from '@/lib/api'
 import { NAV } from '@/nav'
 import { useApprovals } from '@/stores/approvals'
-import { useAuth } from '@/stores/auth'
+import { vCan } from '@/directives/can'
 import { useConfirm } from '@/stores/confirm'
 import { useLive } from '@/stores/live'
 import { usePrinters } from '@/stores/printers'
@@ -21,7 +22,6 @@ const router = useRouter()
 const route = useRoute()
 // Every screen's page tour starts from the same place: the far right of the top bar (nothing beside it changes width).
 const pageTour = computed(() => route.meta.tour)
-const auth = useAuth()
 const live = useLive()
 const approvals = useApprovals()
 const printers = usePrinters()
@@ -76,11 +76,6 @@ async function pauseAll() {
   }
 }
 
-async function logout() {
-  live.stop()
-  await auth.logout()
-  void router.push({ name: 'login' })
-}
 </script>
 
 <template>
@@ -122,12 +117,10 @@ async function logout() {
         <Icon name="inbox" :size="18" />
         <span v-if="approvals.count" class="count">{{ approvals.count }}</span>
       </button>
-      <button type="button" class="btn btn-danger" :disabled="pausing" aria-label="Pause all printers" data-testid="pause-all" @click="pauseAll">
+      <button type="button" class="btn btn-danger" :disabled="pausing" aria-label="Pause all printers" data-testid="pause-all" v-can="'operator'" @click="pauseAll">
         <Icon name="pause" :size="14" /><span class="wide">Pause all printers</span><span class="narrow">Pause all</span>
       </button>
-      <button type="button" class="btn user" :aria-label="`Log out ${auth.user ?? ''}`" @click="logout">
-        <span class="avatar" aria-hidden="true">{{ (auth.user ?? '?')[0].toUpperCase() }}</span><span class="wide">{{ auth.user }} · Log out</span>
-      </button>
+      <UserMenu />
       <PageTourButton v-if="pageTour" :key="pageTour" :tour="pageTour" />
     </div>
   </header>
@@ -228,19 +221,6 @@ kbd {
   justify-content: center;
   padding: 0 4px;
 }
-.user {
-  background: var(--surface);
-}
-.avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--surface-2);
-  font: 600 11px var(--font);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 @media (max-width: 900px) {
   .menu {
     display: inline-flex;
@@ -271,9 +251,6 @@ kbd {
   }
   .btn-danger {
     padding: 8px 10px;
-  }
-  .user {
-    padding: 0 7px;
   }
 }
 </style>

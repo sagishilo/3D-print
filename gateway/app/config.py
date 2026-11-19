@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     command_timeout_s: float = 5.0
     login_max_failures: int = 5
     login_lockout_s: int = 15 * 60
+    user_cache_s: float = 5.0         # how long a user's row (role, disabled) is trusted before it is read again
     # Per client IP, per minute (middleware.py). 0 switches a limit off.
     rate_api_per_min: int = 600
     rate_commands_per_min: int = 60

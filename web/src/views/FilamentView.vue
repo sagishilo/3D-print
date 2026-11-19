@@ -18,6 +18,7 @@ import { useConfirm } from '@/stores/confirm'
 import { useInventory } from '@/stores/inventory'
 import { usePrinters } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const inventory = useInventory()
 const printers = usePrinters()
@@ -130,7 +131,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
       <label class="sr-only" for="scan">Scan a spool label</label>
       <input id="scan" v-model="scan" class="input" placeholder="Scan or type a spool label" autocomplete="off" data-testid="scan" />
       <button type="submit" class="btn"><Icon name="search" :size="14" />Find</button>
-      <button type="button" class="btn btn-primary" data-testid="register-spool" @click="dialog = { spoolId: null }"><Icon name="plus" :size="14" />Register spool</button>
+      <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="register-spool" @click="dialog = { spoolId: null }"><Icon name="plus" :size="14" />Register spool</button>
     </form>
   </div>
 
@@ -148,7 +149,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
         <span>{{ a.message }}</span>
         <span class="muted small">since {{ dateTime(a.opened_at) }}</span>
       </div>
-      <button type="button" class="btn btn-sm" @click="run('Alert acknowledged', () => inventory.ackAlert(a.alert_id))">Acknowledge</button>
+      <button v-can="'operator'" type="button" class="btn btn-sm" @click="run('Alert acknowledged', () => inventory.ackAlert(a.alert_id))">Acknowledge</button>
     </div>
   </section>
 
@@ -197,7 +198,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
                 <select v-model="rule.mode" class="select" aria-label="Mode"><option value="auto">Auto</option><option value="manual">Manual</option></select>
               </td>
               <td />
-              <td class="actions"><button type="button" class="btn btn-sm btn-primary" @click="saveRule(m)">Save</button><button type="button" class="btn btn-sm" @click="editing = null">Cancel</button></td>
+              <td class="actions"><button v-can="'operator'" type="button" class="btn btn-sm btn-primary" @click="saveRule(m)">Save</button><button type="button" class="btn btn-sm" @click="editing = null">Cancel</button></td>
             </template>
             <template v-else>
               <td class="num">{{ Math.round(m.min_stock_grams) }} g</td>
@@ -205,8 +206,8 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
               <td>{{ m.mode === 'auto' ? 'Auto' : 'Manual' }}</td>
               <td><StatusPill :tone="STATE[m.state].tone" :label="STATE[m.state].label(m)" /></td>
               <td class="actions">
-                <button type="button" class="btn btn-sm" @click="edit(m)">Edit</button>
-                <button type="button" class="btn btn-sm" :data-testid="`order-${m.material}-${m.color}`" @click="orderNow(m)">Order now</button>
+                <button v-can="'operator'" type="button" class="btn btn-sm" @click="edit(m)">Edit</button>
+                <button v-can="'operator'" type="button" class="btn btn-sm" :data-testid="`order-${m.material}-${m.color}`" @click="orderNow(m)">Order now</button>
               </td>
             </template>
           </tr>
@@ -230,18 +231,18 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
         <span class="muted small">created {{ dateTime(po.created_at) }}{{ po.ordered_at ? ` · ordered ${dateTime(po.ordered_at)}` : '' }}{{ po.received_at ? ` · received ${dateTime(po.received_at)}` : '' }}</span>
         <div v-if="po.status === 'pending_approval'" class="row actions">
           <label class="inline">Spools <input v-model="form(po).qty" class="input small-input" inputmode="numeric" /></label>
-          <button type="button" class="btn btn-sm" @click="run('Quantity changed', () => inventory.updatePo(po.po_id, Number(form(po).qty)))">Edit qty</button>
-          <button type="button" class="btn btn-sm btn-primary" @click="decide(po, true)"><Icon name="check" :size="14" />Approve</button>
-          <button type="button" class="btn btn-sm" @click="decide(po, false)">Dismiss</button>
+          <button v-can="'operator'" type="button" class="btn btn-sm" @click="run('Quantity changed', () => inventory.updatePo(po.po_id, Number(form(po).qty)))">Edit qty</button>
+          <button v-can="'operator'" type="button" class="btn btn-sm btn-primary" @click="decide(po, true)"><Icon name="check" :size="14" />Approve</button>
+          <button v-can="'operator'" type="button" class="btn btn-sm" @click="decide(po, false)">Dismiss</button>
         </div>
         <div v-else-if="po.status === 'placed'" class="row actions">
           <input v-model="form(po).supplier" class="input" placeholder="Supplier" aria-label="Supplier" />
           <input v-model="form(po).total" class="input small-input" inputmode="decimal" aria-label="Invoice total in shekels" />
-          <button type="button" class="btn btn-sm btn-primary" @click="run('PO confirmed as ordered', () => inventory.confirmOrdered(po.po_id, form(po).supplier, toAgorot(form(po).total)), 'Finance books it as an expense.')">Confirm ordered</button>
+          <button v-can="'operator'" type="button" class="btn btn-sm btn-primary" @click="run('PO confirmed as ordered', () => inventory.confirmOrdered(po.po_id, form(po).supplier, toAgorot(form(po).total)), 'Finance books it as an expense.')">Confirm ordered</button>
         </div>
         <div v-else-if="po.status === 'ordered'" class="row actions">
           <input v-model="form(po).shelf" class="input small-input" placeholder="Shelf" aria-label="Shelf" />
-          <button type="button" class="btn btn-sm btn-primary" @click="run('PO received', () => inventory.receive(po.po_id, form(po).shelf))">Receive</button>
+          <button v-can="'operator'" type="button" class="btn btn-sm btn-primary" @click="run('PO received', () => inventory.receive(po.po_id, form(po).shelf))">Receive</button>
         </div>
       </article>
       <p v-if="!inventory.pos.length" class="empty">No purchase orders in the last 30 days.</p>

@@ -59,6 +59,7 @@ class CommandSpec:
     actor_field: str | None = None                       # filled with the logged-in user
     deadline_s: float | None = None                      # agents drop the command if it is older than this
     fill: Callable[[dict, str], None] | None = None      # server-side defaults: (data, command_id) -> None
+    min_role: str = "operator"                           # viewer < operator < owner (auth.ROLE_RANK)
 
 
 def _new_spool(data: dict, command_id: str) -> None:
@@ -134,19 +135,19 @@ COMMANDS: dict[str, CommandSpec] = {
     # Calibration moves the machine: a request that waited (agent down) must not start it later.
     "printers.calibrate": CommandSpec(CalibratePrinter, "requested_by", deadline_s=30),
     "payments.record": CommandSpec(RecordPayment, "recorded_by"),
-    "payments.refund": CommandSpec(RefundPayment, "recorded_by"),
+    "payments.refund": CommandSpec(RefundPayment, "recorded_by", min_role="owner"),
     "expenses.create": CommandSpec(CreateExpense, "created_by"),
     "po.confirm_ordered": CommandSpec(ConfirmPoOrdered, "confirmed_by"),
     "po.receive": CommandSpec(ReceivePo, "received_by"),
     "spools.load": CommandSpec(LoadSpool, "loaded_by"),
     "spools.register": CommandSpec(RegisterSpool, "registered_by", fill=_new_spool),
-    "finance.settings": CommandSpec(UpdateFinanceSettings, "updated_by"),
+    "finance.settings": CommandSpec(UpdateFinanceSettings, "updated_by", min_role="owner"),
     "spools.adjust": CommandSpec(AdjustSpool, "adjusted_by"),
     "inventory.rule": CommandSpec(SetReorderRule, "changed_by"),
     "inventory.reorder": CommandSpec(RequestReorder, "requested_by"),
     "inventory.ack_alert": CommandSpec(AcknowledgeInventoryAlert, "acknowledged_by"),
     "po.update": CommandSpec(UpdatePo, "updated_by"),
-    "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting),
+    "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting, min_role="owner"),
     # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
     "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),
     "social.decide": CommandSpec(DecideLead, "decided_by"),

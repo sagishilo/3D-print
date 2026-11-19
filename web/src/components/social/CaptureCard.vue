@@ -7,6 +7,7 @@ import Icon from '@/components/ui/Icon.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { ago } from '@/lib/format'
 import { type Capture, canRescore, intentTone, type Label, score, STATUS_LABEL, STATUS_TONE } from '@/lib/social'
+import { vCan } from '@/directives/can'
 
 const props = defineProps<{ capture: Capture; threshold: number; selected?: boolean }>()
 const emit = defineEmits<{ label: [Label]; rescore: []; open: [] }>()
@@ -34,12 +35,12 @@ const reason = computed(() => {
       <span v-if="c.sku_guess" class="chip mono">{{ c.sku_guess }}</span>
       <span class="spacer" />
       <div class="label" role="group" aria-label="Your verdict">
-        <button type="button" class="btn btn-sm" :class="{ on: c.label === 'buyer' }" :aria-pressed="c.label === 'buyer'"
+        <button v-can="'operator'" type="button" class="btn btn-sm" :class="{ on: c.label === 'buyer' }" :aria-pressed="c.label === 'buyer'"
           :data-testid="`label-buyer-${c.capture_id}`" data-tour="capture-labels" @click="emit('label', 'buyer')">Buyer</button>
-        <button type="button" class="btn btn-sm" :class="{ on: c.label === 'not_buyer' }" :aria-pressed="c.label === 'not_buyer'"
+        <button v-can="'operator'" type="button" class="btn btn-sm" :class="{ on: c.label === 'not_buyer' }" :aria-pressed="c.label === 'not_buyer'"
           :data-testid="`label-not-${c.capture_id}`" @click="emit('label', 'not_buyer')">Not buyer</button>
       </div>
-      <button v-if="canRescore(c)" type="button" class="icon-btn" title="Score again" aria-label="Score again"
+      <button v-can="'operator'" v-if="canRescore(c)" type="button" class="icon-btn" title="Score again" aria-label="Score again"
         :data-testid="`rescore-${c.capture_id}`" @click="emit('rescore')"><Icon name="refresh" :size="14" /></button>
       <a v-if="c.post_url" class="icon-btn" :href="c.post_url" target="_blank" rel="noopener noreferrer" title="Open post"
         aria-label="Open post"><Icon name="external" :size="14" /></a>

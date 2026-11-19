@@ -8,6 +8,7 @@ import StatusPill from '@/components/ui/StatusPill.vue'
 import { command, errorText, printerCommand } from '@/lib/api'
 import { duration, pct, temp, title } from '@/lib/format'
 import type { Printer } from '@/lib/types'
+import { vCan } from '@/directives/can'
 import { useConfirm } from '@/stores/confirm'
 import { displayStatus, STATUS_TONE } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
@@ -106,16 +107,16 @@ async function bedCleared() {
         </div>
       </div>
       <div class="actions" data-tour="tile-actions">
-        <button v-if="status === 'printing' || status === 'heating'" type="button" class="btn btn-sm btn-danger" :disabled="busy" :aria-label="`Pause ${printer.id}`" data-tour="tile-pause" @click="pause">
+        <button v-if="status === 'printing' || status === 'heating'" type="button" class="btn btn-sm btn-danger" :disabled="busy" :aria-label="`Pause ${printer.id}`" data-tour="tile-pause" v-can="'operator'" @click="pause">
           <Icon name="pause" :size="14" />Pause
         </button>
-        <button v-if="status === 'paused'" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Resume ${printer.id}`" data-tour="tile-resume" @click="resume">
+        <button v-if="status === 'paused'" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Resume ${printer.id}`" data-tour="tile-resume" v-can="'operator'" @click="resume">
           <Icon name="play" :size="14" />Resume
         </button>
-        <button v-if="running && details" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Cancel the print on ${printer.id}`" @click="cancel">
+        <button v-if="running && details" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Cancel the print on ${printer.id}`" v-can="'operator'" @click="cancel">
           <Icon name="stop" :size="14" />Cancel
         </button>
-        <button v-if="needsClearing" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Bed of ${printer.id} cleared`" data-tour="bed-cleared" @click="bedCleared">
+        <button v-if="needsClearing" type="button" class="btn btn-sm" :disabled="busy" :aria-label="`Bed of ${printer.id} cleared`" data-tour="bed-cleared" v-can="'operator'" @click="bedCleared">
           <Icon name="check" :size="14" />Bed cleared
         </button>
         <button v-if="history" type="button" class="btn btn-sm" :aria-pressed="selected" data-tour="tile-history" @click="$emit('history', printer.id)">

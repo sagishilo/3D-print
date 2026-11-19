@@ -89,7 +89,7 @@ async def product(sku: str, request: Request):
 
 
 @router.post("/uploads", status_code=201)
-async def upload(request: Request, name: str = Query("", max_length=120), _c: dict = Depends(auth.require_csrf)):
+async def upload(request: Request, name: str = Query("", max_length=120), _c: dict = Depends(auth.OPERATOR_CHANGE)):
     """The raw 3MF as the request body. Kept 7 days in the uploads object store under its SHA-256, for the
     personalization agent to take with catalog.upsert; the reply says what the file holds, to prefill the form."""
     length = request.headers.get("content-length")

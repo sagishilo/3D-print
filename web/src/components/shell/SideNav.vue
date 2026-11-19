@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 
 import Icon from '@/components/ui/Icon.vue'
 import { GROUPS, NAV } from '@/nav'
+import { useAuth } from '@/stores/auth'
 import { usePrinters } from '@/stores/printers'
 import { useInventory } from '@/stores/inventory'
 import { useSystem } from '@/stores/system'
@@ -11,7 +12,11 @@ import { useSystem } from '@/stores/system'
 defineEmits<{ navigate: [] }>()
 
 const route = useRoute()
+const auth = useAuth()
 const system = useSystem()
+// Only the screens this person's role may open.
+const visible = computed(() => NAV.filter((n) => !n.minRole || auth.can(n.minRole)))
+const groups = computed(() => GROUPS.filter((g) => visible.value.some((n) => n.group === g)))
 const printers = usePrinters()
 const inventory = useInventory()
 
@@ -40,10 +45,10 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
     </div>
 
     <div class="groups">
-      <template v-for="g in GROUPS" :key="g">
+      <template v-for="g in groups" :key="g">
         <span class="group">{{ g }}</span>
         <RouterLink
-          v-for="item in NAV.filter((n) => n.group === g)"
+          v-for="item in visible.filter((n) => n.group === g)"
           :key="item.to"
           :to="item.to"
           class="item"
@@ -61,10 +66,16 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
 
     <div class="agents">
       <span class="group">Agents</span>
-      <RouterLink v-for="a in system.coreAgents" :key="a.name" :to="{ path: '/system', query: { tab: 'agents' } }" class="agent">
+      <component
+        :is="auth.can('operator') ? RouterLink : 'span'"
+        v-for="a in system.coreAgents"
+        :key="a.name"
+        v-bind="auth.can('operator') ? { to: { path: '/system', query: { tab: 'agents' } } } : {}"
+        class="agent"
+      >
         <span class="dot" :class="AGENT_TONE[a.status]" aria-hidden="true" />{{ a.label }}
         <span class="sr-only">: {{ a.status }}</span>
-      </RouterLink>
+      </component>
       <span v-if="!system.coreAgents.length" class="agent muted">Loading…</span>
       <RouterLink to="/help" class="agent help" data-testid="nav-help" @click="$emit('navigate')">User guide · <span lang="he">מדריך למשתמש</span></RouterLink>
     </div>

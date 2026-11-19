@@ -7,9 +7,13 @@ import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { errorText } from '@/lib/api'
 import { dateTime } from '@/lib/format'
 import type { Setting } from '@/lib/types'
+import { needs } from '@/lib/roles'
+import { useAuth } from '@/stores/auth'
 import { useConfirm } from '@/stores/confirm'
 import { useSystem } from '@/stores/system'
 import { useToasts } from '@/stores/toasts'
+
+const auth = useAuth()
 
 const system = useSystem()
 const confirm = useConfirm()
@@ -65,7 +69,8 @@ async function change(s: Setting, value: boolean) {
         <ToggleSwitch
           :model-value="Boolean(s.value)"
           :label="s.label"
-          :disabled="s.phase != null || saving === s.key"
+          :disabled="s.phase != null || saving === s.key || !auth.can('owner')"
+          :title="auth.can('owner') ? undefined : needs('owner')"
           @update:model-value="(v: boolean) => change(s, v)"
         />
       </li>

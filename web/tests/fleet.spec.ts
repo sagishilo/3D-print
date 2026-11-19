@@ -12,9 +12,12 @@ import type { Printer, PrinterDetail, PrinterStatus } from '@/lib/types'
 import { useConfirm } from '@/stores/confirm'
 import { displayStatus, usePrinters } from '@/stores/printers'
 
-import { json, on, serve } from './helpers'
+import { json, on, serve, signedInAs } from './helpers'
 
-beforeEach(() => setActivePinia(createPinia()))
+beforeEach(() => {
+  setActivePinia(createPinia())
+  signedInAs()
+})
 afterEach(() => vi.unstubAllGlobals())
 
 function printer(id: string, status: PrinterStatus | 'offline', over: Partial<Printer> = {}): Printer {

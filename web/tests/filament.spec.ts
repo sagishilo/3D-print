@@ -8,9 +8,12 @@ import { describe as describeEvent } from '@/lib/events'
 import { dailyTotals, inPrintGrams, type Reservation, type Spool, where } from '@/lib/filament'
 import type { Printer } from '@/lib/types'
 
-import { json, on, serve } from './helpers'
+import { json, on, serve, signedInAs } from './helpers'
 
-beforeEach(() => setActivePinia(createPinia()))
+beforeEach(() => {
+  setActivePinia(createPinia())
+  signedInAs()
+})
 afterEach(() => vi.unstubAllGlobals())
 
 const spool = (id: string, over: Partial<Spool> = {}): Spool => ({

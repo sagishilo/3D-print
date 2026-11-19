@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gateway"))
 
 from app import auth  # noqa: E402
 from app import main as gateway  # noqa: E402
+from app import users as users_mod  # noqa: E402
 from app.commands import COMMANDS, build_command, command_id_from, ws_topic_allowed  # noqa: E402, F401 - re-exported
 from fastapi.testclient import TestClient  # noqa: E402
 from nats.errors import TimeoutError as NatsTimeout  # noqa: E402
@@ -180,11 +182,67 @@ class FakeHttp:
         return httpx.Response(404, json={})
 
 
+class FakeUsers:
+    """gateway.users in memory, with the same methods as app.users.PgUsers."""
+
+    def __init__(self):
+        self.rows: dict[int, dict] = {}
+        self.revoked: list[int] = []
+        self._next = 1
+
+    async def count(self):
+        return len(self.rows)
+
+    async def get(self, uid):
+        row = self.rows.get(uid)
+        return dict(row) if row else None
+
+    async def by_username(self, name):
+        return next((dict(r) for r in self.rows.values() if r["username"].lower() == name.lower()), None)
+
+    async def all(self):
+        return [dict(r) for r in self.rows.values()]
+
+    async def create(self, *, username, display_name, role, password_hash, must_change_password, created_by):
+        if await self.by_username(username):
+            raise users_mod.UsernameTaken(username)
+        now = datetime.now(UTC)
+        row = {"id": self._next, "username": username, "display_name": display_name, "role": role,
+               "password_hash": password_hash, "must_change_password": must_change_password, "disabled": False,
+               "session_version": 1, "prefs": {}, "created_at": now, "created_by": created_by, "updated_at": now,
+               "last_login_at": None, "password_changed_at": None}
+        self.rows[self._next] = row
+        self._next += 1
+        return dict(row)
+
+    async def update(self, uid, **fields):
+        bad = set(fields) - users_mod.EDITABLE
+        if bad:
+            raise ValueError(f"not editable: {sorted(bad)}")
+        self.rows[uid].update(fields, updated_at=datetime.now(UTC))
+        return dict(self.rows[uid])
+
+    async def active_owners(self):
+        return sum(1 for r in self.rows.values() if r["role"] == "owner" and not r["disabled"])
+
+    async def revoke_sessions(self, uid):
+        self.revoked.append(uid)
+
+
+async def add_user(app, username: str, role: str, password: str = PASSWORD, must_change: bool = False) -> dict:
+    """A user straight in the fake store (tests that need several roles)."""
+    return await app.state.users.create(username=username, display_name=username.title(), role=role,
+                                        password_hash=auth.hash_password(password), must_change_password=must_change,
+                                        created_by="test")
+
+
 @contextmanager
 def gateway_client():
     @asynccontextmanager
     async def fake_lifespan(app):
         app.state.db, app.state.bus = FakeDb(), FakeBus()
+        app.state.users = FakeUsers()
+        await users_mod.bootstrap(app.state.users, "admin", os.environ["ADMIN_PASSWORD_HASH"])
         app.state.http = FakeHttp({"/api/streams": {"p1": {}, "voron-01": {}}, "/api": {"version": "1.9.15"}})
         app.state.nats_http = FakeHttp()
         app.state.ws_clients, app.state.started = 0, time.monotonic()
@@ -193,6 +251,7 @@ def gateway_client():
 
     gateway.app.router.lifespan_context = fake_lifespan
     auth._failures.clear()
+    auth._users.clear()
     with TestClient(gateway.app) as c:
         yield c
 

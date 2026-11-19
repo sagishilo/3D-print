@@ -14,6 +14,7 @@ import { ago } from '@/lib/format'
 import { type Capture, captureLine, type Label, leadsCsv, modelLine, STATUS_LABEL, usd } from '@/lib/social'
 import { useSocial } from '@/stores/social'
 import { useToasts } from '@/stores/toasts'
+import { vCan } from '@/directives/can'
 
 const social = useSocial()
 const toasts = useToasts()
@@ -78,7 +79,7 @@ function exportLeads() {
     </div>
     <div class="head-actions">
       <button type="button" class="btn" :disabled="!social.leads.length" @click="exportLeads"><Icon name="download" :size="14" />Export leads</button>
-      <button type="button" class="btn btn-primary" data-testid="add-post-open" @click="adding = true"><Icon name="plus" :size="14" />Add post</button>
+      <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="add-post-open" @click="adding = true"><Icon name="plus" :size="14" />Add post</button>
     </div>
   </div>
 

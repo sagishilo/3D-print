@@ -20,10 +20,11 @@ import {
 } from '@/lib/social'
 import { useSocial } from '@/stores/social'
 
-import { json, on, serve } from './helpers'
+import { json, on, serve, signedInAs } from './helpers'
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  signedInAs()
   document.cookie = 'pf_csrf=tok'
 })
 afterEach(() => vi.unstubAllGlobals())

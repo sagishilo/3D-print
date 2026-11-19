@@ -4,7 +4,9 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type RouterHistory } from 'vue-router'
 
 import { NAV } from '@/nav'
+import { needs } from '@/lib/roles'
 import { useAuth } from '@/stores/auth'
+import { useToasts } from '@/stores/toasts'
 
 const later: RouteRecordRaw[] = NAV.filter((n) => n.phase).map((n) => ({
   path: n.to.slice(1),
@@ -24,11 +26,12 @@ export const routes: RouteRecordRaw[] = [
       { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Instant Catalog', tour: 'catalog' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline', tour: 'orders' } },
       { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Filament', tour: 'filament' } },
-      { path: 'fleet/add', name: 'printer-add', component: () => import('@/views/PrinterOnboardingView.vue'), meta: { title: 'Connect a printer', tour: 'onboarding' } },
+      { path: 'fleet/add', name: 'printer-add', component: () => import('@/views/PrinterOnboardingView.vue'), meta: { title: 'Connect a printer', tour: 'onboarding', minRole: 'operator' } },
       { path: 'fleet', name: 'fleet', component: () => import('@/views/FleetView.vue'), meta: { title: 'Printer Fleet', tour: 'fleet' } },
-      { path: 'finance', name: 'finance', component: () => import('@/views/FinanceView.vue'), meta: { title: 'Finance', tour: 'finance' } },
+      { path: 'finance', name: 'finance', component: () => import('@/views/FinanceView.vue'), meta: { title: 'Finance', tour: 'finance', minRole: 'operator' } },
       { path: 'help', name: 'help', component: () => import('@/views/HelpView.vue'), meta: { title: 'מדריך למשתמש', tour: 'help' } },
-      { path: 'system', name: 'system', component: () => import('@/views/SystemView.vue'), meta: { title: 'System & Agents', tour: 'system' } },
+      { path: 'system', name: 'system', component: () => import('@/views/SystemView.vue'), meta: { title: 'System & Agents', tour: 'system', minRole: 'operator' } },
+      { path: 'users', name: 'users', component: () => import('@/views/UsersView.vue'), meta: { title: 'Users', tour: 'users', minRole: 'owner' } },
       ...later,
     ],
   },
@@ -39,10 +42,17 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
   const router = createRouter({ history, routes })
 
   router.beforeEach(async (to) => {
-    const loggedIn = await useAuth().check()
+    const auth = useAuth()
+    const loggedIn = await auth.check()
+    // A temporary password is replaced first (on the sign-in card); the gateway refuses everything else meanwhile.
+    if (loggedIn && auth.mustChangePassword) return to.name === 'login' ? true : { name: 'login', query: { next: to.fullPath } }
     if (to.meta.public) return loggedIn && to.name === 'login' ? { path: '/live' } : true
-    if (loggedIn) return true
-    return { name: 'login', query: to.fullPath === '/live' ? {} : { next: to.fullPath } }
+    if (!loggedIn) return { name: 'login', query: to.fullPath === '/live' ? {} : { next: to.fullPath } }
+    if (to.meta.minRole && !auth.can(to.meta.minRole)) {
+      useToasts().error(`${to.meta.title ?? 'That screen'} is not available`, `${needs(to.meta.minRole)}.`)
+      return { path: '/live' }
+    }
+    return true
   })
 
   router.afterEach((to) => {
