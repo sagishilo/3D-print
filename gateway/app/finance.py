@@ -22,9 +22,9 @@ from printfarm.agents.finance.reports import (
     product_margins,
     vat_summary,
 )
-from printfarm.contracts.catalog import STOCK_CHANNEL
 
 from . import auth
+from .niches import niche_scope
 
 router = APIRouter(prefix="/api/v1/finance", dependencies=[Depends(auth.OPERATOR)])   # not viewers
 PLACEHOLDERS = {"vat_rate": 0.18, "electricity_agorot_per_kwh": 64, "default_printer_watts": 150,
@@ -113,36 +113,60 @@ async def trend(request: Request, months: int = Query(12, ge=1, le=36), month: s
     return {"months": out}
 
 
-@router.get("/products")
-async def products(request: Request, period: str = Query("month", pattern="^(month|quarter|year)$"), month: str | None = None):
-    """Margin per product type: revenue from payments, filament and electricity allocated per job, units shipped."""
-    db, p = request.app.state.db, period_of(period, _anchor(month))
-    revenue = {r["product"]: int(r["net"]) for r in await db.fetchall(
-        "SELECT coalesce(product_type, 'other') AS product, sum(net_agorot) AS net FROM finance.income_entries "
-        "WHERE entry_date >= %s AND entry_date < %s GROUP BY 1", (p.start, p.end))}
+async def _margins(db, p: Period, scope: str | None, key: str) -> list:
+    """Margins grouped by ``key`` ("product_type" or "niche"): revenue from the income lines (each payment split
+    across its order's lines), filament and electricity allocated per job, units shipped to customers. Stock
+    batches "ship" to the shelf, so their units are not sales and their costs are reported as stock build."""
+    where, extra = ("niche = %s", (scope,)) if scope else ("true", ())
+    revenue = {r["k"]: int(r["net"]) for r in await db.fetchall(
+        f"SELECT {key} AS k, sum(net_agorot) AS net FROM reporting.niche_revenue_v "
+        f"WHERE entry_date >= %s AND entry_date < %s AND {where} GROUP BY 1", (p.start, p.end, *extra))}
     rows = await db.fetchall(
-        "SELECT coalesce(e.product_type, 'other') AS product, e.category, coalesce(o.channel = %s, false) AS stock, "
-        "sum(e.net_agorot) AS net FROM finance.expense_entries e "
-        "LEFT JOIN fleet.jobs j ON j.job_id = e.job_id LEFT JOIN coordinator.orders o ON o.order_id = j.order_id "
-        "WHERE e.kind = 'allocated' AND e.entry_date >= %s AND e.entry_date < %s GROUP BY 1, 2, 3",
-        (STOCK_CHANNEL, p.start, p.end))
-    allocated = [(r["product"], r["category"], int(r["net"])) for r in rows if not r["stock"]]
+        f"SELECT {key} AS k, category, stock, sum(net_agorot) AS net FROM reporting.sku_costs_v "
+        f"WHERE entry_date >= %s AND entry_date < %s AND {where} GROUP BY 1, 2, 3", (p.start, p.end, *extra))
+    allocated = [(r["k"], r["category"], int(r["net"])) for r in rows if not r["stock"]]
     stock_build: dict[str, int] = {}
     for r in rows:
         if r["stock"]:
-            stock_build[r["product"]] = stock_build.get(r["product"], 0) + int(r["net"])
-    # Units shipped to customers, per product type: the SKU for catalog lines (as revenue and costs are keyed), the
-    # product name otherwise. Stock batches "ship" to the shelf, so they are not sales.
-    units = {r["product"]: int(r["n"]) for r in await db.fetchall(
-        "SELECT CASE WHEN i.product = 'catalog' AND i.sku IS NOT NULL THEN i.sku ELSE i.product END AS product, "
-        "sum(i.quantity) AS n FROM coordinator.order_items i "
-        "JOIN coordinator.orders o ON o.order_id = i.order_id AND o.channel <> %s "
-        "JOIN coordinator.saga_history h ON h.saga_id = i.order_id AND h.to_state = 'SHIPPED' "
-        "WHERE h.at >= %s AND h.at < %s GROUP BY 1", (STOCK_CHANNEL, p.start, p.end))}
+            stock_build[r["k"]] = stock_build.get(r["k"], 0) + int(r["net"])
+    units = {r["k"]: int(r["n"]) for r in await db.fetchall(
+        f"SELECT l.{key} AS k, sum(l.quantity) AS n FROM reporting.order_lines_v l "
+        "JOIN coordinator.saga_history h ON h.saga_id = l.order_id AND h.to_state = 'SHIPPED' "
+        f"WHERE NOT l.stock AND h.at >= %s AND h.at < %s AND {where.replace('niche', 'l.niche')} GROUP BY 1",
+        (p.start, p.end, *extra))}
+    return product_margins(revenue, allocated, units, stock_build)
+
+
+@router.get("/products")
+async def products(request: Request, period: str = Query("month", pattern="^(month|quarter|year)$"), month: str | None = None,
+                   niche: str | None = None):
+    """Margin per product type (a catalog line by its SKU), optionally within one niche."""
+    p = period_of(period, _anchor(month))
+    margins = await _margins(request.app.state.db, p, niche_scope(niche), "product_type")
     return {"period": _p(p), "products": [
         {"product_type": m.product_type, "units": m.units, "revenue_agorot": m.revenue, "costs": m.costs,
          "margin_agorot": m.margin, "margin_pct": m.margin_pct, "stock_build_agorot": m.stock_build}
-        for m in product_margins(revenue, allocated, units, stock_build)]}
+        for m in margins]}
+
+
+@router.get("/niches")
+async def niche_margins(request: Request, period: str = Query("month", pattern="^(month|quarter|year)$"),
+                        month: str | None = None):
+    """Revenue and direct margin per niche. Revenue adds up to the income ledger (income without an order is
+    "unassigned"); each niche's target margin is shown beside its margin."""
+    db, p = request.app.state.db, period_of(period, _anchor(month))
+    names = {r["slug"]: r for r in await db.fetchall(
+        "SELECT slug, name, color, target_margin_pct::float AS target_margin_pct, archived FROM catalog.niches")}
+    out = []
+    for m in await _margins(db, p, None, "niche"):
+        n = names.get(m.product_type, {})
+        out.append({"niche": m.product_type, "name": n.get("name", m.product_type), "color": n.get("color", 8),
+                    "target_margin_pct": n.get("target_margin_pct"), "units": m.units, "revenue_agorot": m.revenue,
+                    "costs": m.costs, "margin_agorot": m.margin, "margin_pct": m.margin_pct,
+                    "stock_build_agorot": m.stock_build,
+                    "below_target": m.margin_pct is not None and n.get("target_margin_pct") is not None
+                    and m.revenue > 0 and m.margin_pct < n["target_margin_pct"]})
+    return {"period": _p(p), "niches": out, "revenue_agorot": sum(x["revenue_agorot"] for x in out)}
 
 
 @router.get("/receivables")

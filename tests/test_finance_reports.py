@@ -138,30 +138,50 @@ def test_settings_flag_placeholders_until_confirmed(client):
 
 def test_product_margins_are_per_sku_and_skip_stock(client):
     db = client.app.state.db
-    db.rows["sum(net_agorot) AS net FROM finance.income_entries"] = [{"product": "STD-HOOK", "net": 10000},
-                                                                     {"product": "nameplate", "net": 9000}]
-    db.rows["FROM finance.expense_entries e"] = [
-        {"product": "STD-HOOK", "category": "filament", "stock": False, "net": 1500},
-        {"product": "STD-HOOK", "category": "filament", "stock": True, "net": 3000},
-        {"product": "STD-HOOK", "category": "electricity", "stock": True, "net": 400},
+    db.rows["FROM reporting.niche_revenue_v"] = [{"k": "STD-HOOK", "net": 10000}, {"k": "nameplate", "net": 9000}]
+    db.rows["FROM reporting.sku_costs_v"] = [
+        {"k": "STD-HOOK", "category": "filament", "stock": False, "net": 1500},
+        {"k": "STD-HOOK", "category": "filament", "stock": True, "net": 3000},
+        {"k": "STD-HOOK", "category": "electricity", "stock": True, "net": 400},
     ]
-    db.rows["FROM coordinator.order_items i"] = [{"product": "STD-HOOK", "n": 4}, {"product": "nameplate", "n": 2}]
+    db.rows["FROM reporting.order_lines_v"] = [{"k": "STD-HOOK", "n": 4}, {"k": "nameplate", "n": 2}]
     rows = {r["product_type"]: r for r in client.get("/api/v1/finance/products?month=2026-11").json()["products"]}
     hook = rows["STD-HOOK"]
     assert hook["units"] == 4 and hook["revenue_agorot"] == 10000
     assert hook["costs"] == {"filament": 1500} and hook["margin_agorot"] == 8500
     assert hook["stock_build_agorot"] == 3400
-    assert rows["nameplate"]["units"] == 2 and "catalog" not in rows
+    assert rows["nameplate"]["units"] == 2 and "catalog" not in rows and "mixed" not in rows
 
 
-def test_the_product_sql_keys_units_by_sku_and_leaves_out_stock_orders():
+def test_niche_margins_add_up_and_flag_below_target(client):
+    db = client.app.state.db
+    db.rows["FROM catalog.niches"] = [{"slug": "gifts", "name": "Personalised gifts", "color": 4, "target_margin_pct": 60.0,
+                                       "archived": False},
+                                      {"slug": "home", "name": "Home décor", "color": 1, "target_margin_pct": 50.0,
+                                       "archived": False}]
+    db.rows["FROM reporting.niche_revenue_v"] = [{"k": "gifts", "net": 10000}, {"k": "home", "net": 5000},
+                                                 {"k": "unassigned", "net": 700}]
+    db.rows["FROM reporting.sku_costs_v"] = [{"k": "gifts", "category": "filament", "stock": False, "net": 5000},
+                                             {"k": "home", "category": "filament", "stock": False, "net": 1000}]
+    r = client.get("/api/v1/finance/niches?month=2026-11").json()
+    by = {n["niche"]: n for n in r["niches"]}
+    assert r["revenue_agorot"] == 15700                       # the income ledger total, unassigned included
+    assert by["gifts"]["margin_pct"] == 50.0 and by["gifts"]["below_target"] is True
+    assert by["home"]["below_target"] is False and by["home"]["name"] == "Home décor"
+
+
+def test_the_margin_sql_reads_the_reporting_views_and_leaves_out_stock_sales():
     import inspect
 
     from app import finance as fin  # noqa: PLC0415 - the gateway package is on the path once gateway_support is imported
 
-    src = inspect.getsource(fin.products)
-    assert "WHEN i.product = 'catalog' AND i.sku IS NOT NULL THEN i.sku" in src
-    assert "o.channel <> %s" in src and "STOCK_CHANNEL" in src
+    src = inspect.getsource(fin._margins)
+    assert "reporting.niche_revenue_v" in src and "reporting.sku_costs_v" in src
+    assert "NOT l.stock" in src and "to_state = 'SHIPPED'" in src
+
+
+def test_finance_rejects_a_bad_niche(client):
+    assert client.get("/api/v1/finance/products?niche=Bad%20Niche").status_code == 400
 
 
 def test_finance_needs_a_session():

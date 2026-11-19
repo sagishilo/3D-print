@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
 import { ApiError, api, command, csrfToken, errorText, refreshSession } from '@/lib/api'
+import { useNiche } from '@/stores/niche'
 import { type Batch, type BatchEstimate, type CatalogProduct, estimateUrl, type Sort, type Upload } from '@/lib/catalog'
 
 const BATCH_KEY = 'pf.catalog.batch'
@@ -54,10 +55,13 @@ export const useCatalog = defineStore('catalog', () => {
   const estimate = ref<BatchEstimate | null>(null)
   const estimateError = ref('')
   let timer: ReturnType<typeof setTimeout> | null = null
+  const niche = useNiche()
+  watch(() => niche.current, () => { if (loaded.value) void load() })
   let estimating = 0
 
   async function load() {
     const q = new URLSearchParams({ sort: sort.value, include_inactive: String(showInactive.value) })
+    if (niche.current) q.set('niche', niche.current)
     if (category.value) q.set('category', category.value)
     try {
       const r = await api<{ products: CatalogProduct[]; categories: string[]; counts: Record<string, number> }>(`/api/v1/catalog/products?${q}`)

@@ -6,10 +6,13 @@ import Icon from '@/components/ui/Icon.vue'
 import { type CatalogProduct, CATEGORY_LABEL, minutes, trendLabel } from '@/lib/catalog'
 import { shekels } from '@/lib/format'
 import { vCan } from '@/directives/can'
+import { nicheColor } from '@/lib/niches'
+import { useNiche } from '@/stores/niche'
 
 const props = defineProps<{ product: CatalogProduct; qty: number; bed: [number, number] }>()
 const emit = defineEmits<{ add: [qty: number]; qty: [qty: number]; slice: []; edit: [] }>()
 
+const niche = useNiche()
 const trend = computed(() => trendLabel(props.product))
 const trendTone = computed(() => ((props.product.trend_pct ?? 0) < 0 ? 'down' : 'up'))
 /** Demand not covered by what is already being printed for stock. */
@@ -35,6 +38,7 @@ const part = computed(() => {
       <div class="titles">
         <b class="name">{{ product.name }}</b>
         <span class="sku mono">{{ product.sku }}</span>
+        <span class="niche" :data-testid="`sku-niche-${product.sku}`"><span class="dot" :style="{ background: nicheColor(niche.bySlug[product.niche]) }" />{{ niche.name(product.niche) }}</span>
       </div>
       <span class="tag" :class="product.sliced ? 'ok' : 'warn'" :title="product.sliced ? `sliced${product.printer_model ? ` for ${product.printer_model}` : ''}` : 'model only: a real printer needs it sliced'">
         3MF · {{ product.sliced ? 'sliced' : 'unsliced' }}
@@ -134,6 +138,18 @@ const part = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.niche {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.niche .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 .sku {
   color: var(--muted);

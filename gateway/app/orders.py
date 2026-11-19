@@ -10,10 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from printfarm.contracts.orders import PRODUCTS
 
 from . import auth
+from .niches import niche_scope
 
 router = APIRouter(prefix="/api/v1/orders", dependencies=[Depends(auth.require_auth)])
 STUCK_AFTER = timedelta(hours=2)
 WAITING = {"LEAD", "RECEIVED", "PERSONALIZING", "SCHEDULING", "QC", "NEEDS_ATTENTION"}   # states a person may be blocking
+ORDER_IN_NICHE = "EXISTS (SELECT 1 FROM coordinator.order_items n WHERE n.order_id = o.order_id AND n.niche = %s)"
 
 ORDER_SQL = """
   SELECT o.order_id, o.customer_name, o.customer_ref, o.channel, o.due_by, o.notes, o.subtotal_agorot, o.discount_agorot,
@@ -23,6 +25,18 @@ ORDER_SQL = """
             FROM coordinator.payments p WHERE p.order_id = o.order_id) AS paid_agorot
   FROM coordinator.orders o JOIN coordinator.sagas s ON s.saga_id = o.order_id
 """
+
+
+def qc_checklist(niches: list[dict]) -> list[dict]:
+    """One checklist for an order from its niches' lists: each line once, with the niche it came from."""
+    seen: set[str] = set()
+    out = []
+    for n in niches:
+        for item in n.get("qc_checklist") or []:
+            if item.lower() not in seen:
+                seen.add(item.lower())
+                out.append({"item": item, "niche": n["slug"], "niche_name": n["name"]})
+    return out
 
 
 def _ord_id(order_id: str) -> str:
@@ -78,7 +92,8 @@ def _card(r: dict, items: list[dict], plates: list[dict], now: datetime) -> dict
         "qc": ctx.get("qc", {}).get("status"),
         "items": [{"item_id": i["item_id"], "product": i["product"], "label": PRODUCTS.get(i["product"]).label
                    if i["product"] in PRODUCTS else i["product"], "text": i["text"], "material": i["material"],
-                   "color": i["color"], "quantity": i["quantity"], "model": model.get(i["item_id"], {})} for i in items],
+                   "color": i["color"], "quantity": i["quantity"], "niche": i.get("niche") or "unassigned",
+                   "model": model.get(i["item_id"], {})} for i in items],
         "plates": plates,
     }
 
@@ -101,28 +116,36 @@ async def _cards(db, where: str, params: tuple, limit: int) -> list[dict]:
 
 
 @router.get("")
-async def orders(request: Request, closed_days: int = Query(7, ge=0, le=90), channel: str | None = None):
-    """Open orders plus those shipped or cancelled in the last ``closed_days`` (the board's last column)."""
+async def orders(request: Request, closed_days: int = Query(7, ge=0, le=90), channel: str | None = None,
+                 niche: str | None = None):
+    """Open orders plus those shipped or cancelled in the last ``closed_days`` (the board's last column). With
+    ``niche``: the orders with at least one line sold under it."""
     where = "(s.state NOT IN ('SHIPPED', 'CANCELLED') OR s.updated_at > now() - make_interval(days => %s))"
     params: tuple = (closed_days,)
     if channel:
         where += " AND o.channel = %s"
         params += (channel,)
+    if scope := niche_scope(niche):
+        where += f" AND {ORDER_IN_NICHE}"
+        params += (scope,)
     return {"orders": await _cards(request.app.state.db, where, params, 500)}
 
 
 @router.get("/stats")
-async def stats(request: Request):
+async def stats(request: Request, niche: str | None = None):
     """KPIs that need history: QC failures (7 days) and lead-to-ship time (30 days vs the 30 before)."""
     db = request.app.state.db
+    scope = niche_scope(niche)
     qc = await db.fetchrow(
         "SELECT coalesce(sum(units_failed), 0) AS failed, coalesce(sum(units_checked), 0) AS checked "
-        "FROM coordinator.qc_checks WHERE checked_at > now() - interval '7 days'") or {}
+        "FROM coordinator.qc_checks q WHERE checked_at > now() - interval '7 days'"
+        + (" AND " + ORDER_IN_NICHE.replace("o.order_id", "q.order_id") if scope else ""), (scope,) if scope else ()) or {}
     lead = await db.fetchrow(
         "SELECT avg(extract(epoch FROM h.at - o.created_at)) FILTER (WHERE h.at > now() - interval '30 days') AS cur, "
         "avg(extract(epoch FROM h.at - o.created_at)) FILTER (WHERE h.at <= now() - interval '30 days') AS prev "
         "FROM coordinator.saga_history h JOIN coordinator.orders o ON o.order_id = h.saga_id "
-        "WHERE h.to_state = 'SHIPPED' AND h.at > now() - interval '60 days'") or {}
+        "WHERE h.to_state = 'SHIPPED' AND h.at > now() - interval '60 days'"
+        + (f" AND {ORDER_IN_NICHE}" if scope else ""), (scope,) if scope else ()) or {}
     days = lambda v: round(float(v) / 86400, 1) if v is not None else None  # noqa: E731
     return {"qc_failed_units_7d": int(qc.get("failed") or 0), "qc_checked_units_7d": int(qc.get("checked") or 0),
             "lead_to_ship_days": days(lead.get("cur")), "lead_to_ship_days_prev": days(lead.get("prev"))}
@@ -165,8 +188,12 @@ async def order_detail(order_id: str, request: Request):
             "SELECT payment_id, kind, amount_agorot, method, at, receipt_no, recorded_by FROM coordinator.payments "
             "WHERE order_id = %s ORDER BY at", (order_id,)),
         "qc_checks": await db.fetchall(
-            "SELECT passed, units_failed, units_checked, reason, checked_by, checked_at FROM coordinator.qc_checks "
-            "WHERE order_id = %s ORDER BY checked_at", (order_id,)),
+            "SELECT passed, units_failed, units_checked, reason, checked_by, checked_at, checklist "
+            "FROM coordinator.qc_checks WHERE order_id = %s ORDER BY checked_at", (order_id,)),
+        # What to check before passing: the checklists of the niches its lines were sold under (duplicates once).
+        "qc_checklist": qc_checklist(await db.fetchall(
+            "SELECT n.slug, n.name, n.qc_checklist FROM catalog.niches n WHERE n.slug IN "
+            "(SELECT DISTINCT niche FROM coordinator.order_items WHERE order_id = %s) ORDER BY n.sort", (order_id,))),
         "jobs": await db.fetchall(
             "SELECT j.job_id, j.status, j.plate_id, p.printer_id, p.status AS plate_status FROM fleet.jobs j "
             "LEFT JOIN fleet.plates p ON p.plate_id = j.plate_id WHERE j.order_id = %s ORDER BY j.created_at", (order_id,)),

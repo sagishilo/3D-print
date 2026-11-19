@@ -5,12 +5,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import ProductCard from '@/components/catalog/ProductCard.vue'
+import AssignNicheDialog from '@/components/catalog/AssignNicheDialog.vue'
 import ProductDialog from '@/components/catalog/ProductDialog.vue'
+import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
 import Icon from '@/components/ui/Icon.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { errorText } from '@/lib/api'
 import { batchLine, type CatalogProduct, CATEGORY_LABEL, estimateLine, shortages, SORTS } from '@/lib/catalog'
 import { useCatalog } from '@/stores/catalog'
+import { useNiche } from '@/stores/niche'
 import { useConfirm } from '@/stores/confirm'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
@@ -18,6 +21,7 @@ import { useAuth } from '@/stores/auth'
 
 const auth = useAuth()
 const catalog = useCatalog()
+const niche = useNiche()
 const confirm = useConfirm()
 const toasts = useToasts()
 
@@ -28,6 +32,7 @@ onMounted(() => {
 watch([() => catalog.category, () => catalog.sort, () => catalog.showInactive], () => void catalog.load())
 
 const dialog = ref<{ product: CatalogProduct | null } | null>(null)
+const assigning = ref(false)
 const bed = computed<[number, number]>(() => catalog.estimate?.bed_mm ?? [256, 256])
 const total = computed(() => Object.values(catalog.counts).reduce((a, b) => a + b, 0))
 const est = computed(() => catalog.estimate)
@@ -71,9 +76,13 @@ async function queue() {
       <h1>High-Demand Instant-Print Catalog</h1>
       <p>Local 3MF templates · ranked by units sold in the last 7 days · batches packed the way the scheduler packs plates</p>
     </div>
-    <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="import-3mf" @click="dialog = { product: null }"><Icon name="plus" :size="14" />Import 3MF</button>
+    <div class="head-actions">
+      <button v-can="'operator'" type="button" class="btn" data-testid="assign-niche" data-tour="catalog-assign-niche" :disabled="!catalog.products.length" @click="assigning = true"><Icon name="tag" :size="14" />Assign niche</button>
+      <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="import-3mf" @click="dialog = { product: null }"><Icon name="plus" :size="14" />Import 3MF</button>
+    </div>
   </div>
 
+  <NicheFilterBar what="products of this niche and the ones tagged with it" />
   <div class="toolbar">
     <div class="cats" role="group" aria-label="Category" data-tour="catalog-categories">
       <button type="button" class="cat" :class="{ on: catalog.category === null }" :aria-pressed="catalog.category === null" @click="catalog.category = null">
@@ -117,7 +126,9 @@ async function queue() {
       @edit="dialog = { product: p }"
     />
   </div>
-  <EmptyState v-if="catalog.loaded && !catalog.products.length && !catalog.error && catalog.category" icon="grid"
+  <EmptyState v-if="catalog.loaded && !catalog.products.length && !catalog.error && niche.current && !catalog.category" icon="tag"
+    :title="`No products in ${niche.name(niche.current)} yet`" text="Assign products to this niche (Assign niche, or Edit on a product), or show every niche." action-label="Show all" @action="niche.set(null)" />
+  <EmptyState v-else-if="catalog.loaded && !catalog.products.length && !catalog.error && catalog.category" icon="grid"
     title="No products in this category" text="Choose another category, or All." action-label="Show all" @action="catalog.category = null" />
   <EmptyState v-else-if="catalog.loaded && !catalog.products.length && !catalog.error" icon="grid" title="No products yet"
     text="Import a 3MF: best a plate sliced in Bambu Studio or OrcaSlicer, so it prints as is."
@@ -143,9 +154,15 @@ async function queue() {
   </section>
 
   <ProductDialog v-if="dialog" :product="dialog.product" :categories="catalog.categories" @close="dialog = null" />
+  <AssignNicheDialog v-if="assigning" :products="catalog.products" @close="assigning = false" />
 </template>
 
 <style scoped>
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .toolbar {
   display: flex;
   justify-content: space-between;

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import PageTourButton from '@/components/tour/PageTourButton.vue'
+import NicheSwitcher from './NicheSwitcher.vue'
 import UserMenu from './UserMenu.vue'
 import Icon from '@/components/ui/Icon.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
@@ -107,6 +108,7 @@ async function pauseAll() {
     </div>
 
     <div class="right">
+      <NicheSwitcher />
       <StatusPill :tone="live.tone" :label="live.label" class="wide" data-testid="live-indicator" data-tour="live-indicator" />
       <StatusPill :tone="live.tone" :label="live.shortLabel" class="narrow" aria-hidden="true" data-tour="live-indicator" />
       <button
@@ -242,7 +244,7 @@ kbd {
     max-width: none;
   }
   .right {
-    gap: 6px;
+    gap: 4px;
     flex-wrap: nowrap;
   }
   .wide {
@@ -252,7 +254,7 @@ kbd {
     display: inline-flex;
   }
   .btn-danger {
-    padding: 8px 10px;
+    padding: 8px 8px;
   }
 }
 </style>

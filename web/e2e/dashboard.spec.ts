@@ -277,7 +277,12 @@ test.describe('order pipeline', () => {
     await expect(itemRows).toHaveCount(2)
     await expect(itemRows.nth(1)).toBeInViewport() // not clipped by the scrolling panel
     await expect(itemRows.nth(1)).toContainText('Dan')
+    // nameplates are personalised gifts: that niche's QC checklist is ticked before passing, and kept with the check
+    const checks = drawer.getByTestId('qc-checklist').locator('input[type=checkbox]')
+    await expect(checks).toHaveCount(3)
+    for (const c of await checks.all()) await c.check()
     await drawer.getByTestId('qc-pass').click()
+    await expect(drawer.getByTestId('qc-checklist-result')).toContainText('checklist 3/3', { timeout: 30_000 })
     await drawer.getByLabel('Carrier').fill('Israel Post')
     await drawer.getByTestId('ship').click()
     await expect(card('SHIPPED')).toBeVisible({ timeout: 30_000 })

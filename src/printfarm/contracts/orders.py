@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from printfarm.contracts.catalog import SKU_RE, STOCK_CHANNEL
+from printfarm.contracts.catalog import NAMEPLATE_NICHE, NICHE_RE, SKU_RE, STOCK_CHANNEL, UNASSIGNED
 
 MAX_ITEMS = 20
 CHANNELS = ("manual", "whatsapp", "facebook", "instagram", "etsy", "market", "website", "api", STOCK_CHANNEL)
@@ -41,6 +41,14 @@ def product_type(product: str, sku: str = "") -> str:
     """What Finance books a line's money and costs under: the SKU of a catalog line, else the product."""
     return sku if product == "catalog" and sku else product
 
+
+def line_niche(line: OrderLine) -> str:
+    """The niche a line is sold under: as the gateway resolved it from the catalog; a nameplate is a personalised
+    gift; anything else without one is unassigned."""
+    if line.niche:
+        return line.niche
+    return NAMEPLATE_NICHE if line.product == "nameplate" else UNASSIGNED
+
 # Board columns in order (NEEDS_ATTENTION cards show in the column they came from).
 STAGES = ("LEAD", "RECEIVED", "PERSONALIZING", "SCHEDULING", "PRINTING", "QC", "SHIPPED")
 OPEN_STAGES = (*STAGES[:-1], "NEEDS_ATTENTION")
@@ -59,6 +67,7 @@ class OrderLine(BaseModel):
     color: str = Field(default="black", max_length=20)
     quantity: int = Field(default=1, ge=1, le=50)
     unit_price_agorot: int | None = Field(default=None, ge=0, le=10_000_000)   # None = the product's default
+    niche: str = Field(default="", max_length=32)        # filled by the gateway from the catalog (a snapshot)
 
     @model_validator(mode="after")
     def _known_product(self) -> OrderLine:
@@ -74,6 +83,8 @@ class OrderLine(BaseModel):
                 raise ValueError(f"catalog item {self.sku}: the price comes from the catalog")
         elif self.sku:
             raise ValueError("only a catalog item has a SKU")
+        if self.niche and not NICHE_RE.match(self.niche):
+            raise ValueError(f"bad niche {self.niche!r}")
         return self
 
     @property

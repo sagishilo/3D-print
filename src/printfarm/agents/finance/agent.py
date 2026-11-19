@@ -1,6 +1,7 @@
 """Finance Agent (ledger): books income and expenses from domain events, in Postgres schema ``finance``.
 
     evt.order.payment.recorded / .refunded  -> finance.income_entries  (income when PAID, VAT split)
+                                               + finance.income_lines (split across the order's lines, per niche)
     evt.inventory.po.ordered                -> finance.expense_entries kind='cash'      (filament purchase, P&L)
     evt.fleet.plate.finished                -> finance.expense_entries kind='allocated' (per-job grams + kWh, margins only)
     cmd.finance.create_expense              -> finance.expense_entries kind='cash' | 'estimated'
@@ -17,7 +18,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from printfarm.agents.base import Agent, on
-from printfarm.agents.finance.ledger import FinanceSettings, business_day, plate_allocations, split_vat
+from printfarm.agents.finance.ledger import FinanceSettings, business_day, plate_allocations, split_income, split_vat
 from printfarm.contracts.messages import (
     CreateExpense,
     FinanceSettingsChanged,
@@ -63,6 +64,12 @@ class FinanceAgent(Agent):
             )
         ).fetchone()
         if row:
+            # Split across the order's lines, so revenue per SKU and per niche adds up to the ledger (no "mixed").
+            for line in split_income(net, ev.lines, product_type=ev.product_type):
+                await conn.execute(
+                    "INSERT INTO finance.income_lines (entry_id, line_no, order_id, product_type, niche, net_agorot) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    (row["id"], line.line_no, ev.order_id, line.product_type, line.niche, line.net_agorot))
             await self._booked(conn, env, entry_id=row["id"], ledger="income", entry_kind="auto" if ev.order_id else "manual",
                                category=None, gross=gross, source_event_id=env.id)
 

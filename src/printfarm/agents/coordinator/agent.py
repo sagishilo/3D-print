@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 from printfarm.agents.base import Agent, on
 from printfarm.agents.coordinator import saga
 from printfarm.contracts import deterministic_id
+from printfarm.contracts.catalog import UNASSIGNED
 from printfarm.contracts.messages import (
     AdvanceOrder,
     ApprovalDecided,
@@ -28,6 +29,7 @@ from printfarm.contracts.messages import (
     OrderReceived,
     OrderStageChanged,
     OrderUpdated,
+    PaymentLine,
     PaymentRecorded,
     PaymentRefunded,
     RecordPayment,
@@ -36,7 +38,7 @@ from printfarm.contracts.messages import (
     SetConfig,
     ShipOrder,
 )
-from printfarm.contracts.orders import OrderLine, price_order
+from printfarm.contracts.orders import OrderLine, line_niche, price_order
 
 
 class CoordinatorAgent(Agent):
@@ -66,9 +68,9 @@ class CoordinatorAgent(Agent):
         for i, (line, total) in enumerate(zip(lines, pricing.lines, strict=True), start=1):
             await conn.execute(
                 "INSERT INTO coordinator.order_items (order_id, item_id, product, sku, text, material, color, quantity, "
-                "unit_price_agorot, line_total_agorot) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "unit_price_agorot, line_total_agorot, niche) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (order_id, str(i), line.product, line.sku, line.text, line.material, line.color, line.quantity,
-                 line.unit_price, total),
+                 line.unit_price, total, line_niche(line)),
             )
         return pricing.total
 
@@ -175,9 +177,9 @@ class CoordinatorAgent(Agent):
             if isinstance(out, OrderQcRecorded):
                 await conn.execute(
                     "INSERT INTO coordinator.qc_checks (order_id, passed, units_failed, units_checked, reason, checked_by, "
-                    "failed_keys) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    "failed_keys, checklist) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                     (order_id, out.passed, len(out.failed_units), len(d.context["units"]), out.reason, out.by,
-                     Jsonb(sorted(out.failed_units))))
+                     Jsonb(sorted(out.failed_units)), Jsonb([c.model_dump() for c in out.checklist])))
             await self.emit(conn, out, cause=env, correlationid=order_id)
 
     async def _history(self, conn, saga_id, from_state, to_state, env) -> None:
@@ -240,17 +242,24 @@ class CoordinatorAgent(Agent):
         if not cur.rowcount:
             return
         product_type = cmd.product_type
-        if cmd.order_id and product_type is None:
-            # The order's product (orders v2: from its lines, a catalog line by its SKU; several -> "mixed").
-            products = [r["product"] for r in await (await conn.execute(
-                "SELECT DISTINCT CASE WHEN product = 'catalog' AND sku <> '' THEN sku ELSE product END AS product "
-                "FROM coordinator.order_items WHERE order_id = %s", (cmd.order_id,))).fetchall()]
+        lines: list[PaymentLine] = []
+        if cmd.order_id:
+            # The order's lines (a catalog line by its SKU), so Finance splits the money per SKU and niche. The
+            # entry's own product_type stays a summary: the one product, or "mixed".
+            rows = await (await conn.execute(
+                "SELECT CASE WHEN product = 'catalog' AND sku <> '' THEN sku ELSE product END AS product, niche, "
+                "line_total_agorot, quantity FROM coordinator.order_items WHERE order_id = %s ORDER BY item_id::int",
+                (cmd.order_id,))).fetchall()
+            priced = any(r["line_total_agorot"] > 0 for r in rows)
+            lines = [PaymentLine(product_type=r["product"], niche=r["niche"] or UNASSIGNED,
+                                 weight_agorot=r["line_total_agorot"] if priced else r["quantity"]) for r in rows]
+            products = sorted({r["product"] for r in rows})
             if not products:
                 self.log.warning("payment for unknown order %s recorded anyway", cmd.order_id)
-            else:
+            elif product_type is None:
                 product_type = products[0] if len(products) == 1 else "mixed"
         common = {"payment_id": env.id, "order_id": cmd.order_id, "amount_agorot": cmd.amount_agorot,
-                  "method": cmd.method, "receipt_no": cmd.receipt_no, "product_type": product_type}
+                  "method": cmd.method, "receipt_no": cmd.receipt_no, "product_type": product_type, "lines": lines}
         event = PaymentRefunded(**common, refunded_at=at) if refund else PaymentRecorded(**common, paid_at=at)
         await self.emit(conn, event, cause=env, correlationid=cmd.order_id or env.correlationid,
                         id=deterministic_id("refund" if refund else "payment", env.id))

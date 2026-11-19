@@ -15,7 +15,8 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from printfarm.contracts.messages import JobShare
+from printfarm.contracts.catalog import UNASSIGNED
+from printfarm.contracts.messages import JobShare, PaymentLine
 
 
 @dataclass(frozen=True)
@@ -109,4 +110,32 @@ def plate_allocations(
         if electricity > 0:
             out.append(Allocation(job_id, order_id, product, "electricity", electricity,
                                   f"{prefix}{kwh_total * frac:.3f} kWh"))
+    return out
+
+
+@dataclass(frozen=True)
+class IncomeLine:
+    line_no: int
+    product_type: str
+    niche: str
+    net_agorot: int
+
+
+def split_income(net_agorot: int, lines: Sequence[PaymentLine], *, product_type: str | None = None) -> list[IncomeLine]:
+    """Split one income entry across the order lines it pays for, in proportion to their weights (the line totals).
+
+    Each line is rounded; the remainder goes to the last line, so the lines always add up to the entry exactly (a
+    refund splits the same way, negative). An order whose lines all weigh 0 splits evenly. Income without an order
+    is one line in the "unassigned" niche, under its product type (or "other").
+    """
+    if not lines:
+        return [IncomeLine(1, product_type or "other", UNASSIGNED, net_agorot)]
+    weights = [Decimal(max(line.weight_agorot, 0)) for line in lines]
+    total = sum(weights)
+    if total <= 0:
+        weights, total = [Decimal(1)] * len(lines), Decimal(len(lines))
+    out: list[IncomeLine] = []
+    for i, (line, w) in enumerate(zip(lines, weights, strict=True), start=1):
+        share = round_agorot(Decimal(net_agorot) * w / total) if i < len(lines) else net_agorot - sum(x.net_agorot for x in out)
+        out.append(IncomeLine(i, line.product_type, line.niche or UNASSIGNED, share))
     return out

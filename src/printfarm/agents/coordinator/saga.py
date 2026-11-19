@@ -262,13 +262,15 @@ def _qc(state: State, ctx: dict, msg: RecordQc) -> Decision:
         return _reject(state, ctx, "QC", "quality control applies to printed orders", by)
     if msg.passed:
         ctx["qc"]["status"] = "passed"
-        return Decision(state, ctx, [OrderQcRecorded(order_id=oid, passed=True, reason=msg.reason, by=by)], by=by)
+        return Decision(state, ctx, [OrderQcRecorded(order_id=oid, passed=True, reason=msg.reason,
+                                                     checklist=msg.checklist, by=by)], by=by)
     units = msg.failed_units or list(ctx["units"])
     unknown = [k for k in units if k not in ctx["units"]]
     if unknown:
         return _reject(state, ctx, "QC", f"no unit {', '.join(unknown)} in order {oid}", by)
     ctx["qc"] = {"status": "pending", "rounds": ctx["qc"]["rounds"] + 1}
-    record = OrderQcRecorded(order_id=oid, passed=False, failed_units=units, reason=msg.reason, by=by)
+    record = OrderQcRecorded(order_id=oid, passed=False, failed_units=units, reason=msg.reason,
+                             checklist=msg.checklist, by=by)
     for k in units:
         ctx["units"][k]["status"] = "failed"
     if ctx["qc"]["rounds"] >= MAX_QC_ROUNDS:

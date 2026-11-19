@@ -5,12 +5,17 @@ import { computed } from 'vue'
 import { ago, dateTime } from '@/lib/format'
 import type { OrderCard } from '@/lib/order-types'
 import { itemsSummary } from '@/lib/orders'
+import { nicheColor } from '@/lib/niches'
 import { useLive } from '@/stores/live'
+import { useNiche } from '@/stores/niche'
 
 const props = defineProps<{ card: OrderCard }>()
 defineEmits<{ open: [id: string] }>()
 
 const live = useLive()
+const niche = useNiche()
+/** The niches its lines were sold under (a dot each). */
+const niches = computed(() => [...new Set(props.card.items.map((i) => i.niche).filter((n): n is string => !!n))])
 const overdue = computed(() => !!props.card.due_by && new Date(props.card.due_by).getTime() < live.now && !['SHIPPED', 'CANCELLED'].includes(props.card.state))
 const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
 </script>
@@ -31,7 +36,7 @@ const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
       <span class="id mono">#{{ card.order_id.replace(/^ord-/, '') }}</span>
       <span class="age" :class="{ warn: card.stuck }">{{ ago(new Date(card.stage_since).getTime(), live.now) }}{{ card.stuck ? ' · stuck' : '' }}</span>
     </div>
-    <span class="items">{{ itemsSummary(card) }}</span>
+    <span class="items"><span v-for="n in niches" :key="n" class="niche-dot" :style="{ background: nicheColor(niche.bySlug[n]) }" :title="niche.name(n)" :data-testid="`card-niche-${n}`" />{{ itemsSummary(card) }}</span>
     <span class="who">
       {{ card.customer_name }} ·
       <span :class="{ late: overdue }">due {{ card.due_by ? dateTime(card.due_by) : '—' }}</span>
@@ -77,6 +82,14 @@ const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
 .age.warn,
 .late {
   color: var(--warn);
+}
+.niche-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 .items {
   font-size: 13px;

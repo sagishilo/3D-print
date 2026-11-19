@@ -6,6 +6,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw, type RouterHistory
 import { NAV } from '@/nav'
 import { needs } from '@/lib/roles'
 import { useAuth } from '@/stores/auth'
+import { useNiche } from '@/stores/niche'
 import { useToasts } from '@/stores/toasts'
 
 const later: RouteRecordRaw[] = NAV.filter((n) => n.phase).map((n) => ({
@@ -24,6 +25,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'live', name: 'live', component: () => import('@/views/LiveView.vue'), meta: { title: 'Live floor', tour: 'live' } },
       { path: 'social', name: 'social', component: () => import('@/views/SocialView.vue'), meta: { title: 'Social & Trends', tour: 'social' } },
       { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Instant Catalog', tour: 'catalog' } },
+      { path: 'niches', name: 'niches', component: () => import('@/views/NichesView.vue'), meta: { title: 'Niches', tour: 'niches', minRole: 'owner' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrdersView.vue'), meta: { title: 'Order Pipeline', tour: 'orders' } },
       { path: 'filament', name: 'filament', component: () => import('@/views/FilamentView.vue'), meta: { title: 'Filament', tour: 'filament' } },
       { path: 'fleet/add', name: 'printer-add', component: () => import('@/views/PrinterOnboardingView.vue'), meta: { title: 'Connect a printer', tour: 'onboarding', minRole: 'operator' } },
@@ -48,6 +50,8 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     if (loggedIn && auth.mustChangePassword) return to.name === 'login' ? true : { name: 'login', query: { next: to.fullPath } }
     if (to.meta.public) return loggedIn && to.name === 'login' ? { path: '/live' } : true
     if (!loggedIn) return { name: 'login', query: to.fullPath === '/live' ? {} : { next: to.fullPath } }
+    // A link with ?niche=<slug> opens the screen in that niche (until the person picks another in the top bar).
+    if (typeof to.query.niche === 'string') useNiche().linked(to.query.niche)
     if (to.meta.minRole && !auth.can(to.meta.minRole)) {
       useToasts().error(`${to.meta.title ?? 'That screen'} is not available`, `${needs(to.meta.minRole)}.`)
       return { path: '/live' }

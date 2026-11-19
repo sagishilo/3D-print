@@ -17,7 +17,8 @@ from test_catalog import plain_model, sliced_model  # noqa: E402
 PRODUCT = {"sku": "HOOK-A", "name": "Wall hook", "category": "home", "material": "PLA", "color": "black",
            "price_agorot": 2500, "file_name": "hook.3mf", "sliced": True, "printer_model": "C12", "footprint_w": 30.0,
            "footprint_d": 30.0, "est_grams": 12.0, "est_minutes": 40.0, "estimated": False, "active": True,
-           "created_at": "2026-11-01T00:00:00Z", "updated_at": "2026-11-01T00:00:00Z", "updated_by": "admin"}
+           "created_at": "2026-11-01T00:00:00Z", "updated_at": "2026-11-01T00:00:00Z", "updated_by": "admin",
+           "niche": "home", "tags": []}
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def client():
 def test_products_with_their_demand(client):
     db = client.app.state.db
     db.rows["FROM catalog.products p"] = [{**PRODUCT, "sold_7d": 12, "sold_prev_7d": 8, "in_production": 4}]
-    db.rows["FROM catalog.products WHERE active OR"] = [{"category": "home", "n": 1}]
+    db.rows["SELECT category, count(*) AS n FROM catalog.products AS p"] = [{"category": "home", "n": 1}]
     body = client.get("/api/v1/catalog/products").json()
     p = body["products"][0]
     assert p["trend_pct"] == 50.0 and p["footprint_mm"] == [30.0, 30.0] and p["in_production"] == 4
@@ -76,11 +77,14 @@ def test_an_order_line_takes_the_catalogs_filament_and_price(client):
     db = client.app.state.db
     db.rows["SELECT sku, name, material"] = [{**PRODUCT, "color": "white"}]
     r = client.post("/api/v1/commands/orders.create", headers={**csrf(client), "Idempotency-Key": KEY}, json={
-        "customer_name": "Noa", "items": [{"product": "catalog", "sku": "HOOK-A", "quantity": 2}]})
+        "customer_name": "Noa", "items": [{"product": "catalog", "sku": "HOOK-A", "quantity": 2, "niche": "kids"},
+                                          {"product": "nameplate", "text": "Noa", "niche": "kids"}]})
     assert r.status_code == 202
     subject, published = client.app.state.bus.js.published[-1]
     line = published["data"]["items"][0]
     assert (line["unit_price_agorot"], line["color"], line["text"]) == (2500, "white", "Wall hook")
+    # the niche comes from the catalog (a snapshot), never from the browser
+    assert line["niche"] == "home" and published["data"]["items"][1]["niche"] == ""
     assert subject == "cmd.coordinator.create_order" and published["data"]["dispatch"] is False
     db.rows["SELECT sku, name, material"] = [{**PRODUCT, "active": False}]
     off = client.post("/api/v1/commands/orders.create", headers=csrf(client), json={

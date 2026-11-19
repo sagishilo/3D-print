@@ -10,21 +10,28 @@ import asyncio
 import hashlib
 from pathlib import Path
 
+from psycopg.types.json import Jsonb
+
 from printfarm.agents.base import Agent, on
 from printfarm.agents.personalization.catalog import InvalidThreeMf, ThreeMfInfo, inspect_3mf
 from printfarm.agents.personalization.nameplate import InvalidText, NameplateSpec, generate, safe_name
 from printfarm.agents.personalization.slicer import SliceError, find_slicer, slice_3mf
 from printfarm.agents.telemetry.platefiles import local_path
-from printfarm.contracts.catalog import UPLOAD_BUCKET
+from printfarm.contracts.catalog import UNASSIGNED, UPLOAD_BUCKET
 from printfarm.contracts.messages import (
+    ArchiveNiche,
+    AssignNiche,
     CatalogProductRejected,
     CatalogProductUpdated,
     GenerateNameplate,
     ModelFailed,
     ModelReady,
+    NicheRejected,
+    NicheUpdated,
     PrepareCatalogItem,
     SliceCatalogProduct,
     UpsertCatalogProduct,
+    UpsertNiche,
 )
 
 NO_SLICER = ("no slicer is installed next to the personalization agent: slice the template in Bambu Studio or "
@@ -147,9 +154,20 @@ class PersonalizationAgent(Agent):
                                           "and print minutes (or import a sliced 3MF)", by)
             estimated = True
 
+        niches = await self._niches(conn)
+        wanted = [n for n in [cmd.niche, *(cmd.tags or [])] if n]
+        unknown = sorted({n for n in wanted if n not in niches})
+        if unknown:
+            return await self._reject(conn, env, cmd.sku, "upsert", f"no niche {', '.join(unknown)}", by)
+        archived = sorted({n for n in wanted if niches[n]} - ({row["niche"]} if row else set()))
+        if archived:
+            return await self._reject(conn, env, cmd.sku, "upsert", f"niche {', '.join(archived)} is archived", by)
+
         values = {"name": cmd.name, "category": cmd.category, "material": cmd.material, "color": cmd.color,
                   "price_agorot": cmd.price_agorot, "est_grams": grams, "est_minutes": minutes, "estimated": estimated,
                   "active": cmd.active, "updated_by": by, **file}
+        if cmd.niche is not None:
+            values["niche"] = cmd.niche
         if row is None:
             cols = [*values, "created_by"]
             await conn.execute(
@@ -159,10 +177,84 @@ class PersonalizationAgent(Agent):
             sets = ", ".join(f"{k} = %s" for k in values)
             await conn.execute(f"UPDATE catalog.products SET {sets}, updated_at = now() WHERE sku = %s",
                                (*values.values(), cmd.sku))
+        if cmd.tags is not None:
+            main = values.get("niche", row["niche"] if row else UNASSIGNED)
+            await conn.execute("DELETE FROM catalog.product_tags WHERE sku = %s", (cmd.sku,))
+            for tag in sorted(set(cmd.tags) - {main}):
+                await conn.execute("INSERT INTO catalog.product_tags (sku, niche) VALUES (%s, %s)", (cmd.sku, tag))
         sliced = file.get("sliced", row["sliced"] if row else False)
         self.log.info("catalog %s %s (%s)", "added" if row is None else "updated", cmd.sku,
                       "sliced" if sliced else "unsliced")
         await self.emit(conn, CatalogProductUpdated(sku=cmd.sku, name=cmd.name, active=cmd.active, sliced=sliced, by=by),
+                        cause=env)
+
+    # ------------------------------------------------------------ niches (catalog.niches, owned here)
+
+    async def _niches(self, conn) -> dict[str, bool]:
+        """Every niche slug -> archived."""
+        rows = await (await conn.execute("SELECT slug, archived FROM catalog.niches")).fetchall()
+        return {r["slug"]: r["archived"] for r in rows}
+
+    async def _niche_rejected(self, conn, env, slug: str, reason: str, by: str) -> None:
+        self.log.info("niche %s refused: %s", slug, reason)
+        await self.emit(conn, NicheRejected(slug=slug, reason=reason, by=by or "unknown"), cause=env)
+
+    @on("cmd.personalization.upsert_niche")
+    async def upsert_niche(self, env, cmd: UpsertNiche, conn):
+        by = cmd.changed_by or "unknown"
+        clean = lambda xs: [x.strip() for x in xs if x.strip()]  # noqa: E731
+        values = {"name": cmd.name.strip(), "color": cmd.color, "icon": cmd.icon, "sort": cmd.sort,
+                  "default_material": cmd.default_material, "default_colors": Jsonb(clean(cmd.default_colors)),
+                  "target_margin_pct": cmd.target_margin_pct, "qc_checklist": Jsonb(clean(cmd.qc_checklist)),
+                  "packaging": Jsonb(clean(cmd.packaging)), "updated_by": by}
+        cols = ", ".join(values)
+        sets = ", ".join(f"{k} = EXCLUDED.{k}" for k in values)
+        row = await (await conn.execute(
+            f"INSERT INTO catalog.niches (slug, {cols}) VALUES (%s{', %s' * len(values)}) "
+            f"ON CONFLICT (slug) DO UPDATE SET {sets}, updated_at = now() RETURNING archived",
+            (cmd.slug, *values.values()))).fetchone()
+        self.log.info("niche %s saved by %s", cmd.slug, by)
+        await self.emit(conn, NicheUpdated(slug=cmd.slug, name=values["name"], archived=row["archived"], by=by), cause=env)
+
+    @on("cmd.personalization.archive_niche")
+    async def archive_niche(self, env, cmd: ArchiveNiche, conn):
+        by = cmd.changed_by or "unknown"
+        niches = await self._niches(conn)
+        if cmd.slug not in niches:
+            return await self._niche_rejected(conn, env, cmd.slug, f"no niche {cmd.slug}", by)
+        if cmd.slug == UNASSIGNED:
+            return await self._niche_rejected(conn, env, cmd.slug, "Unassigned is where products without a niche go: "
+                                              "it cannot be archived", by)
+        moved = 0
+        if cmd.archived:
+            if cmd.move_to == cmd.slug or niches.get(cmd.move_to, True):
+                return await self._niche_rejected(conn, env, cmd.slug, f"move its products to an active niche, not "
+                                                  f"{cmd.move_to}", by)
+            # Products move on; order lines keep the niche they were sold under (history is not rewritten).
+            moved = (await conn.execute("UPDATE catalog.products SET niche = %s, updated_by = %s, updated_at = now() "
+                                        "WHERE niche = %s", (cmd.move_to, by, cmd.slug))).rowcount
+            await conn.execute("DELETE FROM catalog.product_tags WHERE niche = %s", (cmd.slug,))
+        row = await (await conn.execute(
+            "UPDATE catalog.niches SET archived = %s, updated_by = %s, updated_at = now() WHERE slug = %s RETURNING name",
+            (cmd.archived, by, cmd.slug))).fetchone()
+        self.log.info("niche %s %s by %s (%d products moved)", cmd.slug, "archived" if cmd.archived else "restored", by,
+                      moved)
+        await self.emit(conn, NicheUpdated(slug=cmd.slug, name=row["name"], archived=cmd.archived, by=by,
+                                           skus_moved=moved), cause=env)
+
+    @on("cmd.personalization.assign_niche")
+    async def assign_niche(self, env, cmd: AssignNiche, conn):
+        by = cmd.changed_by or "unknown"
+        niches = await self._niches(conn)
+        if cmd.niche not in niches or niches[cmd.niche]:
+            return await self._niche_rejected(conn, env, cmd.niche, f"no active niche {cmd.niche}", by)
+        moved = (await conn.execute(
+            "UPDATE catalog.products SET niche = %s, updated_by = %s, updated_at = now() WHERE sku = ANY(%s)",
+            (cmd.niche, by, list(cmd.skus)))).rowcount
+        await conn.execute("DELETE FROM catalog.product_tags WHERE niche = %s AND sku = ANY(%s)", (cmd.niche, list(cmd.skus)))
+        row = await (await conn.execute("SELECT name FROM catalog.niches WHERE slug = %s", (cmd.niche,))).fetchone()
+        self.log.info("%d products moved to niche %s by %s", moved, cmd.niche, by)
+        await self.emit(conn, NicheUpdated(slug=cmd.niche, name=row["name"], archived=False, by=by, skus_moved=moved),
                         cause=env)
 
     @on("cmd.personalization.slice_product")

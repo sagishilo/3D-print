@@ -2,11 +2,13 @@
 // Every change is a command (social.*, config.set); the social agent answers on the live feed (evt.social.*),
 // which reloads this store. Nothing here, or anywhere, posts a reply: the person pastes and posts it.
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { api, command, errorText } from '@/lib/api'
 import { type Capture, type CaptureToken, type Label, type Lead, type SocialStats, sortLeads } from '@/lib/social'
+import { withNiche } from '@/lib/niches'
 import type { Setting } from '@/lib/types'
+import { useNiche } from '@/stores/niche'
 
 export const SOCIAL_SETTINGS = ['social.enabled', 'social.intent_threshold', 'social.prefilter_min', 'social.daily_budget_usd'] as const
 
@@ -21,6 +23,8 @@ export const useSocial = defineStore('social', () => {
   const error = ref('')
   const loaded = ref(false)
   let timer: ReturnType<typeof setTimeout> | null = null
+  const niche = useNiche()
+  watch(() => niche.current, () => { if (loaded.value) void load() })
 
   const setting = (key: string) => settings.value.find((s) => s.key === key)
   const threshold = computed(() => Number(setting('social.intent_threshold')?.value ?? 0.7))
@@ -31,7 +35,7 @@ export const useSocial = defineStore('social', () => {
     try {
       const q = captureFilter.value ? `&status=${captureFilter.value}` : ''
       const [l, c, s, cfg] = await Promise.all([
-        api<{ leads: Lead[] }>(`/api/v1/social/leads?status=${leadFilter.value}`),
+        api<{ leads: Lead[] }>(withNiche(`/api/v1/social/leads?status=${leadFilter.value}`, niche.current)),
         api<{ captures: Capture[] }>(`/api/v1/social/captures?limit=100${q}`),
         api<SocialStats>('/api/v1/social/stats'),
         api<{ settings: Setting[] }>('/api/v1/system/config'),

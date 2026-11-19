@@ -50,6 +50,15 @@ export interface ProductRow {
   stock_build_agorot?: number
 }
 
+/** Revenue and direct margin of one niche (revenue of all niches adds up to the income ledger). */
+export interface NicheRow extends ProductRow {
+  niche: string
+  name: string
+  color: number
+  target_margin_pct: number | null
+  below_target: boolean
+}
+
 export interface Receivable {
   order_id: string
   customer_name: string

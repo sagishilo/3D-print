@@ -24,9 +24,21 @@ STOCK_CHANNEL = "stock"                       # a batch printed for the shelf is
 
 DEMAND_DAYS = 7
 
+# Niches (Wave 1 / M3): each product has one main niche (catalog.products.niche) and optional extra tags. Order lines
+# keep the niche they were sold under. "unassigned" always exists and cannot be archived.
+NICHE_PATTERN = r"^[a-z0-9][a-z0-9-]{0,31}$"
+NICHE_RE = re.compile(NICHE_PATTERN)
+UNASSIGNED = "unassigned"
+NAMEPLATE_NICHE = "gifts"                   # a personalised nameplate is sold as a personalised gift
+NICHE_COLORS = 8                            # the --niche-1 .. --niche-8 colour tokens
+
 
 def valid_sku(sku: str) -> bool:
     return bool(SKU_RE.match(sku))
+
+
+def valid_niche(slug: str) -> bool:
+    return bool(NICHE_RE.match(slug))
 
 
 def trend_pct(now: int, before: int) -> float | None:

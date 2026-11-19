@@ -148,6 +148,7 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?run scripts/init_env.py}
       COOKIE_SECURE: "true"
+      RATE_API_PER_MIN: ${RATE_API_PER_MIN:-600}   # reads per minute per computer (the browser tests need more)
     volumes:
       - ./backups:/backups:ro                # only status.json is read (System: backup status)
     depends_on:

@@ -22,6 +22,7 @@ from printfarm.contracts.catalog import (
 )
 
 from . import auth
+from .niches import niche_scope
 
 router = APIRouter(prefix="/api/v1/catalog")
 DEFAULT_BED = (256.0, 256.0)      # no printer known yet: a Bambu-size bed
@@ -31,7 +32,9 @@ _ITEM = re.compile(r"^([A-Z0-9][A-Z0-9-]{1,31}):(\d{1,3})$")
 PRODUCTS_SQL = f"""
   SELECT p.sku, p.name, p.category, p.material, p.color, p.price_agorot, p.file_name, p.sliced, p.printer_model,
          p.footprint_w, p.footprint_d, p.est_grams, p.est_minutes, p.estimated, p.active, p.created_at, p.updated_at,
-         p.updated_by,
+         p.updated_by, p.niche,
+         coalesce((SELECT json_agg(t.niche ORDER BY t.niche) FROM catalog.product_tags t WHERE t.sku = p.sku), '[]')
+           AS tags,
          coalesce(d.sold_7d, 0) AS sold_7d, coalesce(d.sold_prev_7d, 0) AS sold_prev_7d,
          coalesce(d.in_production, 0) AS in_production
   FROM catalog.products p
@@ -53,27 +56,38 @@ PRODUCTS_SQL = f"""
 """
 
 
+IN_NICHE = "(p.niche = %s OR EXISTS (SELECT 1 FROM catalog.product_tags t WHERE t.sku = p.sku AND t.niche = %s))"
+
+
 def _product(row: dict) -> dict:
     return {**row, "footprint_mm": [row.pop("footprint_w"), row.pop("footprint_d")],
             "trend_pct": trend_pct(row["sold_7d"], row["sold_prev_7d"])}
 
 
 @router.get("/products", dependencies=[Depends(auth.require_auth)])
-async def products(request: Request, category: str | None = None, sort: str = "demand", include_inactive: bool = False):
+async def products(request: Request, category: str | None = None, sort: str = "demand", include_inactive: bool = False,
+                   niche: str | None = None):
     if category is not None and category not in CATEGORIES:
         raise HTTPException(400, f"unknown category {category!r}")
     if sort not in SORTS:
         raise HTTPException(400, f"sort is one of {', '.join(SORTS)}")
+    scope = niche_scope(niche)
     where, params = [], []
     if not include_inactive:
         where.append("p.active")
+    if scope:
+        # The niche's own products and the ones tagged with it.
+        where.append(IN_NICHE)
+        params += [scope, scope]
+    base = list(where)
     if category:
         where.append("p.category = %s")
         params.append(category)
     sql = PRODUCTS_SQL + (f" WHERE {' AND '.join(where)}" if where else "") + f" ORDER BY {SORTS[sort]}"
     rows = [_product(r) for r in await request.app.state.db.fetchall(sql, tuple(params))]
     counts = await request.app.state.db.fetchall(
-        "SELECT category, count(*) AS n FROM catalog.products WHERE active OR %s GROUP BY category", (include_inactive,))
+        "SELECT category, count(*) AS n FROM catalog.products AS p" + (f" WHERE {' AND '.join(base)}" if base else "")
+        + " GROUP BY category", (scope, scope) if scope else ())
     return {"products": rows, "categories": list(CATEGORIES), "counts": {r["category"]: r["n"] for r in counts},
             "demand_days": DEMAND_DAYS}
 
@@ -166,21 +180,25 @@ async def resolve_lines(db, body: dict) -> dict:
     if not isinstance(items, list):
         return body
     skus = [i.get("sku") for i in items if isinstance(i, dict) and i.get("product") == "catalog"]
-    if not skus:
-        return body
     if not all(isinstance(s, str) and valid_sku(s) for s in skus):
         raise HTTPException(400, "a catalog item needs a valid SKU")
     rows = {r["sku"]: r for r in await db.fetchall(
-        "SELECT sku, name, material, color, price_agorot, active FROM catalog.products WHERE sku = ANY(%s)", (skus,))}
+        "SELECT sku, name, material, color, price_agorot, active, niche FROM catalog.products WHERE sku = ANY(%s)",
+        (skus,))} if skus else {}
     out = []
     for item in items:
-        if isinstance(item, dict) and item.get("product") == "catalog":
-            p = rows.get(item["sku"])
-            if p is None or not p["active"]:
-                raise HTTPException(400, f"SKU {item['sku']} is not in the catalog" if p is None
-                                    else f"SKU {item['sku']} is switched off in the catalog")
-            item = {**item, "material": p["material"], "color": p["color"], "text": item.get("text") or p["name"][:40]}
-            if item.get("unit_price_agorot") is None:
-                item["unit_price_agorot"] = p["price_agorot"]
+        if isinstance(item, dict):
+            # The niche is never the browser's to say: a catalog line is sold under its product's niche (a
+            # snapshot), anything else under the coordinator's default (a nameplate is a personalised gift).
+            item = {k: v for k, v in item.items() if k != "niche"}
+            if item.get("product") == "catalog":
+                p = rows.get(item["sku"])
+                if p is None or not p["active"]:
+                    raise HTTPException(400, f"SKU {item['sku']} is not in the catalog" if p is None
+                                        else f"SKU {item['sku']} is switched off in the catalog")
+                item = {**item, "material": p["material"], "color": p["color"], "text": item.get("text") or p["name"][:40],
+                        "niche": p["niche"]}
+                if item.get("unit_price_agorot") is None:
+                    item["unit_price_agorot"] = p["price_agorot"]
         out.append(item)
     return {**body, "items": out}

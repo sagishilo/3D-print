@@ -9,6 +9,7 @@ import OrderBoard from '@/components/orders/OrderBoard.vue'
 import OrderDrawer from '@/components/orders/OrderDrawer.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
+import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import { errorText } from '@/lib/api'
@@ -117,6 +118,7 @@ const plates = computed(() =>
     </div>
   </div>
 
+  <NicheFilterBar what="orders with a line in this niche" />
   <div class="kpis">
     <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.tone" />
   </div>

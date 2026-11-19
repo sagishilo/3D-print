@@ -23,7 +23,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from printfarm.contracts.catalog import CATEGORIES, SKU_PATTERN
+from printfarm.contracts.catalog import CATEGORIES, NICHE_COLORS, NICHE_PATTERN, SKU_PATTERN, UNASSIGNED, valid_niche
 from printfarm.contracts.envelope import Kind, Payload
 from printfarm.contracts.orders import CHANNELS, OrderLine, price_order
 
@@ -75,6 +75,25 @@ class JobShare(BaseModel):
     order_id: str
     product_type: str = "nameplate"
     grams: float = Field(ge=0)
+
+
+class QcCheck(BaseModel):
+    """One line of a niche's QC checklist as the inspector ticked it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    item: str = Field(min_length=1, max_length=120)
+    ok: bool
+
+
+class PaymentLine(BaseModel):
+    """An order line a payment pays for: Finance splits the payment across lines by ``weight_agorot``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    product_type: str
+    niche: str = UNASSIGNED
+    weight_agorot: int = Field(ge=0)        # the line total (the quantity when the order has no prices)
 
 
 class Event(Payload):
@@ -156,6 +175,7 @@ class RecordQc(Command):
     passed: bool
     failed_units: list[str] = []
     reason: str = Field(default="", max_length=300)
+    checklist: list[QcCheck] = Field(default=[], max_length=30)   # the niche's checklist as ticked
     inspected_by: str = ""
 
 
@@ -218,6 +238,7 @@ class OrderQcRecorded(Event):
     passed: bool
     failed_units: list[str] = []
     reason: str = ""
+    checklist: list[QcCheck] = []
     by: str = ""
 
 
@@ -307,6 +328,7 @@ class PaymentRecorded(Event):
     paid_at: datetime
     receipt_no: str | None = None
     product_type: str | None = None
+    lines: list[PaymentLine] = []               # the order's lines (empty: income without an order)
 
 
 class PaymentRefunded(Event):
@@ -318,6 +340,7 @@ class PaymentRefunded(Event):
     refunded_at: datetime
     receipt_no: str | None = None
     product_type: str | None = None
+    lines: list[PaymentLine] = []
 
 
 class SetConfig(Command):
@@ -392,13 +415,77 @@ class UpsertCatalogProduct(Command):
     est_grams: float | None = Field(default=None, gt=0, le=5000)
     est_minutes: float | None = Field(default=None, gt=0, le=10_000)
     active: bool = True
+    niche: str | None = Field(default=None, pattern=NICHE_PATTERN)   # None: keep (a new SKU: unassigned)
+    tags: list[str] | None = Field(default=None, max_length=8)      # extra niches; None: keep
     changed_by: str = ""
 
     @model_validator(mode="after")
     def _category(self) -> UpsertCatalogProduct:
         if self.category not in CATEGORIES:
             raise ValueError(f"unknown category {self.category!r}")
+        if self.tags and any(not valid_niche(t) for t in self.tags):
+            raise ValueError("each tag is a niche slug")
         return self
+
+
+class UpsertNiche(Command):
+    """Add a niche or change one (dashboard: Niches, owner only): its colour and the defaults its products start with."""
+
+    subject: ClassVar[str] = "cmd.personalization.upsert_niche"
+    slug: str = Field(pattern=NICHE_PATTERN)
+    name: str = Field(min_length=1, max_length=40)
+    color: int = Field(default=1, ge=1, le=NICHE_COLORS)
+    icon: str = Field(default="tag", max_length=20)
+    sort: int = Field(default=100, ge=0, le=999)
+    default_material: str = Field(default="PLA", min_length=1, max_length=20)
+    default_colors: list[str] = Field(default=[], max_length=12)
+    target_margin_pct: float = Field(default=50, ge=0, lt=100)
+    qc_checklist: list[str] = Field(default=[], max_length=20)
+    packaging: list[str] = Field(default=[], max_length=12)
+    changed_by: str = ""
+
+    @model_validator(mode="after")
+    def _clean(self) -> UpsertNiche:
+        if any(not c.strip() or len(c) > 120 for c in self.qc_checklist):
+            raise ValueError("each checklist line needs 1-120 characters")
+        if any(not c.strip() or len(c) > 40 for c in [*self.default_colors, *self.packaging]):
+            raise ValueError("colours and packaging items need 1-40 characters each")
+        return self
+
+
+class ArchiveNiche(Command):
+    """Hide a niche from pickers (its history stays); its products move to ``move_to``. ``archived=False`` restores."""
+
+    subject: ClassVar[str] = "cmd.personalization.archive_niche"
+    slug: str = Field(pattern=NICHE_PATTERN)
+    archived: bool = True
+    move_to: str = Field(default=UNASSIGNED, pattern=NICHE_PATTERN)
+    changed_by: str = ""
+
+
+class AssignNiche(Command):
+    """Bulk: set the main niche of several SKUs (dashboard: Catalog > select > Assign niche)."""
+
+    subject: ClassVar[str] = "cmd.personalization.assign_niche"
+    skus: list[str] = Field(min_length=1, max_length=200)
+    niche: str = Field(pattern=NICHE_PATTERN)
+    changed_by: str = ""
+
+
+class NicheUpdated(Event):
+    subject: ClassVar[str] = "evt.catalog.niche.updated"
+    slug: str
+    name: str
+    archived: bool
+    by: str
+    skus_moved: int = 0
+
+
+class NicheRejected(Event):
+    subject: ClassVar[str] = "evt.catalog.niche.rejected"
+    slug: str
+    reason: str
+    by: str
 
 
 class SliceCatalogProduct(Command):

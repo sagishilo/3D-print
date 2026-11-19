@@ -19,6 +19,7 @@ export interface OrderItem {
   material: string
   color: string
   quantity: number
+  niche?: string // the niche the line was sold under
   model: { status?: 'pending' | 'generating' | 'ready' | 'failed'; error?: string | null }
 }
 
@@ -59,7 +60,9 @@ export interface OrderDetail extends OrderCard {
   cancelled: { reason: string; by: string } | null
   history: { from_state: string | null; to_state: string; message_type: string; at: string }[]
   payments: { payment_id: string; kind: 'payment' | 'refund'; amount_agorot: number; method: string; at: string; recorded_by: string }[]
-  qc_checks: { passed: boolean; units_failed: number; units_checked: number; reason: string; checked_by: string; checked_at: string }[]
+  qc_checks: { passed: boolean; units_failed: number; units_checked: number; reason: string; checked_by: string; checked_at: string; checklist?: { item: string; ok: boolean }[] }[]
+  /** The checklists of the niches its lines were sold under (each check once). */
+  qc_checklist?: { item: string; niche: string; niche_name: string }[]
   jobs: { job_id: string; status: string; plate_id: string | null; printer_id: string | null; plate_status: string | null }[]
 }
 

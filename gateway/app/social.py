@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from printfarm.contracts.social import CAPTURE_STATUSES, CLASSIFY_MODEL, DRAFT_MODEL
 
 from . import auth
+from .niches import niche_scope
 
 router = APIRouter(prefix="/api/v1/social", dependencies=[Depends(auth.require_auth)])
 TOKEN_PREFIX = "pfc_"
@@ -89,17 +90,22 @@ async def revoke_token(token_id: str, request: Request, claims: dict = Depends(a
 
 LEAD_SQL = (
     "SELECT l.*, c.group_name, c.post_url, c.post_text, c.captured_by, c.captured_at, c.intent, c.prefilter, "
-    "s.name AS sku_name, s.price_agorot AS sku_price_agorot "
-    "FROM social.leads l JOIN social.captures c USING (capture_id) LEFT JOIN social.sku_vectors s ON s.sku = l.sku ")
+    "s.name AS sku_name, s.price_agorot AS sku_price_agorot, coalesce(p.niche, 'unassigned') AS niche "
+    "FROM social.leads l JOIN social.captures c USING (capture_id) LEFT JOIN social.sku_vectors s ON s.sku = l.sku "
+    "LEFT JOIN catalog.products p ON p.sku = l.sku ")
 
 
 @router.get("/leads")
 async def leads(request: Request, status: str = Query("open", pattern="^(open|posted|dismissed|all)$"),
-                limit: int = Query(100, ge=1, le=500)):
+                limit: int = Query(100, ge=1, le=500), niche: str | None = None):
+    """Leads, newest first. With ``niche``: the leads matched to a product of that niche."""
     where = {"open": "WHERE l.status = ANY(%s) ", "posted": "WHERE l.status = 'posted' ",
-             "dismissed": "WHERE l.status = 'dismissed' ", "all": ""}[status]
-    params: tuple = (list(OPEN_LEADS), limit) if status == "open" else (limit,)
-    rows = await request.app.state.db.fetchall(LEAD_SQL + where + "ORDER BY l.created_at DESC LIMIT %s", params)
+             "dismissed": "WHERE l.status = 'dismissed' ", "all": "WHERE true "}[status]
+    params: tuple = (list(OPEN_LEADS),) if status == "open" else ()
+    if scope := niche_scope(niche):
+        where += "AND coalesce(p.niche, 'unassigned') = %s "
+        params += (scope,)
+    rows = await request.app.state.db.fetchall(LEAD_SQL + where + "ORDER BY l.created_at DESC LIMIT %s", (*params, limit))
     return {"leads": rows}
 
 

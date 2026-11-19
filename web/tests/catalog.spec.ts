@@ -31,7 +31,7 @@ afterEach(() => vi.unstubAllGlobals())
 const product = (over: Partial<CatalogProduct> = {}): CatalogProduct => ({
   sku: 'STD-SLAB-1E', name: 'Single slab easel', category: 'displays', material: 'PLA', color: 'black', price_agorot: 3500,
   file_name: 'easel.3mf', sliced: true, printer_model: 'C12', footprint_mm: [60, 40], est_grams: 21, est_minutes: 42,
-  estimated: false, active: true, sold_7d: 52, sold_prev_7d: 38, in_production: 10, trend_pct: 36.8,
+  estimated: false, active: true, sold_7d: 52, sold_prev_7d: 38, in_production: 10, trend_pct: 36.8, niche: 'home', tags: [],
   created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', updated_by: 'admin', ...over,
 })
 

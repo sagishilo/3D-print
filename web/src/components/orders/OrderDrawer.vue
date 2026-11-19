@@ -30,6 +30,7 @@ const busy = ref(false)
 const texts = reactive<Record<string, string>>({})
 const failUnits = ref<string[]>([])
 const qcReason = ref('')
+const ticked = ref<string[]>([])
 const ship = reactive({ carrier: '', tracking: '' })
 const pay = reactive({ amount: '', method: 'bit' })
 
@@ -95,7 +96,22 @@ function retryTexts() {
   const changed = Object.fromEntries(failedItems.value.map((i) => [i.item_id, texts[i.item_id] ?? i.text]))
   return run('Personalization retried', () => orders.advance(id(), 'PERSONALIZING', changed))
 }
-const passQc = () => run('QC passed', () => orders.qc(id(), true, [], qcReason.value))
+const checklist = computed(() => o.value?.qc_checklist ?? [])
+const ticks = () => checklist.value.map((c) => ({ item: c.item, ok: ticked.value.includes(c.item) }))
+const allTicked = computed(() => checklist.value.every((c) => ticked.value.includes(c.item)))
+async function passQc() {
+  if (!allTicked.value) {
+    const open = checklist.value.filter((c) => !ticked.value.includes(c.item)).map((c) => c.item)
+    const ok = await confirm.ask({
+      title: 'Pass without every check?',
+      text: `Not ticked: ${open.join('; ')}. Pass the order anyway? What was ticked is saved with the check.`,
+      confirmLabel: 'Pass anyway',
+    })
+    if (!ok) return
+  }
+  await run('QC passed', () => orders.qc(id(), true, [], qcReason.value, ticks()))
+  ticked.value = []
+}
 async function failQc() {
   const units = failUnits.value
   const ok = await confirm.ask({
@@ -104,7 +120,8 @@ async function failQc() {
     confirmLabel: 'Fail and reprint',
     danger: true,
   })
-  if (ok) await run('QC failed: reprinting', () => orders.qc(id(), false, units, qcReason.value))
+  if (ok) await run('QC failed: reprinting', () => orders.qc(id(), false, units, qcReason.value, ticks()))
+  ticked.value = []
   failUnits.value = []
 }
 const doShip = () => run('Order shipped', () => orders.ship(id(), ship.carrier.trim(), ship.tracking.trim()))
@@ -174,6 +191,12 @@ async function recordPayment() {
           </template>
           <template v-else-if="o.state === 'QC'">
             <div v-if="o.qc !== 'passed'" class="qc">
+              <fieldset v-if="checklist.length" class="checklist" data-testid="qc-checklist">
+                <legend class="small muted">Check before passing ({{ [...new Set(checklist.map((c) => c.niche_name))].join(", ") }})</legend>
+                <label v-for="c in checklist" :key="c.item" class="unit">
+                  <input v-model="ticked" type="checkbox" :value="c.item" :data-testid="`qc-check-${checklist.indexOf(c)}`" /> {{ c.item }}
+                </label>
+              </fieldset>
               <label>Reason (for a failure)<input v-model="qcReason" class="input" maxlength="300" /></label>
               <fieldset>
                 <legend class="small muted">Failed units (none ticked = all)</legend>
@@ -259,6 +282,7 @@ async function recordPayment() {
           <ul class="list">
             <li v-for="(q, n) in o.qc_checks" :key="n">
               {{ dateTime(q.checked_at) }} · {{ q.passed ? 'passed' : `failed ${q.units_failed}/${q.units_checked} units` }}{{ q.reason ? ` · ${q.reason}` : '' }} · {{ q.checked_by }}
+              <span v-if="q.checklist?.length" class="muted small" data-testid="qc-checklist-result"> · checklist {{ q.checklist.filter((c) => c.ok).length }}/{{ q.checklist.length }}<template v-if="q.checklist.some((c) => !c.ok)"> (not ticked: {{ q.checklist.filter((c) => !c.ok).map((c) => c.item).join("; ") }})</template></span>
             </li>
           </ul>
         </template>

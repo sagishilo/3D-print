@@ -80,7 +80,7 @@ def test_order_details_and_errors(client):
 
 def test_pipeline_stats(client):
     db = state(client).db
-    db.rows["FROM coordinator.qc_checks WHERE checked_at"] = [{"failed": 2, "checked": 80}]
+    db.rows["FROM coordinator.qc_checks q WHERE checked_at"] = [{"failed": 2, "checked": 80}]
     db.rows["h.to_state = 'SHIPPED'"] = [{"cur": 2.6 * 86400, "prev": 3.0 * 86400}]
     assert client.get("/api/v1/orders/stats").json() == {
         "qc_failed_units_7d": 2, "qc_checked_units_7d": 80, "lead_to_ship_days": 2.6, "lead_to_ship_days_prev": 3.0}

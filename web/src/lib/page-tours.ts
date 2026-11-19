@@ -1,10 +1,10 @@
 // הדרכות עמוד (page tours): a deep dive into one screen, started from the "מדריך לעמוד" button on that screen. They use
 // the same overlay as the general tour (components/tour/TourOverlay.vue); this file holds their steps and the registry
 // of every tour.
-import { CATALOG, FILAMENT, FINANCE, HELP, ONBOARDING, SOCIAL, SYSTEM, USERS } from './page-tours-more'
+import { CATALOG, FILAMENT, FINANCE, HELP, NICHES, ONBOARDING, SOCIAL, SYSTEM, USERS } from './page-tours-more'
 import { TOUR_STEPS, type TourAction, type TourStep } from './tour'
 
-export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding' | 'users'
+export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding' | 'users' | 'niches'
 
 export interface Tour {
   id: TourId
@@ -486,7 +486,8 @@ export const TOURS: Record<TourId, Tour> = {
   help: { id: 'help', title: 'מדריך לעמוד · מדריך למשתמש', steps: HELP },
   onboarding: { id: 'onboarding', title: 'מדריך לעמוד · Connect a new printer', steps: ONBOARDING },
   users: { id: 'users', title: 'מדריך לעמוד · Users', steps: USERS },
+  niches: { id: 'niches', title: 'מדריך לעמוד · Niches', steps: NICHES },
 }
 
 /** One deep-dive tour per screen of the dashboard (route meta `tour` names it; the top bar shows its button). */
-export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding', 'users']
+export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding', 'users', 'niches']

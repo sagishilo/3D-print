@@ -8,14 +8,17 @@ import Icon from '@/components/ui/Icon.vue'
 import { errorText } from '@/lib/api'
 import { type CatalogProduct, CATEGORY_LABEL, minutes, skuError, skuFromName, type Upload } from '@/lib/catalog'
 import { bytes } from '@/lib/format'
+import { UNASSIGNED } from '@/lib/niches'
 import { toAgorot } from '@/lib/orders'
 import { useCatalog } from '@/stores/catalog'
+import { useNiche } from '@/stores/niche'
 import { useToasts } from '@/stores/toasts'
 
 const props = defineProps<{ product: CatalogProduct | null; categories: string[] }>()
 const emit = defineEmits<{ close: [] }>()
 const catalog = useCatalog()
 const toasts = useToasts()
+const niche = useNiche()
 
 const COLORS = ['black', 'white', 'grey', 'red', 'blue', 'green', 'gold', 'clear']
 const p = props.product
@@ -29,7 +32,22 @@ const form = reactive({
   grams: p?.estimated ? String(p.est_grams) : '',
   minutes: p?.estimated ? String(p.est_minutes) : '',
   active: p?.active ?? true,
+  niche: p?.niche ?? niche.current ?? UNASSIGNED,
+  tags: [...(p?.tags ?? [])] as string[],
 })
+// The main niche (archived ones only when the product is still in one) and the extra niches it is also tagged with.
+const nicheChoices = computed(() => niche.all.filter((n) => !n.archived || n.slug === form.niche))
+const tagChoices = computed(() => niche.list.filter((n) => n.slug !== form.niche && n.slug !== UNASSIGNED))
+/** A new product starts with its niche's material and first colour. */
+function nicheDefaults() {
+  const n = niche.bySlug[form.niche]
+  if (p || !n) return
+  form.material = n.default_material
+  if (n.default_colors[0] && COLORS.includes(n.default_colors[0])) form.color = n.default_colors[0]
+}
+if (!niche.loaded) void niche.load()
+if (!p) nicheDefaults()
+
 const upload = ref<Upload | null>(null)
 const uploading = ref(false)
 const busy = ref(false)
@@ -87,6 +105,8 @@ async function submit() {
       est_grams: fromSlicer.value ? null : Number(form.grams),
       est_minutes: fromSlicer.value ? null : Number(form.minutes),
       active: form.active,
+      niche: form.niche,
+      tags: form.tags.filter((t) => t !== form.niche),
     })
     toasts.info(p ? `${form.sku} saved` : `${form.sku} imported`, 'The personalization agent checks the file and confirms on the live feed.')
     catalog.reloadSoon()
@@ -149,6 +169,16 @@ onMounted(() => {
           <label>Filament g<input v-model="form.grams" class="input" inputmode="decimal" data-testid="grams" /></label>
           <label>Print minutes<input v-model="form.minutes" class="input" inputmode="decimal" data-testid="minutes" /></label>
         </template>
+        <label>
+          Niche
+          <select v-model="form.niche" class="select" data-testid="product-niche" @change="nicheDefaults">
+            <option v-for="n in nicheChoices" :key="n.slug" :value="n.slug">{{ n.name }}</option>
+          </select>
+        </label>
+        <fieldset v-if="tagChoices.length" class="tags">
+          <legend>Also in <span class="muted">(extra niches, optional)</span></legend>
+          <label v-for="n in tagChoices" :key="n.slug" class="check"><input v-model="form.tags" type="checkbox" :value="n.slug" :data-testid="`product-tag-${n.slug}`" /> {{ n.name }}</label>
+        </fieldset>
         <label v-if="p" class="check"><input v-model="form.active" type="checkbox" /> On sale (off: no new orders or batches)</label>
       </div>
 
@@ -214,6 +244,25 @@ label.check {
   flex-direction: row;
   align-items: center;
   grid-column: span 2;
+}
+.tags {
+  grid-column: 1 / -1;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tags legend {
+  width: 100%;
+  margin-bottom: 4px;
+}
+.tags label.check {
+  grid-column: auto;
+  color: var(--text);
 }
 .file {
   padding-top: 8px;

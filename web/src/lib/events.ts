@@ -109,6 +109,10 @@ export function describe(env: Envelope): Described {
       return out(`${d.sku} “${d.name}” saved${d.sliced ? ' · sliced' : ' · not sliced'}${d.active ? '' : ' · switched off'} (${d.by})`, 'ok', 'stock')
     case 'catalog.product.rejected':
       return out(`${d.sku}: ${d.action === 'slice' ? 'not sliced' : 'not saved'} · ${d.reason}`, 'warn', 'stock')
+    case 'catalog.niche.updated':
+      return out(`Niche “${d.name}” ${d.archived ? 'archived' : 'saved'}${d.skus_moved ? ` · ${d.skus_moved} product${d.skus_moved === 1 ? '' : 's'} moved` : ''} (${d.by})`, 'ok', 'stock')
+    case 'catalog.niche.rejected':
+      return out(`Niche ${d.slug} not changed · ${d.reason}`, 'warn', 'stock')
     case 'personalization.model.ready':
       return out(`Model for ${d.order_id} ready · ~${round(d.est_grams)} g, ~${round(d.est_minutes)} min${d.sliced ? '' : ' (estimate)'}`, 'ok', 'order')
     case 'personalization.model.failed':

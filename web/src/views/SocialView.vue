@@ -9,6 +9,7 @@ import LeadReview from '@/components/social/LeadReview.vue'
 import SocialSettings from '@/components/social/SocialSettings.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
+import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { errorText } from '@/lib/api'
 import { ago } from '@/lib/format'
@@ -85,6 +86,7 @@ function exportLeads() {
       <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="add-post-open" @click="adding = true"><Icon name="plus" :size="14" />Add post</button>
     </div>
   </div>
+  <NicheFilterBar what="leads matched to a product of this niche" />
 
   <p v-if="social.error" class="err" role="alert">{{ social.error }}</p>
   <p v-if="s" class="model-line small" :class="{ 'text-warn': s.agent.llm !== 'claude' }" data-testid="model-line">{{ modelLine(s) }}</p>

@@ -10,6 +10,7 @@ import type { FeedItem, PrinterState, Tone } from '@/lib/types'
 
 import { useApprovals } from './approvals'
 import { useCatalog } from './catalog'
+import { useNiche } from './niche'
 import { useSocial } from './social'
 import { useAuth } from './auth'
 import { useFinance } from './finance'
@@ -84,6 +85,9 @@ export const useLive = defineStore('live', () => {
     if (d.kind === 'catalog.product.rejected')
       toasts.error(data.action === 'slice' ? `${data.sku} not sliced` : `${data.sku} not saved`, String(data.reason))
     if (d.kind === 'catalog.product.updated') toasts.ok(`${data.sku} in the catalog`, d.text)
+    if (d.kind.startsWith('catalog.niche.')) void useNiche().load()
+    if (d.kind === 'catalog.niche.updated') toasts.ok('Niche saved', d.text)
+    if (d.kind === 'catalog.niche.rejected') toasts.error('Niche not changed', String(data.reason))
     if (d.kind.startsWith('social.') || d.kind === 'system.config.changed') useSocial().reloadSoon()
     if (d.kind === 'social.reply.drafted' && !data.failed) toasts.info('Reply drafted', 'A lead waits for your review on Social & Trends.')
     if (d.kind === 'order.move.rejected') toasts.error(`Order ${data.order_id} not moved`, String(data.reason))

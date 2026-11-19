@@ -20,6 +20,8 @@ from printfarm.contracts.messages import (
     AcknowledgeInventoryAlert,
     AdjustSpool,
     AdvanceOrder,
+    ArchiveNiche,
+    AssignNiche,
     CalibratePrinter,
     CancelOrder,
     CancelPrint,
@@ -50,6 +52,7 @@ from printfarm.contracts.messages import (
     UpdateFinanceSettings,
     UpdatePo,
     UpsertCatalogProduct,
+    UpsertNiche,
 )
 
 
@@ -126,6 +129,9 @@ COMMANDS: dict[str, CommandSpec] = {
     "catalog.upsert": CommandSpec(UpsertCatalogProduct, "changed_by"),
     "catalog.slice": CommandSpec(SliceCatalogProduct, "requested_by"),
     "catalog.batch": CommandSpec(CreateOrder, "created_by", fill=_new_batch),
+    "catalog.niche.upsert": CommandSpec(UpsertNiche, "changed_by", min_role="owner"),
+    "catalog.niche.archive": CommandSpec(ArchiveNiche, "changed_by", min_role="owner"),
+    "catalog.niche.assign": CommandSpec(AssignNiche, "changed_by"),
     "approvals.decide": CommandSpec(DecideApproval, "decided_by"),
     "printers.pause": CommandSpec(PausePrint, "requested_by", deadline_s=30),
     "printers.resume": CommandSpec(ResumePrint, "requested_by", deadline_s=30),

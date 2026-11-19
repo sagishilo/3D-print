@@ -15,6 +15,7 @@ export interface Prefs {
   theme?: Theme
   density?: Density
   mode?: Mode
+  niche?: string // a niche slug, or 'all' (stores/niche.ts)
 }
 
 /** Owners start in Expert mode (they run the system); everyone else in Simple. */

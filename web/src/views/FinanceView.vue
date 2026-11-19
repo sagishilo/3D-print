@@ -7,6 +7,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import MoneyDialog from '@/components/finance/MoneyDialog.vue'
+import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
@@ -242,7 +243,28 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </section>
 
   <!-- ------------------------------------------------ products -->
-  <section v-else-if="tab === 'products'" class="panel" data-testid="products">
+  <section v-else-if="tab === 'products'" class="panel" data-testid="niche-margins">
+    <div class="panel-head"><h2>Revenue and margin per niche · {{ r?.period.label }}</h2><span class="panel-note">each payment split across its order’s lines · adds up to the income ledger</span></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Niche</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">Direct costs</th><th class="num">Margin</th><th class="num">Margin %</th><th class="num">Target</th></tr></thead>
+        <tbody>
+          <tr v-for="n in finance.niches" :key="n.niche" :data-testid="`niche-row-${n.niche}`">
+            <td><span class="niche-dot" :style="{ background: `var(--niche-${n.color})` }" />{{ n.name }}</td>
+            <td class="num">{{ n.units }}</td>
+            <td class="num">{{ shekels(n.revenue_agorot) }}</td>
+            <td class="num">{{ shekels((n.costs.filament ?? 0) + (n.costs.electricity ?? 0)) }}</td>
+            <td class="num">{{ shekels(n.margin_agorot) }}</td>
+            <td class="num" :class="{ 'text-warn': n.below_target }">{{ n.margin_pct != null ? `${n.margin_pct}%` : '—' }}<span v-if="n.below_target" class="sr-only"> (below target)</span></td>
+            <td class="num muted">{{ n.target_margin_pct != null ? `${n.target_margin_pct}%` : '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!finance.niches.length" class="empty">No sales or print costs in this period.</p>
+    </div>
+  </section>
+  <section v-if="tab === 'products'" class="panel" data-testid="products">
+    <NicheFilterBar what="products of this niche" />
     <div class="panel-head"><h2>Margin per product · {{ r?.period.label }}</h2><span class="panel-note">filament + electricity allocated per job from grams and print hours · catalog products per SKU</span></div>
     <div class="table-wrap">
       <table class="data">
@@ -510,5 +532,13 @@ h3 {
 }
 .foot {
   margin-top: 4px;
+}
+.niche-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 </style>

@@ -23,6 +23,8 @@ export interface CatalogProduct {
   created_at: string
   updated_at: string
   updated_by: string
+  niche: string // the main niche (lib/niches.ts)
+  tags: string[] // extra niches
 }
 
 export interface ThreeMfInfo {
