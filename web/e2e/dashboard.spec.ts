@@ -85,10 +85,9 @@ test('live floor: cameras, state, telemetry replay and event replay', async ({ p
 test('system & agents: health, NATS, servers and printers', async ({ page }) => {
   await signIn(page, '/system')
   await expect(page.getByRole('heading', { name: 'System & Agents' })).toBeVisible()
-  for (const agent of ['coordinator', 'telemetry', 'fleet', 'personalization', 'inventory', 'finance', 'social']) {
+  for (const agent of ['coordinator', 'telemetry', 'fleet', 'personalization', 'inventory', 'finance', 'social', 'trend']) {
     await expect(page.getByTestId(`agent-${agent}`)).toHaveAttribute('data-status', 'healthy', { timeout: 40_000 })
   }
-  await expect(page.getByTestId('agent-trend')).toContainText('Planned')
   for (const server of ['gateway', 'nats', 'postgres', 'go2rtc']) {
     await expect(page.getByTestId(`server-${server}`)).toContainText('OK')
   }

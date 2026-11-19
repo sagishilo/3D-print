@@ -1,10 +1,10 @@
 // הדרכות עמוד (page tours): a deep dive into one screen, started from the "מדריך לעמוד" button on that screen. They use
 // the same overlay as the general tour (components/tour/TourOverlay.vue); this file holds their steps and the registry
 // of every tour.
-import { CATALOG, FILAMENT, FINANCE, HELP, NICHES, ONBOARDING, PRICING, SOCIAL, SYSTEM, USERS } from './page-tours-more'
+import { CATALOG, FILAMENT, FINANCE, HELP, NICHES, ONBOARDING, PRICING, SCORECARD, SOCIAL, SYSTEM, USERS } from './page-tours-more'
 import { TOUR_STEPS, type TourAction, type TourStep } from './tour'
 
-export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding' | 'users' | 'niches' | 'pricing'
+export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding' | 'users' | 'niches' | 'pricing' | 'scorecard'
 
 export interface Tour {
   id: TourId
@@ -488,7 +488,8 @@ export const TOURS: Record<TourId, Tour> = {
   users: { id: 'users', title: 'מדריך לעמוד · Users', steps: USERS },
   niches: { id: 'niches', title: 'מדריך לעמוד · Niches', steps: NICHES },
   pricing: { id: 'pricing', title: 'מדריך לעמוד · Price calculator', steps: PRICING },
+  scorecard: { id: 'scorecard', title: 'מדריך לעמוד · Niche scorecard', steps: SCORECARD },
 }
 
 /** One deep-dive tour per screen of the dashboard (route meta `tour` names it; the top bar shows its button). */
-export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding', 'users', 'niches', 'pricing']
+export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding', 'users', 'niches', 'pricing', 'scorecard']

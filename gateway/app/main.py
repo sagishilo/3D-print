@@ -27,6 +27,7 @@ from printfarm.contracts.catalog import MAX_UPLOAD_BYTES
 from printfarm.store import schema
 
 from . import (
+    analytics,
     approvals,
     auth,
     cameras,
@@ -110,6 +111,7 @@ async def _unexpected(request: Request, exc: Exception):
     return JSONResponse({"detail": "internal error", "request_id": _rid(request)}, status_code=500)
 
 for module in (auth, users, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog,
+               analytics,
                niches, pricing, social):
     app.include_router(module.router)
 

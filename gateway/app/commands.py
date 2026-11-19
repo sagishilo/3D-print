@@ -22,6 +22,7 @@ from printfarm.contracts.messages import (
     AdvanceOrder,
     ArchiveNiche,
     AssignNiche,
+    BackfillAnalytics,
     CalibratePrinter,
     CancelOrder,
     CancelPrint,
@@ -168,6 +169,8 @@ COMMANDS: dict[str, CommandSpec] = {
     "items.reorder": CommandSpec(ReorderItem, "requested_by"),
     "bom.set": CommandSpec(SetBom, "changed_by"),
     "spools.dried": CommandSpec(MarkSpoolDried, "dried_by"),
+    # Wave 1 / M6: rebuild the daily analytics (Trend Analyst)
+    "analytics.backfill": CommandSpec(BackfillAnalytics, "requested_by", min_role="owner"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting, min_role="owner"),
     # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
     "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),

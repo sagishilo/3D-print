@@ -23,7 +23,7 @@ from printfarm.agents.finance.reports import (
     vat_summary,
 )
 
-from . import auth
+from . import auth, export
 from .niches import niche_scope
 
 router = APIRouter(prefix="/api/v1/finance", dependencies=[Depends(auth.OPERATOR)])   # not viewers
@@ -145,21 +145,32 @@ async def _margins(db, p: Period, scope: str | None, key: str) -> list:
     return product_margins(revenue, allocated, units, stock_build)
 
 
+COST_COLUMNS = ["filament_agorot", "electricity_agorot", "from_stock_agorot"]
+
+
+def _flat(row: dict) -> dict:
+    """A margin row for a download: each cost part as its own column."""
+    return {**row, **{f"{k}_agorot": v for k, v in (row.get("costs") or {}).items()}}
+
+
 @router.get("/products")
 async def products(request: Request, period: str = Query("month", pattern="^(month|quarter|year)$"), month: str | None = None,
-                   niche: str | None = None):
+                   niche: str | None = None, format: str | None = Query(None, pattern=export.FORMAT)):
     """Margin per product type (a catalog line by its SKU), optionally within one niche."""
     p = period_of(period, _anchor(month))
     margins = await _margins(request.app.state.db, p, niche_scope(niche), "product_type")
-    return {"period": _p(p), "products": [
-        {"product_type": m.product_type, "units": m.units, "revenue_agorot": m.revenue, "costs": m.costs,
-         "margin_agorot": m.margin, "margin_pct": m.margin_pct, "stock_build_agorot": m.stock_build}
-        for m in margins]}
+    rows = [{"product_type": m.product_type, "units": m.units, "revenue_agorot": m.revenue, "costs": m.costs,
+             "margin_agorot": m.margin, "margin_pct": m.margin_pct, "stock_build_agorot": m.stock_build} for m in margins]
+    if format:
+        return export.table([_flat(r) for r in rows], ["product_type", "units", "revenue_agorot", *COST_COLUMNS,
+                                                       "margin_agorot", "margin_pct", "stock_build_agorot"],
+                            name=f"printfarm-products-{p.start.isoformat()[:7]}-{p.kind}", fmt=format, sheet="Products")
+    return {"period": _p(p), "products": rows}
 
 
 @router.get("/niches")
 async def niche_margins(request: Request, period: str = Query("month", pattern="^(month|quarter|year)$"),
-                        month: str | None = None):
+                        month: str | None = None, format: str | None = Query(None, pattern=export.FORMAT)):
     """Revenue and direct margin per niche. Revenue adds up to the income ledger (income without an order is
     "unassigned"); each niche's target margin is shown beside its margin."""
     db, p = request.app.state.db, period_of(period, _anchor(month))
@@ -174,6 +185,10 @@ async def niche_margins(request: Request, period: str = Query("month", pattern="
                     "stock_build_agorot": m.stock_build,
                     "below_target": m.margin_pct is not None and n.get("target_margin_pct") is not None
                     and m.revenue > 0 and m.margin_pct < n["target_margin_pct"]})
+    if format:
+        return export.table([_flat(r) for r in out], ["name", "units", "revenue_agorot", *COST_COLUMNS, "margin_agorot",
+                                                      "margin_pct", "target_margin_pct", "stock_build_agorot"],
+                            name=f"printfarm-niches-{p.start.isoformat()[:7]}-{p.kind}", fmt=format, sheet="Niches")
     return {"period": _p(p), "niches": out, "revenue_agorot": sum(x["revenue_agorot"] for x in out)}
 
 

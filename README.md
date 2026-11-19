@@ -295,11 +295,21 @@ What happens to a post:
 4. From the **lead threshold** (0.7) upward the post becomes a **lead**, and **Claude Opus 5.5** drafts the reply, using only the facts in `config/social.toml`. Put your real business name, area, contact line and facts there; the shipped values are placeholders.
 5. The review queue shows the post, the matched SKU and the draft. **Approve & Copy** copies your (edited) text; paste it in the group, post it, then **Mark as posted**. Keys: J / K move, A approve & copy, P mark posted, R reject.
 
-To switch it on, put a Claude API key in `.env` (`ANTHROPIC_API_KEY=sk-ant-...`, from console.anthropic.com), then `docker compose up -d social`. Only the social container gets the key. Without a key, posts are kept and **wait**; press Rescore on each after adding it.
+To switch it on, put a Claude API key in `.env` (`ANTHROPIC_API_KEY=sk-ant-...`, from console.anthropic.com), then `docker compose up -d social`. Only the social and trend containers get the key. Without a key, posts are kept and **wait**; press Rescore on each after adding it.
 
 **Cost.** Claude is paid per use. At 50–300 captured posts a day, expect a few dollars a month: Haiku triage costs well under a tenth of a cent a post, and an Opus draft one to two cents, only for leads. The screen shows today's and this month's spend. **Daily model budget** (default $2) stops all model calls for the rest of the day once reached; waiting posts can be rescored the next day.
 
 **Accuracy.** Mark captures **Buyer** or **Not buyer**. Each label also teaches the local prefilter, and the screen shows how many leads were real buyers and how many buyers became leads. Label a few dozen real posts before you trust or move the threshold.
+
+## Trend Analyst and analytics
+
+The `trend` agent counts every business day once an hour into `reporting.daily_sku` and `reporting.daily_niche` (sales, net revenue, job costs, print hours, QC, social activity), then marks the niches and products that are rising or cooling (`trend.signals`). The **Niche scorecard** (Business) and the Social page's Trends panel read them. On its first start it backfills the last 120 days; **Rebuild** on the scorecard (owner) recounts them on demand.
+
+Optional insight: with **Trend Analyst insights** switched on (System › Config) and `ANTHROPIC_API_KEY` set, Claude Haiku writes one short Hebrew insight per niche once a day from aggregated numbers only (no customer data), capped at $0.25 a day. `TREND_LLM=fake` in `.env` writes them from the numbers without Claude (demos, tests). `TREND_INTERVAL_S` changes how often it counts (default 3600).
+
+Every report and scorecard downloads as **CSV** (UTF-8 with a BOM, so Excel shows Hebrew) or **Excel** (`?format=csv|xlsx` on the API).
+
+`RATE_API_PER_MIN` (default 600) is the gateway's read limit per computer; raise it only for automated browser tests.
 
 ## Daily operations
 

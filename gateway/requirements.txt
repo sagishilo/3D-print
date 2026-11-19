@@ -8,3 +8,4 @@ pyjwt==2.15.1
 argon2-cffi==25.1.0
 pydantic-settings==2.16.3
 aiomqtt==2.5.1                # printer onboarding: the one-off Bambu connection test
+openpyxl==3.1.5              # Excel (.xlsx) exports of reports (Wave 1 / M6)

@@ -1359,10 +1359,32 @@ class CaptureLabelled(Event):
 class TrendSignal(Event):
     subject: ClassVar[str] = "evt.trend.signal.detected"
     signal_id: str
-    topic: str
+    topic: str                   # "niche:<slug>" | "sku:<SKU>"
     direction: str               # "rising" | "falling"
     strength: float
     evidence: list[str]
+    day: str | None = None       # the business day (ISO) of the analytics it came from
+    niche: str | None = None
+    change_pct: float | None = None
+
+
+class BackfillAnalytics(Command):
+    """Rebuild the daily analytics of the last ``days`` days, then the day's signals (dashboard: Scorecard, owner)."""
+
+    subject: ClassVar[str] = "cmd.trend.backfill"
+    days: int = Field(default=30, ge=1, le=400)
+    requested_by: str = ""
+
+
+class AnalyticsRolledUp(Event):
+    subject: ClassVar[str] = "evt.trend.rollup.done"
+    days: int
+    first_day: str
+    last_day: str
+    rows: int
+    signals: int
+    insights: int = 0
+    by: str = "auto"
 
 
 # ---------------------------------------------------------------- platform

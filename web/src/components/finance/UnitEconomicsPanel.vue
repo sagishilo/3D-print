@@ -4,6 +4,7 @@
 // target margin. Settings (labour rate, channel fees) and each product's finishing minutes change it.
 import { computed, onMounted, ref, watch } from 'vue'
 
+import DownloadMenu from '@/components/ui/DownloadMenu.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { api, errorText } from '@/lib/api'
 import { shekels, title } from '@/lib/format'
@@ -40,6 +41,7 @@ const rows = computed(() => report.value?.products ?? [])
     <div class="panel-head">
       <h2>Unit economics · one piece</h2>
       <span v-if="report" class="panel-note">failed prints {{ Math.round(report.failure_rate * 1000) / 10 }}% (last {{ report.failure_days }} days) · labour {{ shekels(report.labour_agorot_per_hour) }}/h</span>
+      <DownloadMenu :path="channel ? `/api/v1/finance/unit-economics?channel=${channel}` : '/api/v1/finance/unit-economics'" testid="ue-download" />
       <label class="sell">
         Sold on
         <select v-model="channel" class="select" data-testid="ue-channel">

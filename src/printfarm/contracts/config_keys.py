@@ -49,6 +49,8 @@ CONFIG_KEYS: tuple[ConfigKey, ...] = (
     ConfigKey("social.daily_budget_usd", "Daily model budget (USD)",
               "Captures wait once today's Claude spend reaches this; they can be rescored tomorrow", 2.0,
               minimum=0.0, maximum=100.0),
-    ConfigKey("trend.enabled", "Trend Analyst module", "Optional · shows Trends on the Social page", False, phase=10),
+    ConfigKey("trend.enabled", "Trend Analyst insights",
+              "Once a day Claude writes a short Hebrew insight per niche from the week's numbers (one cheap call, at most "
+              "$0.25 a day); off: the scorecard and trends work without it", False),
 )
 CONFIG_DEFAULTS: dict[str, object] = {k.key: k.default for k in CONFIG_KEYS}

@@ -7,6 +7,7 @@ import AddPostDialog from '@/components/social/AddPostDialog.vue'
 import CaptureCard from '@/components/social/CaptureCard.vue'
 import LeadReview from '@/components/social/LeadReview.vue'
 import SocialSettings from '@/components/social/SocialSettings.vue'
+import TrendPanel from '@/components/social/TrendPanel.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
 import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
@@ -117,13 +118,7 @@ function exportLeads() {
 
     <div class="side">
       <LeadReview :leads="social.leads" :draft-model="s?.models.draft ?? 'claude-opus-5-5'" />
-      <section class="panel trend" aria-label="Trend Analyst">
-        <div class="panel-head">
-          <h2>Trend Analyst insights</h2>
-          <span class="chip">phase 10b</span>
-        </div>
-        <p class="empty">Rising and cooling demand from captured posts and sales, with catalog suggestions, arrives with the Trend Analyst.</p>
-      </section>
+      <TrendPanel />
       <p class="notice"><Icon name="alert" :size="14" />Replies are never posted automatically. You post every reply yourself · no auto-post option exists.</p>
     </div>
   </div>

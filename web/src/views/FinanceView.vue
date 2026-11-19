@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import MoneyDialog from '@/components/finance/MoneyDialog.vue'
 import UnitEconomicsPanel from '@/components/finance/UnitEconomicsPanel.vue'
+import DownloadMenu from '@/components/ui/DownloadMenu.vue'
 import NicheFilterBar from '@/components/ui/NicheFilterBar.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
@@ -253,7 +254,8 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   <!-- ------------------------------------------------ products -->
   <UnitEconomicsPanel v-else-if="tab === 'products'" />
   <section v-if="tab === 'products'" class="panel" data-testid="niche-margins">
-    <div class="panel-head"><h2>Revenue and margin per niche · {{ r?.period.label }}</h2><span class="panel-note">each payment split across its order’s lines · adds up to the income ledger</span></div>
+    <div class="panel-head"><h2>Revenue and margin per niche · {{ r?.period.label }}</h2><span class="panel-note">each payment split across its order’s lines · adds up to the income ledger</span>
+      <DownloadMenu :path="`/api/v1/finance/niches?period=${finance.period}&month=${finance.month}`" testid="niches-download" /></div>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Niche</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">Direct costs</th><th class="num">Margin</th><th class="num">Margin %</th><th class="num">Target</th></tr></thead>

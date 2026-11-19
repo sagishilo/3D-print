@@ -32,6 +32,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'fleet/add', name: 'printer-add', component: () => import('@/views/PrinterOnboardingView.vue'), meta: { title: 'Connect a printer', tour: 'onboarding', minRole: 'operator' } },
       { path: 'fleet', name: 'fleet', component: () => import('@/views/FleetView.vue'), meta: { title: 'Printer Fleet', tour: 'fleet' } },
       { path: 'finance', name: 'finance', component: () => import('@/views/FinanceView.vue'), meta: { title: 'Finance', tour: 'finance', minRole: 'operator' } },
+      { path: 'scorecard', name: 'scorecard', component: () => import('@/views/ScorecardView.vue'), meta: { title: 'Niche scorecard', tour: 'scorecard', minRole: 'operator' } },
       { path: 'help', name: 'help', component: () => import('@/views/HelpView.vue'), meta: { title: 'מדריך למשתמש', tour: 'help' } },
       { path: 'system', name: 'system', component: () => import('@/views/SystemView.vue'), meta: { title: 'System & Agents', tour: 'system', minRole: 'operator' } },
       { path: 'users', name: 'users', component: () => import('@/views/UsersView.vue'), meta: { title: 'Users', tour: 'users', minRole: 'owner' } },

@@ -20,11 +20,14 @@ from printfarm.agents.finance.ledger import FinanceSettings
 from printfarm.contracts.catalog import UNASSIGNED, valid_sku
 from printfarm.contracts.orders import CHANNELS
 
-from . import auth
+from . import auth, export
 from .niches import niche_scope
 
 router = APIRouter(dependencies=[Depends(auth.OPERATOR)])          # money: not for viewers
 FAILURE_DAYS = 30
+UE_COLUMNS = ["sku", "name", "niche_name", "price_agorot", "unit_cost_agorot", "filament_agorot", "electricity_agorot",
+              "failures_agorot", "labour_agorot", "parts_agorot", "channel_fee_agorot", "margin_agorot", "margin_pct",
+              "target_margin_pct", "profit_per_print_hour_agorot", "recommended_price_agorot", "below_target"]
 
 
 async def context(db) -> dict:
@@ -67,7 +70,8 @@ def _channel(channel: str | None) -> str | None:
 
 
 @router.get("/api/v1/finance/unit-economics")
-async def unit_economics_report(request: Request, niche: str | None = None, channel: str | None = Query(None)):
+async def unit_economics_report(request: Request, niche: str | None = None, channel: str | None = Query(None),
+                               format: str | None = Query(None, pattern=export.FORMAT)):
     db, scope, channel = request.app.state.db, niche_scope(niche), _channel(channel)
     ctx = await context(db)
     rows = await db.fetchall(
@@ -85,6 +89,13 @@ async def unit_economics_report(request: Request, niche: str | None = None, chan
         out.append({"sku": p["sku"], "name": p["name"], "niche": p["niche"], "niche_name": n.get("name", p["niche"]),
                     "niche_color": n.get("color", 8), "estimated": p["estimated"], "grams": p["est_grams"],
                     "print_minutes": p["est_minutes"], "post_minutes": p["post_minutes"], **asdict(e)})
+    if format:
+        flat = [{**r, **{f"{k}_agorot": v for k, v in r["costs"].items()}, "price_agorot": r["gross_price"],
+                 "unit_cost_agorot": r["unit_cost"], "margin_agorot": r["margin"],
+                 "profit_per_print_hour_agorot": r["profit_per_print_hour"], "recommended_price_agorot": r["recommended_price"]}
+                for r in out]
+        return export.table(flat, UE_COLUMNS, name=f"printfarm-unit-economics{'-' + channel if channel else ''}", fmt=format,
+                            sheet="Unit economics")
     s: FinanceSettings = ctx["settings"]
     return {"products": out, "failure_rate": round(ctx["failure_rate"], 4), "failure_days": FAILURE_DAYS,
             "channel": channel, "channel_fee_pct": float(s.channel_fees.get(channel, 0)) if channel else 0.0,

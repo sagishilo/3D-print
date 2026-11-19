@@ -114,7 +114,7 @@ def test_agents_health_version_and_queue(client):
     assert agents["fleet"]["status"] == "late"
     assert agents["telemetry"]["status"] == "down" and agents["telemetry"]["queue"] is None
     assert agents["social"]["status"] == "down"            # a real agent since phase 10
-    assert agents["trend"]["status"] == "planned"
+    assert agents["trend"]["status"] == "down"             # a real agent since Wave 1 / M6
 
 
 def test_overview_combines_nats_postgres_and_dlq(client):

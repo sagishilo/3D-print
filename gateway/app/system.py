@@ -32,7 +32,7 @@ AGENTS = (
     {"name": "inventory", "label": "Inventory", "detail": "filament · reorders · POs", "tier": "core"},
     {"name": "finance", "label": "Finance", "detail": "ledger · VAT", "tier": "core"},
     {"name": "social", "label": "Social Listening", "detail": "captured posts · intent · reply drafts", "tier": "optional"},
-    {"name": "trend", "label": "Trend Analyst", "detail": "arrives in phase 10b", "tier": "optional", "planned": True},
+    {"name": "trend", "label": "Trend Analyst", "detail": "daily analytics · rising / falling niches and SKUs", "tier": "optional"},
 )
 HEALTHY_WITHIN_S = 25   # heartbeats come every 10 s and expire from the KV bucket after 30 s
 DLQ_SCAN_MAX = 1000

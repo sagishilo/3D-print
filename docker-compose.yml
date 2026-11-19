@@ -226,6 +226,15 @@ services:
       SOCIAL_CONFIG: /app/config/social.toml
       SOCIAL_LLM: ${SOCIAL_LLM:-}         # "fake" = test mode: keyword triage, canned drafts, no Claude calls
 
+  trend:
+    <<: *agent
+    command: ["agent", "trend"]
+    environment:
+      <<: *agent-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TREND_LLM: ${TREND_LLM:-}           # "fake" = test mode: the insight from the numbers, no Claude calls
+      TREND_INTERVAL_S: ${TREND_INTERVAL_S:-3600}
+
   telemetry:
     <<: *agent
     command: ["agent", "telemetry"]
