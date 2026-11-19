@@ -89,6 +89,12 @@ const mixTotal = computed(() => r.value?.current.expenses_agorot ?? 0)
 
 // ---------------------------------------------------------------- dialogs
 const money = ref<{ mode: 'payment' | 'expense'; orderId?: string } | null>(null)
+// ?new=payment | ?new=expense (the command palette): open that dialog once.
+if (route.query.new === 'payment' || route.query.new === 'expense') {
+  money.value = { mode: route.query.new }
+  const { new: _new, ...others } = route.query
+  void router.replace({ query: others })
+}
 
 // ---------------------------------------------------------------- settings
 const form = reactive({ business_type: 'murshe', vat: '', tariff: '', watts: '', perGram: '', ceiling: '', labour: '', fees: {} as Record<string, string>, confirm: false })

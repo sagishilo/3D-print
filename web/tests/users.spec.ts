@@ -42,7 +42,7 @@ describe('the guard', () => {
     const router = createAppRouter(createMemoryHistory())
     for (const path of ['/finance', '/system', '/users']) {
       await router.push(path)
-      expect(router.currentRoute.value.path, path).toBe('/live')
+      expect(router.currentRoute.value.path, path).toBe('/today')
     }
     await router.push('/orders')
     expect(router.currentRoute.value.path).toBe('/orders')
@@ -54,7 +54,7 @@ describe('the guard', () => {
     await router.push('/finance')
     expect(router.currentRoute.value.path).toBe('/finance')
     await router.push('/users')
-    expect(router.currentRoute.value.path).toBe('/live')
+    expect(router.currentRoute.value.path).toBe('/today')
   })
 
   it('sends someone with a temporary password to choose their own first', async () => {

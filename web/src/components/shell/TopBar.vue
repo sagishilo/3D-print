@@ -1,57 +1,38 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import PageTourButton from '@/components/tour/PageTourButton.vue'
+import CommandPalette from './CommandPalette.vue'
 import NicheSwitcher from './NicheSwitcher.vue'
 import UserMenu from './UserMenu.vue'
 import Icon from '@/components/ui/Icon.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { command, errorText } from '@/lib/api'
-import { NAV } from '@/nav'
 import { useApprovals } from '@/stores/approvals'
 import { vCan } from '@/directives/can'
 import { useConfirm } from '@/stores/confirm'
 import { useLive } from '@/stores/live'
-import { usePrefs } from '@/stores/prefs'
 import { usePrinters } from '@/stores/printers'
-import { useSystem } from '@/stores/system'
 import { useToasts } from '@/stores/toasts'
 
 defineEmits<{ menu: []; approvals: [] }>()
 
-const router = useRouter()
 const route = useRoute()
 // Every screen's page tour starts from the same place: the far right of the top bar (nothing beside it changes width).
 const pageTour = computed(() => route.meta.tour)
 const live = useLive()
-const prefs = usePrefs()
 const approvals = useApprovals()
 const printers = usePrinters()
-const system = useSystem()
 const toasts = useToasts()
 const confirm = useConfirm()
 
-// ---------------------------------------------------------------- search (printers, screens, agents)
-const query = ref('')
-const searchInput = ref<HTMLInputElement | null>(null)
-const results = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return []
-  const out: { label: string; hint: string; to: string | { path: string; query: Record<string, string> } }[] = []
-  for (const p of printers.list) if (p.id.includes(q)) out.push({ label: p.id, hint: 'printer', to: { path: '/fleet', query: { printer: p.id } } })
-  for (const n of NAV) if (n.label.toLowerCase().includes(q)) out.push({ label: n.label, hint: 'screen', to: n.to })
-  if (prefs.expert) for (const a of system.agents) if (a.label.toLowerCase().includes(q)) out.push({ label: a.label, hint: 'agent', to: { path: '/system', query: { tab: 'agents' } } })
-  return out.slice(0, 8)
-})
-function go(to: (typeof results.value)[number]['to']) {
-  query.value = ''
-  void router.push(to)
-}
+// ---------------------------------------------------------------- command palette (⌘K / Ctrl+K, or the search box)
+const paletteOpen = ref(false)
 function onGlobalKey(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
-    searchInput.value?.focus()
+    paletteOpen.value = !paletteOpen.value
   }
 }
 onMounted(() => window.addEventListener('keydown', onGlobalKey))
@@ -86,26 +67,13 @@ async function pauseAll() {
     <button type="button" class="icon-btn menu" aria-label="Open navigation" @click="$emit('menu')"><Icon name="menu" :size="18" /></button>
 
     <div class="search">
-      <label class="search-box">
+      <button type="button" class="search-box" aria-haspopup="dialog" aria-label="Command palette (Ctrl+K)" data-testid="palette-open" data-tour="palette" @click="paletteOpen = true">
         <Icon name="search" />
-        <span class="sr-only">Search</span>
-        <input
-          ref="searchInput"
-          v-model="query"
-          type="search"
-          placeholder="Search printers, screens, agents"
-          autocomplete="off"
-          @keydown.enter="results[0] && go(results[0].to)"
-          @keydown.esc="query = ''"
-        />
+        <span class="placeholder" aria-hidden="true">Go to, do or search…</span>
         <kbd>⌘K</kbd>
-      </label>
-      <ul v-if="results.length" class="results" role="listbox">
-        <li v-for="r in results" :key="r.label + r.hint">
-          <button type="button" @mousedown.prevent="go(r.to)">{{ r.label }} <span class="muted">{{ r.hint }}</span></button>
-        </li>
-      </ul>
+      </button>
     </div>
+    <CommandPalette v-model:open="paletteOpen" />
 
     <div class="right">
       <NicheSwitcher />
@@ -161,6 +129,16 @@ async function pauseAll() {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--muted);
+}
+.search-box {
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+}
+.placeholder {
+  flex: 1;
+  text-align: left;
+  font-size: 13px;
 }
 .search-box input {
   flex: 1;

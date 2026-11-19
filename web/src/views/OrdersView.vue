@@ -76,8 +76,9 @@ function closeOrder() {
   const { order: _drop, ...rest } = route.query
   void router.replace({ query: rest })
 }
-// ?new=quote: the price calculator handed over a quote (lib/pricing.ts keepQuoteForOrder): open the dialog with it.
-const creating = ref(route.query.new === 'quote')
+// ?new=quote: the price calculator handed over a quote (lib/pricing.ts keepQuoteForOrder); ?new=1: the command
+// palette's New order. Both open the dialog.
+const creating = ref(route.query.new === 'quote' || route.query.new === '1')
 if (creating.value) {
   const { new: _new, ...others } = route.query
   void router.replace({ query: others })

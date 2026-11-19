@@ -27,6 +27,8 @@ const tour = useTour()
 const navOpen = ref(false)
 const approvalsOpen = ref(false)
 let poll: ReturnType<typeof setInterval> | null = null
+// Today and the command palette ask for the approvals inbox with a window event.
+const openApprovals = () => (approvalsOpen.value = true)
 
 function refreshShell() {
   void system.loadAgents()
@@ -47,12 +49,14 @@ onMounted(() => {
   refreshShell()
   poll = setInterval(() => !document.hidden && refreshShell(), 10_000)
   document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('pf:open-approvals', openApprovals)
 })
 
 onBeforeUnmount(() => {
   // The shell only unmounts when the session ends (logout or expiry): close the live feed with it.
   if (poll) clearInterval(poll)
   document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('pf:open-approvals', openApprovals)
   live.stop()
 })
 

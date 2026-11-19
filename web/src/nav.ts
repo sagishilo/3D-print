@@ -6,13 +6,14 @@ export interface NavItem {
   to: string
   label: string
   icon: string
-  group: 'Sell' | 'Make' | 'Business' | 'Admin'
+  group: 'Home' | 'Sell' | 'Make' | 'Business' | 'Admin'
   phase?: number
   blurb?: string
   minRole?: Role
 }
 
 export const NAV: NavItem[] = [
+  { to: '/today', label: 'Today', icon: 'inbox', group: 'Home' },
   { to: '/social', label: 'Social & Trends', icon: 'activity', group: 'Sell' },
   { to: '/catalog', label: 'Instant Catalog', icon: 'grid', group: 'Sell' },
   { to: '/niches', label: 'Niches', icon: 'tag', group: 'Sell', minRole: 'owner' },
@@ -27,4 +28,4 @@ export const NAV: NavItem[] = [
   { to: '/users', label: 'Users', icon: 'users', group: 'Admin', minRole: 'owner' },
 ]
 
-export const GROUPS = ['Sell', 'Make', 'Business', 'Admin'] as const
+export const GROUPS = ['Home', 'Sell', 'Make', 'Business', 'Admin'] as const

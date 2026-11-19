@@ -42,6 +42,7 @@ from . import (
     printers,
     social,
     system,
+    today,
     users,
 )
 from .commands import COMMANDS, PRINTER_ACTIONS, PRINTER_ID, build_command, command_id_from
@@ -112,7 +113,7 @@ async def _unexpected(request: Request, exc: Exception):
 
 for module in (auth, users, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog,
                analytics,
-               niches, pricing, social):
+               niches, pricing, social, today):
     app.include_router(module.router)
 
 

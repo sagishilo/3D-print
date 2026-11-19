@@ -13,6 +13,7 @@ function setup(next?: string) {
     routes: [
       { path: '/login', name: 'login', component: LoginView },
       { path: '/live', component: { template: '<p>live</p>' } },
+      { path: '/today', component: { template: '<p>today</p>' } },
       { path: '/system', component: { template: '<p>system</p>' } },
     ],
   })
@@ -69,6 +70,6 @@ describe('LoginView', () => {
       on('GET', '/api/v1/auth/me', () => json(200, { user: 'admin', expires_at: Date.now() / 1000 + 900 })),
     )
     const { router } = await signIn('//evil.example/phish')
-    expect(router.currentRoute.value.path).toBe('/live')
+    expect(router.currentRoute.value.path).toBe('/today')
   })
 })

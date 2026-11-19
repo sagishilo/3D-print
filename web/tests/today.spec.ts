@@ -1,0 +1,140 @@
+// M7: Today (ranked work with one action each, Expert-only technical lines, approvals, all clear) and the ⌘K command
+// palette (typed registry, role and mode filters, ranking, keyboard only).
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
+import CommandPalette from '@/components/shell/CommandPalette.vue'
+import { buildActions, type ActionContext, search } from '@/lib/actions'
+import { type TodayItem, type TodayList, visible, waited } from '@/lib/today'
+import { useAuth } from '@/stores/auth'
+import { useConfirm } from '@/stores/confirm'
+import TodayView from '@/views/TodayView.vue'
+
+import { json, on, serve, signedInAs } from './helpers'
+
+const item = (over: Partial<TodayItem>): TodayItem => ({
+  id: 'x', kind: 'bed', priority: 'now', title: 'Clear the bed of x1', why: 'done', min_role: 'operator', visible_to: 'viewer',
+  expert: false, niche: null, age_s: 7200, count: 1, score: 302,
+  action: { type: 'command', name: 'printers.clear_bed', body: { printer_id: 'x1' }, label: 'Bed cleared', confirm: 'Is it empty?' },
+  ...over,
+})
+const LIST: TodayList = {
+  now: [item({ id: 'bed:x1' }), item({ id: 'agents', kind: 'agents', expert: true, title: 'Coordinator not running',
+    action: { type: 'link', to: '/system?tab=agents', label: 'Open' } })],
+  today: [item({ id: 'approval:a1', kind: 'approval', priority: 'today', title: 'Order 4 x PLA', action: { type: 'approvals', label: 'Open approvals' } }),
+    item({ id: 'qc:o2', kind: 'qc', priority: 'today', title: 'Check the quality of o2', action: { type: 'link', to: '/orders?order=o2', label: 'Check' } })],
+  week: [], count: 4, generated_at: '2026-11-19T10:00:00Z',
+}
+const anyRoute = () => createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { render: () => null } }] })
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  signedInAs('operator')
+})
+afterEach(() => vi.unstubAllGlobals())
+
+describe('today helpers', () => {
+  it('hides technical lines in Simple mode and says how long something waited', () => {
+    expect(visible(LIST, false).now.map((i) => i.id)).toEqual(['bed:x1'])
+    expect(visible(LIST, true).now.map((i) => i.id)).toEqual(['bed:x1', 'agents'])
+    expect([waited(120), waited(7200), waited(200000)]).toEqual(['2 min', '2 h', '2 d'])
+  })
+})
+
+describe('the Today screen', () => {
+  it('groups the work and runs an action after confirming it; the line hides at once', async () => {
+    const calls = serve(on('GET', /\/api\/v1\/today/, () => json(200, LIST)),
+      on('POST', '/api/v1/commands/printers.clear_bed', () => json(202, { command_id: 'c1' })))
+    const ask = vi.spyOn(useConfirm(), 'ask').mockResolvedValue(true)
+    const opened = vi.fn()
+    window.addEventListener('pf:open-approvals', opened)
+    useAuth().prefs = { mode: 'simple' }
+    const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
+    await flushPromises()
+    expect(w.get('[data-testid="today-now"]').text()).toContain('Clear the bed of x1')
+    expect(w.find('[data-testid="today-item-agents"]').exists()).toBe(false)          // Simple mode
+    expect(w.get('[data-testid="today-go-qc:o2"]').attributes('href')).toBe('/orders?order=o2')
+    await w.get('[data-testid="today-act-bed:x1"]').trigger('click')
+    await flushPromises()
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ text: 'Is it empty?', confirmLabel: 'Bed cleared' }))
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ printer_id: 'x1' })
+    expect(w.find('[data-testid="today-item-bed:x1"]').exists()).toBe(false)
+    await w.get('[data-testid="today-act-approval:a1"]').trigger('click')
+    expect(opened).toHaveBeenCalled()
+    window.removeEventListener('pf:open-approvals', opened)
+  })
+
+  it('says all clear when nothing waits', async () => {
+    serve(on('GET', /\/api\/v1\/today/, () => json(200, { now: [], today: [], week: [], count: 0, generated_at: '' })))
+    const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
+    await flushPromises()
+    expect(w.text()).toContain('All clear')
+  })
+})
+
+function ctx(over: Partial<ActionContext> = {}): ActionContext {
+  return {
+    can: (r) => r !== 'owner', expert: false, go: vi.fn(), screens: [{ to: '/live', label: 'Live floor' }, { to: '/users', label: 'Users', minRole: 'owner' }],
+    printers: [{ id: 'bambu-01', status: 'printing' }, { id: 'voron-01', status: 'paused' }],
+    orders: [{ order_id: 'ord-1234abcd', customer_name: 'Noa Cohen', state: 'QC' }],
+    products: [{ sku: 'HOOK-A', name: 'Wall hook', active: true }], niches: [{ slug: 'kids', name: 'Kids & toys' }],
+    agents: [{ name: 'fleet', label: 'Fleet Manager' }], currentTour: 'live',
+    pausePrinter: vi.fn(), resumePrinter: vi.fn(), pauseAll: vi.fn(), setNiche: vi.fn(), setPrefs: vi.fn(), startTour: vi.fn(),
+    openApprovals: vi.fn(), ...over,
+  }
+}
+
+describe('the action registry', () => {
+  it('knows screens, actions, printers, orders, products, niches, display and tours; filtered by role and mode', () => {
+    const ids = buildActions(ctx()).map((a) => a.id)
+    expect(ids).toEqual(expect.arrayContaining(['go:/live', 'new-order', 'pause:bambu-01', 'resume:voron-01', 'order:ord-1234abcd',
+      'sku:HOOK-A', 'niche:kids', 'theme:dark', 'mode:expert', 'tour:page']))
+    expect(ids).not.toContain('go:/users')                                     // owners only
+    expect(ids).not.toContain('agent:fleet')                                  // Expert mode only
+    expect(buildActions(ctx({ expert: true })).map((a) => a.id)).toContain('agent:fleet')
+    const viewer = buildActions(ctx({ can: () => false })).map((a) => a.id)
+    expect(viewer).not.toContain('new-order')
+    expect(viewer).not.toContain('pause:bambu-01')
+  })
+
+  it('ranks what the words match', () => {
+    const all = buildActions(ctx())
+    expect(search(all, 'new ord')[0]?.id).toBe('new-order')
+    expect(search(all, 'noa')[0]?.id).toBe('order:ord-1234abcd')
+    expect(search(all, 'hook')[0]?.id).toBe('sku:HOOK-A')
+    expect(search(all, 'pause bambu')[0]?.id).toBe('pause:bambu-01')
+    expect(search(all, 'dark')[0]?.id).toBe('theme:dark')
+    expect(search(all, 'zzz')).toEqual([])
+    expect(search(all, '').every((a) => a.group === 'Actions' || a.group === 'Go to')).toBe(true)
+  })
+})
+
+describe('the palette', () => {
+  it('is driven by the keyboard alone', async () => {
+    const calls = serve(on('PATCH', '/api/v1/auth/prefs', (c) => json(200, { prefs: c.body })),
+      on('GET', /\/api\/v1\//, () => json(200, { orders: [], products: [], categories: [], counts: {}, niches: [], plates: [] })))
+    const router = anyRoute()
+    const push = vi.spyOn(router, 'push')
+    const w = mount(CommandPalette, { props: { open: false, 'onUpdate:open': (v: boolean) => w.setProps({ open: v }) },
+      global: { plugins: [router] }, attachTo: document.body })
+    await w.setProps({ open: true })
+    await flushPromises()
+    const input = w.get('[data-testid="palette-input"]')
+    await input.setValue('dark')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ theme: 'dark' })
+    expect(w.find('[data-testid="palette"]').exists()).toBe(false)              // closed after running
+    await w.setProps({ open: true })
+    await flushPromises()
+    await w.get('[data-testid="palette-input"]').setValue('new order')
+    await w.get('[data-testid="palette-input"]').trigger('keydown', { key: 'ArrowDown' })
+    await w.get('[data-testid="palette-input"]').trigger('keydown', { key: 'ArrowUp' })
+    await w.get('[data-testid="palette-input"]').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith('/orders?new=1')
+    w.unmount()
+  })
+})

@@ -21,7 +21,8 @@ export const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('@/components/shell/AppShell.vue'),
     children: [
-      { path: '', redirect: '/live' },
+      { path: '', redirect: '/today' },
+      { path: 'today', name: 'today', component: () => import('@/views/TodayView.vue'), meta: { title: 'Today', tour: 'today' } },
       { path: 'live', name: 'live', component: () => import('@/views/LiveView.vue'), meta: { title: 'Live floor', tour: 'live' } },
       { path: 'social', name: 'social', component: () => import('@/views/SocialView.vue'), meta: { title: 'Social & Trends', tour: 'social' } },
       { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Instant Catalog', tour: 'catalog' } },
@@ -39,7 +40,7 @@ export const routes: RouteRecordRaw[] = [
       ...later,
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/live' },
+  { path: '/:pathMatch(.*)*', redirect: '/today' },
 ]
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
@@ -50,13 +51,13 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     const loggedIn = await auth.check()
     // A temporary password is replaced first (on the sign-in card); the gateway refuses everything else meanwhile.
     if (loggedIn && auth.mustChangePassword) return to.name === 'login' ? true : { name: 'login', query: { next: to.fullPath } }
-    if (to.meta.public) return loggedIn && to.name === 'login' ? { path: '/live' } : true
-    if (!loggedIn) return { name: 'login', query: to.fullPath === '/live' ? {} : { next: to.fullPath } }
+    if (to.meta.public) return loggedIn && to.name === 'login' ? { path: '/today' } : true
+    if (!loggedIn) return { name: 'login', query: to.fullPath === '/today' ? {} : { next: to.fullPath } }
     // A link with ?niche=<slug> opens the screen in that niche (until the person picks another in the top bar).
     if (typeof to.query.niche === 'string') useNiche().linked(to.query.niche)
     if (to.meta.minRole && !auth.can(to.meta.minRole)) {
       useToasts().error(`${to.meta.title ?? 'That screen'} is not available`, `${needs(to.meta.minRole)}.`)
-      return { path: '/live' }
+      return { path: '/today' }
     }
     return true
   })

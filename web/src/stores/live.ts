@@ -12,6 +12,7 @@ import { useApprovals } from './approvals'
 import { useCatalog } from './catalog'
 import { useNiche } from './niche'
 import { useStock } from './stock'
+import { useToday } from './today'
 import { useSocial } from './social'
 import { useAuth } from './auth'
 import { useFinance } from './finance'
@@ -95,6 +96,8 @@ export const useLive = defineStore('live', () => {
     if (d.kind === 'order.move.rejected') toasts.error(`Order ${data.order_id} not moved`, String(data.reason))
     if (d.kind === 'message.dead_lettered') void useSystem().loadDlq()
     if (d.kind === 'system.config.changed') void useSystem().loadSettings()
+    // Today: almost every event can add or clear a line (a bed, an order, an alert, a lead, an approval)
+    if (!d.kind.startsWith('printer.state') && !d.kind.startsWith('inventory.filament.consumed')) useToday().reloadSoon()
   }
 
   function onItem(item: FeedItem) {

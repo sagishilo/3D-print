@@ -84,7 +84,7 @@ test('an operator works the floor but cannot manage users or settings', async ({
   await expect(page.getByTestId('settings').getByRole('switch').first()).toBeDisabled()
   await expect(page.getByRole('tab', { name: 'Audit log' })).toHaveCount(0)
   await page.goto('/users')
-  await expect(page).toHaveURL(/\/live$/)
+  await expect(page).toHaveURL(/\/today$/)
   // and the gateway refuses the owner-only command even when asked directly
   const csrf = (await page.context().cookies()).find((c) => c.name === 'pf_csrf')!.value
   const r = await page.request.post('/api/v1/commands/config.set', {
@@ -103,7 +103,7 @@ test('a viewer reads, changes nothing, and is signed out when disabled', async (
   const nav = viewer.getByRole('navigation', { name: 'Main' })
   for (const hidden of ['Finance', 'System & Agents', 'Users']) await expect(nav.getByRole('link', { name: hidden, exact: true })).toHaveCount(0)
   await viewer.goto('/finance')
-  await expect(viewer).toHaveURL(/\/live$/)
+  await expect(viewer).toHaveURL(/\/today$/)
   const csrf = (await viewer.context().cookies()).find((c) => c.name === 'pf_csrf')!.value
   const r = await viewer.request.post('/api/v1/commands/printers.pause_all', { headers: { 'X-CSRF-Token': csrf }, data: { reason: 'x' } })
   expect(r.status()).toBe(403)

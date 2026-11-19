@@ -23,7 +23,7 @@ const choosing = ref(!!auth.user && auth.mustChangePassword)
 /** Only same-site paths: never send the user to another origin after logging in. */
 function nextPath(): string {
   const next = typeof route.query.next === 'string' ? route.query.next : ''
-  return next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/login') ? next : '/live'
+  return next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/login') ? next : '/today'
 }
 
 function message(err: unknown): string {

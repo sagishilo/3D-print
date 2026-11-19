@@ -3,6 +3,7 @@
 // and a batch for the shelf: plates, print time and filament as the scheduler would pack them, with what is short.
 // Queue batch sends one stock order (catalog.batch) that is prepared and scheduled at once.
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import ProductCard from '@/components/catalog/ProductCard.vue'
 import AssignNicheDialog from '@/components/catalog/AssignNicheDialog.vue'
@@ -33,6 +34,13 @@ watch([() => catalog.category, () => catalog.sort, () => catalog.showInactive], 
 
 const dialog = ref<{ product: CatalogProduct | null } | null>(null)
 const assigning = ref(false)
+const route = useRoute()
+const router = useRouter()
+// ?new=1 (the command palette): open Import 3MF once.
+if (route.query.new === '1') {
+  dialog.value = { product: null }
+  void router.replace({ query: {} })
+}
 const bed = computed<[number, number]>(() => catalog.estimate?.bed_mm ?? [256, 256])
 const total = computed(() => Object.values(catalog.counts).reduce((a, b) => a + b, 0))
 const est = computed(() => catalog.estimate)

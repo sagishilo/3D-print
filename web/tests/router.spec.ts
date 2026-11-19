@@ -39,8 +39,8 @@ describe('auth guard', () => {
     const calls = serve(on('GET', '/api/v1/auth/me', me))
     const router = createAppRouter(createMemoryHistory())
     await router.push('/login')
-    expect(router.currentRoute.value.path).toBe('/live')
-    expect(document.title).toBe('Live floor · PrintFarm Ops')
+    expect(router.currentRoute.value.path).toBe('/today')
+    expect(document.title).toBe('Today · PrintFarm Ops')
     await router.push('/social')
     expect(router.currentRoute.value.name).toBe('social')
     expect(calls.filter((c) => c.url === '/api/v1/auth/me')).toHaveLength(1) // asked once, then trusted

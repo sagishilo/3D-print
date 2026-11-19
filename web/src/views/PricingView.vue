@@ -4,7 +4,7 @@
 // power, failed prints, labour, parts, channel fee) for the niche's target margin. Copy the WhatsApp text, print
 // or save it as PDF, or turn it into an order.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import Icon from '@/components/ui/Icon.vue'
 import { vCan } from '@/directives/can'
@@ -17,6 +17,7 @@ import { useNiche } from '@/stores/niche'
 import { useToasts } from '@/stores/toasts'
 
 const router = useRouter()
+const route = useRoute()
 const catalog = useCatalog()
 const niche = useNiche()
 const toasts = useToasts()
@@ -30,6 +31,8 @@ const error = ref('')
 const reading = ref(false)
 const sales = CHANNELS.filter((c) => c !== 'stock' && c !== 'api')
 const product = computed(() => catalog.products.find((p) => p.sku === form.sku) ?? null)
+// ?sku= (the command palette, a product's quote): start from that product.
+if (typeof route.query.sku === 'string') form.sku = route.query.sku
 
 onMounted(() => {
   if (!catalog.loaded) void catalog.load()
