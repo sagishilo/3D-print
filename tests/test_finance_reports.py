@@ -57,6 +57,14 @@ def test_product_margins_and_changes():
     assert vat_summary(5400, 9000).payable == -3600
 
 
+def test_stock_build_costs_stay_out_of_the_margin():
+    """A stock batch is made for the shelf: its cost is shown apart, not as a loss on a product with no sales yet."""
+    m = {x.product_type: x for x in product_margins(
+        {"STD-HOOK": 10000}, [("STD-HOOK", "filament", 2000)], {"STD-HOOK": 4}, {"STD-HOOK": 6000, "STD-SLAB": 900})}
+    assert m["STD-HOOK"].margin == 8000 and m["STD-HOOK"].stock_build == 6000
+    assert m["STD-SLAB"].stock_build == 900 and m["STD-SLAB"].cost == 0 and m["STD-SLAB"].margin == 0
+
+
 # ---------------------------------------------------------------- gateway
 
 
@@ -126,6 +134,34 @@ def test_settings_flag_placeholders_until_confirmed(client):
     with pytest.raises(ValidationError):
         build_command("finance.settings", {"business_type": "company", "vat_rate": 0.18, "electricity_agorot_per_kwh": 71,
                                            "default_printer_watts": 120, "default_filament_agorot_per_gram": 9}, "admin", KEY)
+
+
+def test_product_margins_are_per_sku_and_skip_stock(client):
+    db = client.app.state.db
+    db.rows["sum(net_agorot) AS net FROM finance.income_entries"] = [{"product": "STD-HOOK", "net": 10000},
+                                                                     {"product": "nameplate", "net": 9000}]
+    db.rows["FROM finance.expense_entries e"] = [
+        {"product": "STD-HOOK", "category": "filament", "stock": False, "net": 1500},
+        {"product": "STD-HOOK", "category": "filament", "stock": True, "net": 3000},
+        {"product": "STD-HOOK", "category": "electricity", "stock": True, "net": 400},
+    ]
+    db.rows["FROM coordinator.order_items i"] = [{"product": "STD-HOOK", "n": 4}, {"product": "nameplate", "n": 2}]
+    rows = {r["product_type"]: r for r in client.get("/api/v1/finance/products?month=2026-11").json()["products"]}
+    hook = rows["STD-HOOK"]
+    assert hook["units"] == 4 and hook["revenue_agorot"] == 10000
+    assert hook["costs"] == {"filament": 1500} and hook["margin_agorot"] == 8500
+    assert hook["stock_build_agorot"] == 3400
+    assert rows["nameplate"]["units"] == 2 and "catalog" not in rows
+
+
+def test_the_product_sql_keys_units_by_sku_and_leaves_out_stock_orders():
+    import inspect
+
+    from app import finance as fin  # noqa: PLC0415 - the gateway package is on the path once gateway_support is imported
+
+    src = inspect.getsource(fin.products)
+    assert "WHEN i.product = 'catalog' AND i.sku IS NOT NULL THEN i.sku" in src
+    assert "o.channel <> %s" in src and "STOCK_CHANNEL" in src
 
 
 def test_finance_needs_a_session():

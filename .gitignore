@@ -14,6 +14,9 @@ caddy-root.crt
 printers.txt
 backup-*.sql
 backups/
+# rclone.conf (the cloud login for the encrypted off-site backups) and any age private key
+backup-offsite/
+*.age-key.txt
 
 # frontend
 web/node_modules/

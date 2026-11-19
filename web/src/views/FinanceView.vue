@@ -242,10 +242,10 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
 
   <!-- ------------------------------------------------ products -->
   <section v-else-if="tab === 'products'" class="panel" data-testid="products">
-    <div class="panel-head"><h2>Margin per product type · {{ r?.period.label }}</h2><span class="panel-note">filament + electricity allocated per job from grams and print hours</span></div>
+    <div class="panel-head"><h2>Margin per product · {{ r?.period.label }}</h2><span class="panel-note">filament + electricity allocated per job from grams and print hours · catalog products per SKU</span></div>
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>Type</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">Filament</th><th class="num">Electricity</th><th class="num">Margin</th><th class="num">Margin %</th></tr></thead>
+        <thead><tr><th>Type</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">Filament</th><th class="num">Electricity</th><th class="num">Margin</th><th class="num">Margin %</th><th class="num" title="Printed for stock in this period: not sold yet, so not in the margin">Built for stock</th></tr></thead>
         <tbody>
           <tr v-for="p in finance.products" :key="p.product_type">
             <td>{{ title(p.product_type) }}</td>
@@ -255,10 +255,12 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
             <td class="num">{{ shekels(p.costs.electricity ?? 0) }}</td>
             <td class="num">{{ shekels(p.margin_agorot) }}</td>
             <td class="num" :class="{ 'text-warn': (p.margin_pct ?? 100) < 40 }">{{ p.margin_pct != null ? `${p.margin_pct}%` : '—' }}</td>
+            <td class="num muted" :data-testid="`stock-build-${p.product_type}`">{{ p.stock_build_agorot ? shekels(p.stock_build_agorot) : '—' }}</td>
           </tr>
         </tbody>
       </table>
       <p v-if="!finance.products.length" class="empty">No sales or print costs in this period.</p>
+      <p v-else class="panel-note">Built for stock: filament and power spent on stock batches. They are not sold yet, so they are not taken from the margin.</p>
     </div>
   </section>
 

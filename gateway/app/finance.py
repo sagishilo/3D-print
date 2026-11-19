@@ -22,6 +22,7 @@ from printfarm.agents.finance.reports import (
     product_margins,
     vat_summary,
 )
+from printfarm.contracts.catalog import STOCK_CHANNEL
 
 from . import auth
 
@@ -119,15 +120,29 @@ async def products(request: Request, period: str = Query("month", pattern="^(mon
     revenue = {r["product"]: int(r["net"]) for r in await db.fetchall(
         "SELECT coalesce(product_type, 'other') AS product, sum(net_agorot) AS net FROM finance.income_entries "
         "WHERE entry_date >= %s AND entry_date < %s GROUP BY 1", (p.start, p.end))}
-    allocated = [(r["product"], r["category"], int(r["net"])) for r in await db.fetchall(
-        "SELECT coalesce(product_type, 'other') AS product, category, sum(net_agorot) AS net FROM finance.expense_entries "
-        "WHERE kind = 'allocated' AND entry_date >= %s AND entry_date < %s GROUP BY 1, 2", (p.start, p.end))]
+    rows = await db.fetchall(
+        "SELECT coalesce(e.product_type, 'other') AS product, e.category, coalesce(o.channel = %s, false) AS stock, "
+        "sum(e.net_agorot) AS net FROM finance.expense_entries e "
+        "LEFT JOIN fleet.jobs j ON j.job_id = e.job_id LEFT JOIN coordinator.orders o ON o.order_id = j.order_id "
+        "WHERE e.kind = 'allocated' AND e.entry_date >= %s AND e.entry_date < %s GROUP BY 1, 2, 3",
+        (STOCK_CHANNEL, p.start, p.end))
+    allocated = [(r["product"], r["category"], int(r["net"])) for r in rows if not r["stock"]]
+    stock_build: dict[str, int] = {}
+    for r in rows:
+        if r["stock"]:
+            stock_build[r["product"]] = stock_build.get(r["product"], 0) + int(r["net"])
+    # Units shipped to customers, per product type: the SKU for catalog lines (as revenue and costs are keyed), the
+    # product name otherwise. Stock batches "ship" to the shelf, so they are not sales.
     units = {r["product"]: int(r["n"]) for r in await db.fetchall(
-        "SELECT i.product, sum(i.quantity) AS n FROM coordinator.order_items i JOIN coordinator.saga_history h "
-        "ON h.saga_id = i.order_id AND h.to_state = 'SHIPPED' WHERE h.at >= %s AND h.at < %s GROUP BY 1", (p.start, p.end))}
+        "SELECT CASE WHEN i.product = 'catalog' AND i.sku IS NOT NULL THEN i.sku ELSE i.product END AS product, "
+        "sum(i.quantity) AS n FROM coordinator.order_items i "
+        "JOIN coordinator.orders o ON o.order_id = i.order_id AND o.channel <> %s "
+        "JOIN coordinator.saga_history h ON h.saga_id = i.order_id AND h.to_state = 'SHIPPED' "
+        "WHERE h.at >= %s AND h.at < %s GROUP BY 1", (STOCK_CHANNEL, p.start, p.end))}
     return {"period": _p(p), "products": [
         {"product_type": m.product_type, "units": m.units, "revenue_agorot": m.revenue, "costs": m.costs,
-         "margin_agorot": m.margin, "margin_pct": m.margin_pct} for m in product_margins(revenue, allocated, units)]}
+         "margin_agorot": m.margin, "margin_pct": m.margin_pct, "stock_build_agorot": m.stock_build}
+        for m in product_margins(revenue, allocated, units, stock_build)]}
 
 
 @router.get("/receivables")

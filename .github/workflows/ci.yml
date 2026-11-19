@@ -97,3 +97,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker compose config --quiet
       - run: docker compose --profile sim --profile p1a1 build
+      - name: Backup self-test (dump -> age -> rclone -> download -> decrypt -> restore)
+        run: |
+          docker network create backup-test
+          docker run -d --name backup-test-pg --network backup-test -e POSTGRES_USER=printfarm -e POSTGRES_PASSWORD=ci postgres:16.16-alpine
+          docker build -t printfarm-backup infra/backup
+          docker run --rm --network backup-test -e PGHOST=backup-test-pg -e PGPASSWORD=ci printfarm-backup selftest

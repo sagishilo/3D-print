@@ -309,9 +309,55 @@ To switch it on, put a Claude API key in `.env` (`ANTHROPIC_API_KEY=sk-ant-...`,
 | Database migrations | `docker compose run --rm migrate migrate --status` (what is applied and pending; `--check` exits 1 if anything is wrong) |
 | Back up now | `docker compose run --rm backup now` |
 | List backups | `docker compose run --rm backup list` |
-| Restore a backup | `docker compose stop gateway coordinator personalization fleet inventory finance telemetry`, then `docker compose run --rm backup restore <file from list>`, then `docker compose up -d` |
+| Restore a backup | `docker compose stop gateway coordinator personalization fleet inventory finance telemetry social`, then `docker compose run --rm backup restore <file from list>`, then `docker compose up -d` |
+| Practise a restore (safe) | `docker compose run --rm backup drill` (restores the newest backup into a scratch database, counts its tables, deletes it) |
+| Off-site copies | `docker compose run --rm backup offsite-list` · practise: `docker compose run --rm -v D:\printfarm-key.txt:/key.txt:ro backup offsite-drill` |
 
-**Backups.** The `backup` service saves the database to the `backups` folder next to this README every night and keeps the newest 14. Change this with `BACKUP_INTERVAL_S` and `BACKUP_KEEP` in `.env`. The service shows `unhealthy` when the last good backup is older than two intervals. Copy the folder off this PC (a USB drive, cloud storage) now and then: a backup on the same disk does not survive the disk. The database holds everything that matters (orders, ledger, inventory, settings, unsent messages); NATS only holds messages in flight.
+**Backups.** The `backup` service saves the database to the `backups` folder next to this README every night and keeps the newest 14. Change this with `BACKUP_INTERVAL_S` and `BACKUP_KEEP` in `.env`. The service shows `unhealthy` when the last good backup is older than two intervals, and **System & Agents ▸ Backups** shows the last local and off-site copy and the last restore drill. The database holds everything that matters (orders, ledger, inventory, settings and their history, unsent messages); NATS only holds messages in flight.
+
+### Off-site backups (encrypted, recommended)
+
+A backup on the same disk does not survive the disk, a fire or a theft. With these steps every nightly backup is also **encrypted on this PC** and copied to cloud storage (Google Drive, OneDrive, Dropbox, Backblaze B2, S3 and others, through [rclone](https://rclone.org)). The cloud provider only ever stores ciphertext.
+
+1. **Make the encryption key pair** (once). The public key encrypts; only the private key can decrypt.
+
+   ```powershell
+   docker compose build backup
+   docker compose run --rm --entrypoint age-keygen backup
+   ```
+
+   It prints a `# public key: age1...` line and an `AGE-SECRET-KEY-1...` line. **Keep the secret key off this PC**: save it to a USB stick and/or print it, and store it somewhere safe. Without it the off-site copies cannot be restored; with it, anyone can read them.
+2. **Connect the cloud storage** (once). This opens rclone's setup questions; pick your provider and name the remote, for example `gdrive`:
+
+   ```powershell
+   docker compose run --rm --entrypoint rclone backup config
+   ```
+
+   It saves the login to `backup-offsite/rclone.conf` (ignored by git; never share it).
+3. **Turn it on** in `.env`, then restart the service:
+
+   ```text
+   BACKUP_REMOTE=gdrive:printfarm-backups
+   BACKUP_AGE_RECIPIENT=age1...        (the public key from step 1)
+   BACKUP_OFFSITE_KEEP_DAYS=90
+   ```
+
+   ```powershell
+   python scripts/check_env.py
+   docker compose up -d backup
+   docker compose run --rm backup now
+   ```
+
+   **Expected:** `off-site copy ok: gdrive:printfarm-backups/printfarm-....dump.age`, and **Backups: Protected** on the System screen.
+4. **Practise a restore from the cloud** (now, then every few months), with the secret key mounted for that one run:
+
+   ```powershell
+   docker compose run --rm -v D:\printfarm-key.txt:/key.txt:ro backup offsite-drill
+   ```
+
+   **Expected:** `DRILL OK: ... restores cleanly (N tables)`. The live database is not touched. To really restore from the cloud (after a lost disk), stop the services as for a local restore, then `docker compose run --rm -v D:\printfarm-key.txt:/key.txt:ro backup offsite-restore <file from offsite-list>`.
+
+If `BACKUP_REMOTE` is set without `BACKUP_AGE_RECIPIENT`, nothing is uploaded and the System screen says why: an unencrypted backup never leaves this PC.
 
 **Migrations.** The `migrate` service applies new database migrations before anything else starts. It refuses to run, and changes nothing, if an applied migration file was edited, or if the database comes from a newer version than the code (an older image running against it). The gateway's health check reports either case, and the dashboard shows a banner.
 
@@ -336,7 +382,7 @@ To switch it on, put a Claude API key in `.env` (`ANTHROPIC_API_KEY=sk-ant-...`,
 | Camera proxy: go2rtc → gateway → browser MJPEG and snapshots, login required; X1 (H.264) cameras transcoded to MJPEG on demand | Recording camera video |
 | Live feed (`/ws`): events, telemetry and dead letters only, never commands; resumes after a reconnect from the last event seen, replays stored history; refuses other sites (4403) and visitors without a session (4401) | |
 | Ledger: income on payment (VAT split), refunds, PO = cash expense, per-job filament/kWh = allocated (excluded from profit, filament priced from the latest PO), duplicate-safe; settings from the dashboard (audited, confirmed) | Metrics dashboards (Prometheus/Grafana); per-agent Postgres roles |
-| Hardening: NATS permissions per user (agents cannot send operator commands or delete streams); rate limits, body limits, request ids, 503 on outages; audited sign-ins; checksummed migrations with `--status`/`--check`; nightly backups with restore; health checks for every service and a dashboard banner; CSP and security headers; CI (lint, unit, e2e under the real NATS permissions, web, image builds) | Off-site backup copies (yours to schedule) |
+| Hardening: NATS permissions per user (agents cannot send operator commands or delete streams); rate limits, body limits, request ids, 503 on outages; audited sign-ins; checksummed migrations with `--status`/`--check`; nightly backups with restore, encrypted off-site copies (age + rclone) and restore drills; health checks for every service and a dashboard banner; CSP and security headers; CI (lint, unit, e2e under the real NATS permissions, web, image builds) | |
 | One JetStream topology and one migration path (`migrate` service) shared by every component | Social Listening with a real API key (built and tested against a faked Claude client; set `ANTHROPIC_API_KEY` to run it for real) |
 | Social Listening: posts captured by people (browser extension or Add post), local embeddings + pgvector prefilter, Claude Haiku triage, Claude Opus Hebrew drafts, review queue (Approve & Copy, Mark as posted), labels and accuracy, daily budget | |
 

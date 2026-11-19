@@ -104,6 +104,9 @@ class ProductMargin:
     units: int = 0
     revenue: int = 0
     costs: dict[str, int] = field(default_factory=dict)    # allocated, per category
+    # Allocated to stock batches (made for the shelf, not sold yet): shown apart, not taken from this margin. Once
+    # finished goods are tracked, these become the stock's value and are costed when a unit is sold.
+    stock_build: int = 0
 
     @property
     def cost(self) -> int:
@@ -118,8 +121,10 @@ class ProductMargin:
         return round(self.margin / self.revenue * 100, 1) if self.revenue > 0 else None
 
 
-def product_margins(revenue: dict[str, int], allocated: Iterable[tuple[str, str, int]], units: dict[str, int]) -> list[ProductMargin]:
-    """Per product type: revenue (payments), allocated costs (filament, electricity) and units shipped."""
+def product_margins(revenue: dict[str, int], allocated: Iterable[tuple[str, str, int]], units: dict[str, int],
+                    stock_build: dict[str, int] | None = None) -> list[ProductMargin]:
+    """Per product type (the SKU for catalog products): revenue (payments), allocated costs (filament, electricity),
+    units shipped to customers, and what was spent building stock (kept out of the margin)."""
     out: dict[str, ProductMargin] = {}
     for product, amount in revenue.items():
         out.setdefault(product, ProductMargin(product)).revenue += amount
@@ -128,6 +133,8 @@ def product_margins(revenue: dict[str, int], allocated: Iterable[tuple[str, str,
         pm.costs[category] = pm.costs.get(category, 0) + amount
     for product, n in units.items():
         out.setdefault(product, ProductMargin(product)).units += n
+    for product, amount in (stock_build or {}).items():
+        out.setdefault(product, ProductMargin(product)).stock_build += amount
     return sorted(out.values(), key=lambda p: -p.revenue)
 
 

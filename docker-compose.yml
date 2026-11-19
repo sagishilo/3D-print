@@ -82,16 +82,19 @@ services:
   # Nightly pg_dump into ./backups (keeps 14). Copy that folder off this PC now and then.
   # One now: docker compose run --rm backup now   ·  restore: see infra/backup/backup.sh
   backup:
-    image: postgres:16.16-alpine
-    entrypoint: ["/bin/sh", "/backup.sh"]
+    build: infra/backup                 # postgres:16.16-alpine + age (encryption) + rclone (cloud storage)
     command: ["loop"]
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       BACKUP_INTERVAL_S: ${BACKUP_INTERVAL_S:-86400}
       BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      # Encrypted off-site copies (README "Off-site backups"); both empty = local backups only.
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}                     # an rclone remote, e.g. gdrive:printfarm-backups
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}       # PUBLIC key (age1...); the private key stays off this PC
+      BACKUP_OFFSITE_KEEP_DAYS: ${BACKUP_OFFSITE_KEEP_DAYS:-90}
     volumes:
-      - ./infra/backup/backup.sh:/backup.sh:ro
       - ./backups:/backups
+      - ./backup-offsite:/config/rclone                  # rclone.conf (cloud login), never committed
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:   # unhealthy when the last good backup is older than two intervals
@@ -145,6 +148,8 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?run scripts/init_env.py}
       COOKIE_SECURE: "true"
+    volumes:
+      - ./backups:/backups:ro                # only status.json is read (System: backup status)
     depends_on:
       nats: { condition: service_healthy }
       postgres: { condition: service_healthy }

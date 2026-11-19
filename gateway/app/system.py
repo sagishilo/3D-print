@@ -18,6 +18,7 @@ from printfarm.contracts import Envelope
 from printfarm.contracts.config_keys import CONFIG_KEYS
 
 from . import auth
+from .config import settings
 from .jsread import decode
 
 router = APIRouter(prefix="/api/v1/system", dependencies=[Depends(auth.require_auth)])
@@ -259,3 +260,51 @@ async def config(request: Request):
                     "changed_at": change["at"] if change else None,
                     "changed_value": change.get("value") if change else None})   # what that last change set
     return {"settings": out}
+
+
+# ---------------------------------------------------------------- backups (status.json from the backup service)
+def _age_s(stamp: str, now: float) -> float | None:
+    try:
+        return now - datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except (ValueError, AttributeError):
+        return None
+
+
+def backup_health(st: dict | None, now: float) -> dict:
+    """What the dashboard shows: is there a recent local backup, and (when set up) a recent off-site copy?
+    Stale = older than two backup intervals (the same rule as the backup service's own health check)."""
+    if not st:
+        return {"known": False, "state": "unknown", "problems": ["No backup status yet: is the backup service running?"]}
+    limit = 2 * float(st.get("interval_s") or 86400)
+    problems: list[str] = []
+    local_age = _age_s(st.get("local_ok_at") or "", now)
+    if local_age is None:
+        problems.append("No local backup has succeeded yet.")
+    elif local_age > limit:
+        problems.append(f"The last local backup is {int(local_age // 3600)} h old.")
+    if st.get("local_error") and (st.get("local_error_at") or "") > (st.get("local_ok_at") or ""):
+        problems.append(f"The last local backup failed: {st['local_error']}")
+    offsite_age = _age_s(st.get("offsite_ok_at") or "", now)
+    if st.get("offsite_enabled"):
+        if offsite_age is None:
+            problems.append("No off-site copy has succeeded yet.")
+        elif offsite_age > limit:
+            problems.append(f"The last off-site copy is {int(offsite_age // 3600)} h old.")
+        if st.get("offsite_error") and (st.get("offsite_error_at") or "") > (st.get("offsite_ok_at") or ""):
+            problems.append(f"The last off-site copy failed: {st['offsite_error']}")
+    elif st.get("offsite_error"):
+        problems.append(st["offsite_error"])
+    state = "problem" if problems else ("ok" if st.get("offsite_enabled") else "local_only")
+    return {**st, "known": True, "state": state, "problems": problems,
+            "local_age_s": local_age, "offsite_age_s": offsite_age}
+
+
+@router.get("/backups")
+async def backups():
+    """Last local and off-site backup, from the backup service's status.json (README "Backups")."""
+    try:
+        with open(settings.backup_status_file, encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        st = None
+    return backup_health(st, time.time())

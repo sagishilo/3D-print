@@ -46,6 +46,8 @@ export interface ProductRow {
   costs: Record<string, number>
   margin_agorot: number
   margin_pct: number | null
+  /** Spent on stock batches (made for the shelf): shown apart, not taken from this period's margin. */
+  stock_build_agorot?: number
 }
 
 export interface Receivable {

@@ -174,9 +174,10 @@ class CoordinatorAgent(Agent):
         for out in d.outgoing:
             if isinstance(out, OrderQcRecorded):
                 await conn.execute(
-                    "INSERT INTO coordinator.qc_checks (order_id, passed, units_failed, units_checked, reason, checked_by) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (order_id, out.passed, len(out.failed_units), len(d.context["units"]), out.reason, out.by))
+                    "INSERT INTO coordinator.qc_checks (order_id, passed, units_failed, units_checked, reason, checked_by, "
+                    "failed_keys) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (order_id, out.passed, len(out.failed_units), len(d.context["units"]), out.reason, out.by,
+                     Jsonb(sorted(out.failed_units))))
             await self.emit(conn, out, cause=env, correlationid=order_id)
 
     async def _history(self, conn, saga_id, from_state, to_state, env) -> None:

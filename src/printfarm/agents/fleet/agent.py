@@ -156,7 +156,7 @@ class FleetAgent(Agent):
             PlateFinished(
                 plate_id=ev.plate_id, printer_id=ev.printer_id, material=plate["material"], color=plate["color"],
                 succeeded=ev.succeeded, grams_used=round(grams, 1), print_seconds=max(print_seconds, 0),
-                job_shares=shares,
+                job_shares=shares, printer_watts=self._watts(ev.printer_id),
             ),
             cause=env,
         )
@@ -180,6 +180,11 @@ class FleetAgent(Agent):
         self._kick.set()
 
     # ------------------------------------------------------------ scheduling
+
+    def _watts(self, printer_id: str) -> float | None:
+        """The printer's configured power draw (fleet.toml ``watts``), or None to use the finance default."""
+        cfg = next((p for p in self.fleet.printers if p.id == printer_id), None)
+        return cfg.watts if cfg and cfg.watts > 0 else None
 
     async def _scheduler_loop(self) -> None:
         while True:

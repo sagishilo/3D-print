@@ -242,6 +242,9 @@ async def test_order_to_print_to_inventory(stack):
                    OrderLine(text="כהן", quantity=1, unit_price_agorot=11400)]), correlationid="ord-black")
         await wait_for(db, "SELECT state, context -> 'qc' ->> 'status' AS qc FROM coordinator.sagas WHERE saga_id = %s",
                               ("ord-black",), lambda r: r and r[0]["state"] == "QC" and r[0]["qc"] == "passed")
+        qc = await wait_for(db, "SELECT passed, failed_keys FROM coordinator.qc_checks WHERE order_id = 'ord-black'", (),
+                            lambda r: r)
+        assert qc[0]["passed"] and qc[0]["failed_keys"] == []      # the failed units are kept per check (M0)
         total = await wait_for(db, "SELECT total_agorot FROM coordinator.orders WHERE order_id = 'ord-black'", (), lambda r: r)
         assert total[0]["total_agorot"] == 35400
         models = await wait_for(db, "SELECT item_id FROM personalization.artifacts WHERE order_id = 'ord-black' "

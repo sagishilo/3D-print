@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # e.g. "http://localhost:5173" for the Vite dev server.
     site_hosts: str = "localhost"
     extra_origins: str = ""
+    # Written by the backup service (infra/backup/backup.sh), mounted read-only: last local and off-site backup.
+    backup_status_file: str = "/backups/status.json"
 
     def allowed_origins(self) -> set[str]:
         hosts = {f"https://{h.strip()}" for h in self.site_hosts.split(",") if h.strip()}

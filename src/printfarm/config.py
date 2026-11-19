@@ -30,6 +30,8 @@ class PrinterCfg:
     camera_port: int = 6000           # P1/A1 camera; used by the simulator (bambu-cam has its own setting)
     print_url: str = "ftp:///{file}"  # project_file "url"; {file} = the uploaded file name (verify per firmware)
     use_ams: bool = False
+    # average power while printing, in watts, for the electricity cost of each plate (0 = the finance default)
+    watts: float = 0
     # moonraker
     url: str = ""                     # ws://host:7125/websocket (HTTP API on the same host and port)
     api_key_env: str = ""             # env var with a Moonraker API key, if the printer requires one

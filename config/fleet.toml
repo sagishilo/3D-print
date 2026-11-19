@@ -38,6 +38,7 @@ font = "Noto Sans Hebrew:style=Bold"
 # ftp_port = 990
 # print_url = "ftp:///{file}"         # project_file "url"; verify on your firmware before relying on it
 # use_ams = false
+# watts = 110                        # average power while printing (electricity cost per plate); omit = finance default
 # bed_mm = [256, 256]
 # nozzle_mm = 0.4
 # material = "PLA"
@@ -52,6 +53,7 @@ font = "Noto Sans Hebrew:style=Bold"
 # model = "klipper"
 # url = "ws://192.168.50.31:7125/websocket"
 # api_key_env = ""                    # only if Moonraker requires an API key (env var name, in cameras.env)
+# watts = 150                        # average power while printing; omit = finance default
 # bed_mm = [300, 300]
 # nozzle_mm = 0.4
 # material = "PLA"

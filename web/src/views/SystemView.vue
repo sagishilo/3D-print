@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AgentsTable from '@/components/system/AgentsTable.vue'
+import BackupsPanel from '@/components/system/BackupsPanel.vue'
 import DlqPanel from '@/components/system/DlqPanel.vue'
 import NatsPanel from '@/components/system/NatsPanel.vue'
 import PrintersPanel from '@/components/system/PrintersPanel.vue'
@@ -124,6 +125,7 @@ const kpis = computed(() => {
       <ServersPanel :overview="system.overview" />
       <PrintersPanel />
     </div>
+    <BackupsPanel />
     <DlqPanel :limit="5" />
   </template>
 

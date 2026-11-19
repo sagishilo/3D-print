@@ -490,6 +490,7 @@ class PlateFinished(Event):
     grams_used: float           # estimate scaled by progress for failed plates
     print_seconds: int = 0      # from print start to finish (0 if the start was never observed)
     job_shares: list[JobShare] = Field(default_factory=list)  # grams_used split by job (failed plates too)
+    printer_watts: float | None = None   # the printer's configured power draw; None = the finance default
 
 
 class JobStarted(Event):

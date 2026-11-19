@@ -420,6 +420,18 @@ export const SYSTEM: TourStep[] = [
     prepare: [SYS_FIRST],
   },
   {
+    id: 'system-backups',
+    route: '/system',
+    targets: ['[data-tour="backups"]'],
+    title: 'Backups: גיבויים',
+    body: [
+      'כל יום המערכת שומרת עותק של כל הנתונים במחשב הזה. אם מוגדר גיבוי מחוץ לאתר, נשלח גם עותק **מוצפן** לענן.',
+      'ירוק (**Protected**): יש עותק מקומי ועותק בענן. כתום (**Local only**): העותקים רק במחשב הזה. אדום (**Needs attention**): גיבוי נכשל או ישן מדי.',
+    ],
+    why: 'מחשב שמתקלקל או נגנב לא צריך למחוק את העסק. עותק בענן שומר הזמנות, מלאי וכספים גם אז.',
+    prepare: [SYS_FIRST],
+  },
+  {
     id: 'system-dlq',
     route: '/system',
     targets: ['[data-tour="dlq"]'],

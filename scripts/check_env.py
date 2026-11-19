@@ -33,4 +33,13 @@ key = vals.get("ANTHROPIC_API_KEY", "")
 print(f"{'SET    ' if key else 'not set'}  ANTHROPIC_API_KEY (optional: Social Listening scores posts only with it)")
 if key and not key.startswith("sk-ant-"):
     print("         It does not look like an Anthropic API key (they start with sk-ant-).")
-sys.exit(1 if bad or not hash_ok or not nats_ok else 0)
+remote, recipient = vals.get("BACKUP_REMOTE", ""), vals.get("BACKUP_AGE_RECIPIENT", "")
+offsite_ok = (not remote and not recipient) or (bool(remote) and recipient.startswith("age1"))
+if not remote and not recipient:
+    print("not set  BACKUP_REMOTE (optional: encrypted off-site backups, README \"Off-site backups\")")
+else:
+    print(f"{'OK     ' if offsite_ok else 'INVALID'}  off-site backups (BACKUP_REMOTE + BACKUP_AGE_RECIPIENT)")
+    if not offsite_ok:
+        print("         Set both: BACKUP_REMOTE (an rclone remote) and BACKUP_AGE_RECIPIENT (the PUBLIC key, age1...).\n"
+              "         Without a recipient nothing is uploaded: an unencrypted backup never leaves this PC.")
+sys.exit(1 if bad or not hash_ok or not nats_ok or not offsite_ok else 0)

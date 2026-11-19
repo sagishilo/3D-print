@@ -103,6 +103,7 @@ class FinanceAgent(Agent):
         allocations = plate_allocations(
             grams_used=ev.grams_used, print_seconds=ev.print_seconds, shares=ev.job_shares, material=ev.material,
             color=ev.color, succeeded=ev.succeeded, s=s,
+            printer_watts=Decimal(str(ev.printer_watts)) if ev.printer_watts else None,
             price_per_gram_agorot=Decimal(price["agorot_per_gram"]) if price else None,
         )
         day = self._day(env.time)
