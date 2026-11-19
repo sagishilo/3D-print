@@ -55,7 +55,7 @@ export interface MaterialRow {
 
 export interface InventoryAlert {
   alert_id: string
-  kind: 'low_stock' | 'spool_short' | 'spool_empty'
+  kind: 'low_stock' | 'spool_short' | 'spool_empty' | 'low_item'
   severity: 'info' | 'warning' | 'critical'
   material: string
   color: string
@@ -83,6 +83,8 @@ export interface PurchaseOrder {
   ordered_at: string | null
   received_at: string | null
   created_at: string
+  item_id?: string | null // a part, packaging or consumable (Wave 1 / M4)
+  quantity?: number | null
 }
 
 export interface UsageRow {
@@ -139,4 +141,5 @@ export const ALERT_LABEL: Record<InventoryAlert['kind'], string> = {
   low_stock: 'Below minimum',
   spool_short: 'Spool too short',
   spool_empty: 'Spool empty',
+  low_item: 'Part or packaging low',
 }

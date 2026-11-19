@@ -2,9 +2,14 @@
 // Filament (design screen 5): KPIs, alerts, spools (live grams while printing), the reorder list with editable rules
 // and "Order now", purchase orders (approve, change quantity, confirm ordered, receive) and daily use.
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import SpoolCard from '@/components/filament/SpoolCard.vue'
 import SpoolDialog from '@/components/filament/SpoolDialog.vue'
+import ConditionPanel from '@/components/inventory/ConditionPanel.vue'
+import ItemsPanel from '@/components/inventory/ItemsPanel.vue'
+import ShelfPanel from '@/components/inventory/ShelfPanel.vue'
+import TabBar from '@/components/ui/TabBar.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
@@ -17,6 +22,7 @@ import type { Tone } from '@/lib/types'
 import { useApprovals } from '@/stores/approvals'
 import { useConfirm } from '@/stores/confirm'
 import { useInventory } from '@/stores/inventory'
+import { useStock } from '@/stores/stock'
 import { usePrinters } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
@@ -29,7 +35,20 @@ const approvals = useApprovals()
 const confirm = useConfirm()
 const toasts = useToasts()
 
-onMounted(() => void inventory.load())
+const stock = useStock()
+onMounted(() => {
+  void inventory.load()
+  void stock.load()
+})
+
+// Tabs: filament (the default), finished goods on the shelf, parts and packaging (Wave 1 / M4).
+const route = useRoute()
+const router = useRouter()
+const TABS = [{ id: 'filament', label: 'Filament' }, { id: 'shelf', label: 'Finished goods' }, { id: 'items', label: 'Parts & packaging' }]
+const tab = computed({
+  get: () => (TABS.some((t) => t.id === route.query.tab) ? String(route.query.tab) : 'filament'),
+  set: (t: string) => void router.replace({ query: t === 'filament' ? {} : { tab: t } }),
+})
 
 // ---------------------------------------------------------------- spools
 const showEmpty = ref(false)
@@ -127,10 +146,12 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
 <template>
   <div class="page-head">
     <div>
-      <h1>Filament Inventory &amp; Auto-Reorder</h1>
-      <p>Grams booked per finished plate · active spools count down live while they print · reorder when grams − rate × (lead + buffer) ≤ min</p>
+      <h1>Inventory</h1>
+      <p v-if="tab === 'filament'">Filament: grams booked per finished plate · active spools count down live while they print · reorder when grams − rate × (lead + buffer) ≤ min</p>
+      <p v-else-if="tab === 'shelf'">Finished pieces on the shelf · new orders take from here first, so those pieces are not printed</p>
+      <p v-else>Parts, packaging and consumables · counted down from each product's bill of materials as orders ship</p>
     </div>
-    <form class="scan" data-tour="spool-scan" @submit.prevent="onScan">
+    <form v-if="tab === 'filament'" class="scan" data-tour="spool-scan" @submit.prevent="onScan">
       <label class="sr-only" for="scan">Scan a spool label</label>
       <input id="scan" v-model="scan" class="input" placeholder="Scan or type a spool label" autocomplete="off" data-testid="scan" />
       <button type="submit" class="btn"><Icon name="search" :size="14" />Find</button>
@@ -138,6 +159,11 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
     </form>
   </div>
 
+  <TabBar v-model="tab" :tabs="TABS" label="Inventory sections" data-tour="inventory-tabs" />
+  <ShelfPanel v-if="tab === 'shelf'" />
+  <ItemsPanel v-else-if="tab === 'items'" />
+  <template v-else>
+  <ConditionPanel />
   <div class="kpis" data-tour="filament-kpis">
     <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.tone" />
   </div>
@@ -232,7 +258,7 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
           <b>{{ po.po_id }}{{ po.supplier ? ` · ${po.supplier}` : '' }}</b>
           <StatusPill :tone="PO_LABEL[po.status].tone" :label="PO_LABEL[po.status].label" />
         </div>
-        <span>{{ po.material }} {{ po.color }} × {{ po.spools }} · {{ shekels(po.total_agorot ?? po.est_cost_agorot) }}{{ po.total_agorot ? '' : ' (estimate)' }}</span>
+        <span>{{ po.item_id ? `${po.material} × ${po.quantity}` : `${po.material} ${po.color} × ${po.spools}` }} · {{ shekels(po.total_agorot ?? po.est_cost_agorot) }}{{ po.total_agorot ? '' : ' (estimate)' }}</span>
         <span class="muted small">created {{ dateTime(po.created_at) }}{{ po.ordered_at ? ` · ordered ${dateTime(po.ordered_at)}` : '' }}{{ po.received_at ? ` · received ${dateTime(po.received_at)}` : '' }}</span>
         <div v-if="po.status === 'pending_approval'" class="row actions">
           <label class="inline">Spools <input v-model="form(po).qty" class="input small-input" inputmode="numeric" /></label>
@@ -267,6 +293,8 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
       <div class="row muted small"><span>{{ totals[0]?.day }}</span><span>{{ totals[totals.length - 1]?.day }}</span></div>
     </section>
   </div>
+
+  </template>
 
   <SpoolDialog v-if="dialog" :spool="dialogSpool" :tag="dialog.tag" @close="dialog = null" />
 </template>

@@ -19,7 +19,7 @@ export const NAV: NavItem[] = [
   { to: '/live', label: 'Live floor', icon: 'live', group: 'Make' },
   { to: '/orders', label: 'Order Pipeline', icon: 'columns', group: 'Make' },
   { to: '/fleet', label: 'Printer Fleet', icon: 'monitor', group: 'Make' },
-  { to: '/filament', label: 'Filament', icon: 'disc', group: 'Make' },
+  { to: '/filament', label: 'Inventory', icon: 'disc', group: 'Make' },
   { to: '/finance', label: 'Finance', icon: 'bars', group: 'Business', minRole: 'operator' },
   { to: '/system', label: 'System & Agents', icon: 'gear', group: 'Admin', minRole: 'operator' },
   { to: '/users', label: 'Users', icon: 'users', group: 'Admin', minRole: 'owner' },

@@ -79,17 +79,20 @@ class FinanceAgent(Agent):
     async def po_ordered(self, env, ev: PurchaseOrdered, conn):
         s = await self._settings(conn)
         net, vat = split_vat(ev.total_agorot, s) if ev.vat_invoice else (ev.total_agorot, 0)
+        # Filament, or (Wave 1 / M4) a part / consumable ("parts") or packaging bought for the bill of materials.
+        category = "filament" if not ev.item_id else "packaging" if ev.item_kind == "packaging" else "parts"
+        note = (f"{ev.po_id} · {ev.spools} x {ev.material} {ev.color}" if not ev.item_id
+                else f"{ev.po_id} · {ev.quantity or 0:g} x {ev.material}")
         row = await (
             await conn.execute(
                 "INSERT INTO finance.expense_entries (source_event_id, entry_date, category, vendor, gross_agorot, vat_agorot, "
-                "net_agorot, kind, note) VALUES (%s, %s, 'filament', %s, %s, %s, %s, 'cash', %s) "
+                "net_agorot, kind, note) VALUES (%s, %s, %s, %s, %s, %s, %s, 'cash', %s) "
                 "ON CONFLICT (source_event_id) DO NOTHING RETURNING id",
-                (env.id, self._day(ev.ordered_at), ev.supplier, ev.total_agorot, vat, net,
-                 f"{ev.po_id} · {ev.spools} x {ev.material} {ev.color}"),
+                (env.id, self._day(ev.ordered_at), category, ev.supplier, ev.total_agorot, vat, net, note),
             )
         ).fetchone()
         if row:
-            await self._booked(conn, env, entry_id=row["id"], ledger="expense", entry_kind="cash", category="filament",
+            await self._booked(conn, env, entry_id=row["id"], ledger="expense", entry_kind="cash", category=category,
                                gross=ev.total_agorot, source_event_id=env.id)
         if ev.grams_per_spool and ev.spools > 0:
             # What a gram of this filament really cost (net: reclaimable VAT is not a cost), for per-job costs.

@@ -38,14 +38,18 @@ export const usePrefs = defineStore('prefs', () => {
   const expert = computed(() => mode.value === 'expert')
 
   /** Change one or more preferences: applied at once, then saved (rolled back if the gateway refuses). */
+  // Two quick changes in a row: the answer to the first may arrive after the second was applied. Only the answer to
+  // the latest change is taken as it is; an older one never undoes a newer choice.
+  let latest = 0
   async function set(change: Prefs): Promise<void> {
     const before = { ...auth.prefs }
+    const n = ++latest
     auth.prefs = { ...auth.prefs, ...change }
     try {
       const me = await api<{ prefs: Prefs }>('/api/v1/auth/prefs', { method: 'PATCH', body: change })
-      auth.prefs = { ...me.prefs }
+      if (n === latest) auth.prefs = { ...me.prefs }
     } catch (err) {
-      auth.prefs = before
+      if (n === latest) auth.prefs = before
       useToasts().error('Could not save the setting', errorText(err))
     }
   }

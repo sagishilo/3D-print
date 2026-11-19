@@ -32,6 +32,9 @@ CONFIG_KEYS: tuple[ConfigKey, ...] = (
               "Ready models go straight to the print queue; off: you drag them to Slicing / scheduling", False),
     ConfigKey("orders.auto_qc_pass", "Auto-pass quality control",
               "Printed orders pass QC without a check; off: you pass or fail them in the QC column", False),
+    ConfigKey("stock.auto_restock", "Auto-restock the shelf",
+              "When a sale takes a SKU below its shelf minimum, queue a stock batch for the missing pieces; off: "
+              "Inventory > Finished goods suggests it and you queue it", False),
     ConfigKey("qc.agent_enabled", "QC agent module", "Optional camera-based QC (vision); off: operator checks", False, phase=9),
     ConfigKey("catalog.auto_queue", "Auto-queue catalog batches", "Queue when demand score ≥ 0.8", False, phase=8),
     ConfigKey("fleet.quiet_hours", "Quiet hours 23:00–07:00", "No new prints start; running prints continue", False, phase=9),

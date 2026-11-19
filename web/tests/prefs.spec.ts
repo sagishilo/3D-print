@@ -140,3 +140,24 @@ describe('EmptyState', () => {
     expect(none.find('[data-testid="empty-action"]').exists()).toBe(false)
   })
 })
+
+describe('quick changes in a row', () => {
+  it('an older answer never undoes a newer choice', async () => {
+    signedInAs('operator')
+    let release: (r: Response) => void = () => undefined
+    let first = true
+    serve(on('PATCH', '/api/v1/auth/prefs', (c) => {
+      if (first) {
+        first = false
+        return new Promise<Response>((resolve) => (release = resolve)) as unknown as Response
+      }
+      return json(200, { prefs: { density: (c.body as { density: string }).density } })
+    }))
+    const p = usePrefs()
+    const slow = p.set({ density: 'comfortable' })
+    await p.set({ density: 'compact' })
+    release(json(200, { prefs: { density: 'comfortable' } }))
+    await slow
+    expect(p.density).toBe('compact')
+  })
+})

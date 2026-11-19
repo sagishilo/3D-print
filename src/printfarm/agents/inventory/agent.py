@@ -29,33 +29,44 @@ from datetime import UTC, datetime
 from printfarm.agents.base import Agent, on
 from printfarm.agents.inventory.model import Policy, assess, check_spools, decide, spools_to_order
 from printfarm.contracts import new_message
+from printfarm.contracts.catalog import STOCK_CHANNEL
 from printfarm.contracts.messages import (
     AcknowledgeInventoryAlert,
     AdjustSpool,
     ApprovalDecided,
     ApprovalRequested,
     AvailabilityReply,
+    BomChanged,
     ConfirmPoOrdered,
+    CountItem,
     FilamentConsumed,
     InventoryAlertRaised,
     InventoryAlertResolved,
+    ItemChanged,
     LoadSpool,
+    MarkSpoolDried,
+    OrderShipped,
     PlateFinished,
     PlateScheduled,
     PoReceived,
     PurchaseOrdered,
     ReceivePo,
     RegisterSpool,
+    ReorderItem,
     ReorderPlaced,
     ReorderRuleChanged,
     RequestReorder,
+    SetBom,
     SetReorderRule,
     SpoolAdjusted,
+    SpoolDried,
     SpoolLoaded,
     SpoolRegistered,
     StockLow,
     UpdatePo,
+    UpsertItem,
 )
+from printfarm.contracts.stock import bom_use, item_reorder_qty
 
 OPEN_PO_STATUSES = ("pending_approval", "placed", "ordered")  # count towards the stock position
 
@@ -325,7 +336,8 @@ class InventoryAgent(Agent):
             return
         if cmd.printer_id:
             await conn.execute(
-                "UPDATE inventory.spools SET printer_id = %s, slot = %s, status = 'loaded', location = NULL WHERE spool_id = %s",
+                "UPDATE inventory.spools SET printer_id = %s, slot = %s, status = 'loaded', location = NULL, "
+                "opened_at = coalesce(opened_at, now()) WHERE spool_id = %s",          # the drying clock starts
                 (cmd.printer_id, cmd.slot or None, cmd.spool_id),
             )
         else:
@@ -429,6 +441,14 @@ class InventoryAgent(Agent):
                                             (cmd.po_id,))).fetchone()
             self.log.warning("PO %s not confirmed as ordered: status is %s", cmd.po_id, row["status"] if row else "unknown")
             return
+        if po["item_id"]:                         # a part, packaging or consumable: Finance books it as such
+            item = await self._item(conn, po["item_id"])
+            await self.emit(conn, PurchaseOrdered(
+                po_id=po["po_id"], material=item["name"] if item else po["item_id"], color="", spools=0,
+                supplier=cmd.supplier, total_agorot=cmd.total_agorot, vat_invoice=cmd.vat_invoice, ordered_at=ordered_at,
+                item_id=po["item_id"], item_kind=item["kind"] if item else "part", quantity=float(po["quantity"] or 0)),
+                cause=env, correlationid=po["po_id"])
+            return
         m = await self._material(conn, po["material"], po["color"])
         await self.emit(
             conn,
@@ -450,6 +470,15 @@ class InventoryAgent(Agent):
         if po is None:
             self.log.warning("PO %s not received: it is not in status 'ordered'", cmd.po_id)
             return
+        if po["item_id"]:
+            item = await self._item(conn, po["item_id"], lock=True)
+            qty = float(po["quantity"] or 0)
+            if item is not None:
+                await self._item_moved(conn, env, item, qty, "received", po["po_id"], by=cmd.received_by or "unknown")
+            await self.emit(conn, PoReceived(po_id=po["po_id"], material=item["name"] if item else po["item_id"], color="",
+                                             spool_ids=[], item_id=po["item_id"], quantity=qty),
+                            cause=env, correlationid=po["po_id"])
+            return
         m = await self._material(conn, po["material"], po["color"])
         grams = m["grams_per_spool"] if m else 1000
         spool_ids = [f"{po['po_id']}-{i:02d}" for i in range(1, po["spools"] + 1)]
@@ -467,6 +496,138 @@ class InventoryAgent(Agent):
         await self.emit(conn, PoReceived(po_id=po["po_id"], material=po["material"], color=po["color"], spool_ids=spool_ids),
                         cause=env, correlationid=po["po_id"])
         await self._evaluate(conn, po["material"], po["color"], env, reorder=False)
+
+    # ------------------------------------------------------------ parts, packaging, consumables (Wave 1 / M4)
+
+    async def _item(self, conn, item_id: str, *, lock: bool = False):
+        return await (await conn.execute(
+            "SELECT * FROM inventory.items WHERE item_id = %s" + (" FOR UPDATE" if lock else ""), (item_id,))).fetchone()
+
+    async def _item_moved(self, conn, cause, item, delta: float, reason: str, ref: str | None, by: str = "auto") -> None:
+        """Book a change of an item's stock, then its low-stock alert."""
+        on_hand = max(0.0, float(item["on_hand"]) + delta)
+        await conn.execute("UPDATE inventory.items SET on_hand = %s, updated_at = now() WHERE item_id = %s",
+                           (on_hand, item["item_id"]))
+        await conn.execute("INSERT INTO inventory.item_ledger (item_id, delta, reason, ref) VALUES (%s, %s, %s, %s)",
+                           (item["item_id"], delta, reason, ref))
+        await self.emit(conn, ItemChanged(item_id=item["item_id"], name=item["name"], on_hand=on_hand, delta=delta,
+                                          reason=reason, by=by), cause=cause)
+        await self._evaluate_item(conn, item["item_id"], cause)
+
+    async def _evaluate_item(self, conn, item_id: str, cause) -> None:
+        item = await self._item(conn, item_id)
+        if item is None:
+            return
+        subject = f"item/{item_id}"
+        on_hand, minimum = float(item["on_hand"]), float(item["min_qty"])
+        if minimum > 0 and on_hand < minimum and not item["archived"]:
+            await self._raise(conn, cause, kind="low_item", severity="warning", subject=subject, material="", color="",
+                              needed_grams=minimum, available_grams=on_hand,
+                              message=f"{item['name']}: {on_hand:g} {item['unit']} left, below the minimum of "
+                                      f"{minimum:g}: reorder")
+        else:
+            await self._resolve(conn, cause, kind="low_item", subject=subject)
+
+    @on("cmd.inventory.upsert_item")
+    async def upsert_item(self, env, cmd: UpsertItem, conn):
+        by = cmd.changed_by or "unknown"
+        row = await self._item(conn, cmd.item_id, lock=True)
+        values = {"name": cmd.name.strip(), "kind": cmd.item_kind, "unit": cmd.unit.strip(), "min_qty": cmd.min_qty,
+                  "reorder_qty": cmd.reorder_qty, "supplier": cmd.supplier.strip(), "lead_days": cmd.lead_days,
+                  "cost_agorot": cmd.cost_agorot, "archived": cmd.archived, "updated_by": by}
+        if row is None:
+            cols = ", ".join(values)
+            marks = ", %s" * len(values)
+            await conn.execute(f"INSERT INTO inventory.items (item_id, on_hand, {cols}) VALUES (%s, %s{marks})",
+                               (cmd.item_id, cmd.on_hand or 0, *values.values()))
+            if cmd.on_hand:
+                await conn.execute("INSERT INTO inventory.item_ledger (item_id, delta, reason, ref) "
+                                   "VALUES (%s, %s, 'registered', %s)", (cmd.item_id, cmd.on_hand, by))
+        else:
+            sets = ", ".join(f"{k} = %s" for k in values)
+            await conn.execute(f"UPDATE inventory.items SET {sets}, updated_at = now() WHERE item_id = %s",
+                               (*values.values(), cmd.item_id))
+        on_hand = float(cmd.on_hand or 0) if row is None else float(row["on_hand"])
+        await self.emit(conn, ItemChanged(item_id=cmd.item_id, name=values["name"], on_hand=on_hand, reason="saved", by=by),
+                        cause=env)
+        await self._evaluate_item(conn, cmd.item_id, env)
+
+    @on("cmd.inventory.count_item")
+    async def count_item(self, env, cmd: CountItem, conn):
+        item = await self._item(conn, cmd.item_id, lock=True)
+        if item is None:
+            self.log.warning("no item %s", cmd.item_id)
+            return
+        await self._item_moved(conn, env, item, cmd.on_hand - float(item["on_hand"]), "counted", cmd.counted_by or None,
+                               by=cmd.counted_by or "unknown")
+
+    @on("cmd.inventory.set_bom")
+    async def set_bom(self, env, cmd: SetBom, conn):
+        by = cmd.changed_by or "unknown"
+        known = {r["item_id"] for r in await (await conn.execute(
+            "SELECT item_id FROM inventory.items WHERE item_id = ANY(%s)", ([x.item_id for x in cmd.lines],))).fetchall()}
+        lines = [x for x in cmd.lines if x.item_id in known]
+        if len(lines) < len(cmd.lines):
+            self.log.warning("BOM of %s: unknown items left out (%s)", cmd.sku,
+                             ", ".join(x.item_id for x in cmd.lines if x.item_id not in known))
+        await conn.execute("DELETE FROM inventory.bom WHERE sku = %s", (cmd.sku,))
+        for x in lines:
+            await conn.execute("INSERT INTO inventory.bom (sku, item_id, qty) VALUES (%s, %s, %s) ON CONFLICT (sku, item_id) "
+                               "DO UPDATE SET qty = inventory.bom.qty + EXCLUDED.qty", (cmd.sku, x.item_id, x.qty))
+        await self.emit(conn, BomChanged(sku=cmd.sku, lines=lines, by=by), cause=env)
+
+    @on("evt.order.order.shipped")
+    async def order_shipped(self, env, ev: OrderShipped, conn):
+        """Parts for the pieces made for this order, packaging for what left to a customer (stock.bom_use)."""
+        skus = sorted({x.product_type for x in ev.lines})
+        if not skus:
+            return
+        rows = await (await conn.execute(
+            "SELECT b.sku, b.item_id, b.qty, i.kind FROM inventory.bom b JOIN inventory.items i USING (item_id) "
+            "WHERE b.sku = ANY(%s)", (skus,))).fetchall()
+        bom: dict[str, list[tuple[str, float, str]]] = {}
+        for r in rows:
+            bom.setdefault(r["sku"], []).append((r["item_id"], float(r["qty"]), r["kind"]))
+        uses = bom_use(bom, [(x.product_type, x.quantity, x.from_stock) for x in ev.lines],
+                       to_shelf=ev.channel == STOCK_CHANNEL)
+        for u in uses:
+            item = await self._item(conn, u.item_id, lock=True)
+            if item is not None:
+                await self._item_moved(conn, env, item, -u.qty, u.reason, ev.order_id)
+
+    @on("cmd.inventory.reorder_item")
+    async def reorder_item(self, env, cmd: ReorderItem, conn):
+        item = await self._item(conn, cmd.item_id, lock=True)
+        if item is None:
+            self.log.warning("no item %s", cmd.item_id)
+            return
+        on_order = await (await conn.execute(
+            "SELECT coalesce(sum(quantity), 0) AS q FROM inventory.purchase_orders WHERE item_id = %s AND status = ANY(%s)",
+            (cmd.item_id, list(OPEN_PO_STATUSES)))).fetchone()
+        qty = cmd.quantity or item_reorder_qty(float(item["on_hand"]), float(on_order["q"]), float(item["min_qty"]),
+                                               float(item["reorder_qty"])) or float(item["reorder_qty"]) or 1.0
+        cost = round(qty * item["cost_agorot"])
+        po_id = f"po-{uuid.uuid4().hex[:10]}"
+        # A person asked for it: placed at once (no approval), then ordered from the supplier and received as any PO.
+        await conn.execute(
+            "INSERT INTO inventory.purchase_orders (po_id, material, color, spools, est_cost_agorot, status, item_id, "
+            "quantity, supplier) VALUES (%s, '', '', 0, %s, 'placed', %s, %s, %s)",
+            (po_id, cost, cmd.item_id, qty, item["supplier"] or None))
+        await self.emit(conn, ReorderPlaced(po_id=po_id, material=item["name"], color="", spools=0, est_cost_agorot=cost,
+                                            item_id=cmd.item_id, quantity=qty), cause=env, correlationid=po_id)
+
+    # ------------------------------------------------------------ filament condition
+
+    @on("cmd.inventory.mark_dried")
+    async def mark_dried(self, env, cmd: MarkSpoolDried, conn):
+        s = await (await conn.execute(
+            "UPDATE inventory.spools SET dried_at = now(), opened_at = coalesce(opened_at, now()) WHERE spool_id = %s "
+            "RETURNING material, color", (cmd.spool_id,))).fetchone()
+        if s is None:
+            self.log.warning("unknown spool %s", cmd.spool_id)
+            return
+        await self.emit(conn, SpoolDried(spool_id=cmd.spool_id, material=s["material"], color=s["color"],
+                                         by=cmd.dried_by or "unknown"), cause=env)
 
     # ------------------------------------------------------------ queries
 

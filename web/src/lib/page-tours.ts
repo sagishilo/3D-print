@@ -480,7 +480,7 @@ export const TOURS: Record<TourId, Tour> = {
   fleet: { id: 'fleet', title: 'מדריך לעמוד · Printer Fleet', steps: FLEET },
   social: { id: 'social', title: 'מדריך לעמוד · Social & Trends', steps: SOCIAL },
   catalog: { id: 'catalog', title: 'מדריך לעמוד · Instant Catalog', steps: CATALOG },
-  filament: { id: 'filament', title: 'מדריך לעמוד · Filament', steps: FILAMENT },
+  filament: { id: 'filament', title: 'מדריך לעמוד · Inventory', steps: FILAMENT },
   finance: { id: 'finance', title: 'מדריך לעמוד · Finance', steps: FINANCE },
   system: { id: 'system', title: 'מדריך לעמוד · System & Agents', steps: SYSTEM },
   help: { id: 'help', title: 'מדריך לעמוד · מדריך למשתמש', steps: HELP },

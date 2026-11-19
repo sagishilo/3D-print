@@ -7,11 +7,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import Icon from '@/components/ui/Icon.vue'
 import { errorText } from '@/lib/api'
 import { type CatalogProduct, CATEGORY_LABEL, minutes, skuError, skuFromName, type Upload } from '@/lib/catalog'
-import { bytes } from '@/lib/format'
+import { bytes, shekels } from '@/lib/format'
 import { UNASSIGNED } from '@/lib/niches'
 import { toAgorot } from '@/lib/orders'
 import { useCatalog } from '@/stores/catalog'
 import { useNiche } from '@/stores/niche'
+import { useStock } from '@/stores/stock'
 import { useToasts } from '@/stores/toasts'
 
 const props = defineProps<{ product: CatalogProduct | null; categories: string[] }>()
@@ -47,6 +48,22 @@ function nicheDefaults() {
 }
 if (!niche.loaded) void niche.load()
 if (!p) nicheDefaults()
+
+// Parts per piece (the bill of materials, Wave 1 / M4): magnets, inserts, boxes… kept by the inventory agent.
+const stock = useStock()
+const bomRows = ref<{ item_id: string; qty: string }[]>([])
+let bomBefore = '[]'
+const bomReady = ref(!p)            // a product's saved list is loaded before it can be changed
+if (!stock.loaded) void stock.load()
+if (p) {
+  void stock.bom(p.sku).then((rows) => {
+    bomRows.value = rows.map((r) => ({ item_id: r.item_id, qty: String(r.qty) }))
+    bomBefore = JSON.stringify(rows.map((r) => ({ item_id: r.item_id, qty: Number(r.qty) })))
+    bomReady.value = true
+  }).catch(() => (bomReady.value = true))
+}
+const bomPiece = computed(() =>
+  bomRows.value.reduce((a, r) => a + Number(r.qty || 0) * (stock.items.find((i) => i.item_id === r.item_id)?.cost_agorot ?? 0), 0))
 
 const upload = ref<Upload | null>(null)
 const uploading = ref(false)
@@ -108,6 +125,8 @@ async function submit() {
       niche: form.niche,
       tags: form.tags.filter((t) => t !== form.niche),
     })
+    const lines = bomRows.value.filter((r) => r.item_id && Number(r.qty) > 0).map((r) => ({ item_id: r.item_id, qty: Number(r.qty) }))
+    if (JSON.stringify(lines) !== bomBefore) await stock.setBom(form.sku, lines)
     toasts.info(p ? `${form.sku} saved` : `${form.sku} imported`, 'The personalization agent checks the file and confirms on the live feed.')
     catalog.reloadSoon()
     emit('close')
@@ -181,6 +200,23 @@ onMounted(() => {
         </fieldset>
         <label v-if="p" class="check"><input v-model="form.active" type="checkbox" /> On sale (off: no new orders or batches)</label>
       </div>
+
+      <fieldset class="bom" data-testid="bom">
+        <legend>Parts per piece <span class="muted">(besides filament: used when made or shipped · Inventory › Parts &amp; packaging)</span></legend>
+        <div v-for="(r, i) in bomRows" :key="i" class="bom-row">
+          <select v-model="r.item_id" class="select" :aria-label="`Item ${i + 1}`" :data-testid="`bom-item-${i}`">
+            <option value="" disabled>Choose an item</option>
+            <option v-for="it in stock.items" :key="it.item_id" :value="it.item_id">{{ it.name }} ({{ it.unit }})</option>
+          </select>
+          <input v-model="r.qty" class="input qty" inputmode="decimal" :aria-label="`Quantity of item ${i + 1}`" :data-testid="`bom-qty-${i}`" />
+          <button type="button" class="icon-btn" :aria-label="`Remove item ${i + 1}`" @click="bomRows.splice(i, 1)"><Icon name="x" :size="14" /></button>
+        </div>
+        <div class="bom-foot">
+          <button type="button" class="btn btn-sm" :disabled="!stock.items.length || !bomReady" data-testid="bom-add" @click="bomRows.push({ item_id: '', qty: '1' })"><Icon name="plus" :size="12" />Add part</button>
+          <span v-if="!stock.items.length" class="muted">Add parts and packaging under Inventory first.</span>
+          <span v-else-if="bomRows.length" class="muted">{{ shekels(Math.round(bomPiece)) }} per piece</span>
+        </div>
+      </fieldset>
 
       <p v-if="error || (invalid && (upload || p))" class="err" role="alert">{{ error || invalid }}</p>
       <footer>
@@ -263,6 +299,32 @@ label.check {
 .tags label.check {
   grid-column: auto;
   color: var(--text);
+}
+.bom {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bom-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.bom-row .select {
+  flex: 1;
+}
+.bom-row .qty {
+  width: 80px;
+}
+.bom-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 .file {
   padding-top: 8px;

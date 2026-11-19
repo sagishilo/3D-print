@@ -25,6 +25,7 @@ export interface CatalogProduct {
   updated_by: string
   niche: string // the main niche (lib/niches.ts)
   tags: string[] // extra niches
+  on_shelf?: number // finished pieces free on the shelf (Wave 1 / M4)
 }
 
 export interface ThreeMfInfo {

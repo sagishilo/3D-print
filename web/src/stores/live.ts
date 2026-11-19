@@ -11,6 +11,7 @@ import type { FeedItem, PrinterState, Tone } from '@/lib/types'
 import { useApprovals } from './approvals'
 import { useCatalog } from './catalog'
 import { useNiche } from './niche'
+import { useStock } from './stock'
 import { useSocial } from './social'
 import { useAuth } from './auth'
 import { useFinance } from './finance'
@@ -78,7 +79,7 @@ export const useLive = defineStore('live', () => {
     if (d.kind.startsWith('approval.')) void useApprovals().load()
     if (d.kind.startsWith('order.') || d.kind.startsWith('fleet.') || d.kind.startsWith('personalization.')) useOrders().reloadSoon()
     if (d.kind.startsWith('inventory.') || d.kind === 'fleet.plate.scheduled' || d.kind === 'fleet.plate.finished') useInventory().reloadSoon()
-    if (d.kind === 'inventory.alert.raised' && data.severity !== 'info') toasts.push({ tone: 'warn', title: 'Filament', text: d.text }, 10000)
+    if (d.kind === 'inventory.alert.raised' && data.severity !== 'info') toasts.push({ tone: 'warn', title: data.alert_kind === 'low_item' ? 'Parts & packaging' : 'Filament', text: d.text }, 10000)
     if (d.kind.startsWith('finance.') || d.kind.startsWith('order.payment.') || d.kind === 'order.order.shipped') useFinance().reloadSoon()
     if (d.kind.startsWith('catalog.') || d.kind === 'order.order.created' || d.kind === 'order.order.shipped' ||
       d.kind === 'fleet.plate.scheduled' || d.kind === 'inventory.spool.adjusted') useCatalog().reloadSoon()
@@ -86,6 +87,7 @@ export const useLive = defineStore('live', () => {
       toasts.error(data.action === 'slice' ? `${data.sku} not sliced` : `${data.sku} not saved`, String(data.reason))
     if (d.kind === 'catalog.product.updated') toasts.ok(`${data.sku} in the catalog`, d.text)
     if (d.kind.startsWith('catalog.niche.')) void useNiche().load()
+    if (d.kind.startsWith('order.stock.') || d.kind.startsWith('inventory.') || d.kind === 'order.order.shipped' || d.kind === 'order.order.created') useStock().reloadSoon()
     if (d.kind === 'catalog.niche.updated') toasts.ok('Niche saved', d.text)
     if (d.kind === 'catalog.niche.rejected') toasts.error('Niche not changed', String(data.reason))
     if (d.kind.startsWith('social.') || d.kind === 'system.config.changed') useSocial().reloadSoon()

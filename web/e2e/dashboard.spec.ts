@@ -299,7 +299,7 @@ test.describe('filament', () => {
   test('scan-register a spool, a minimum that raises and clears an alert, weigh a spool', async ({ page }) => {
     const label = `QR-${Date.now()}`
     await signIn(page, '/filament')
-    await expect(page.getByRole('heading', { name: /Filament Inventory/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Inventory', exact: true })).toBeVisible()
     const rules = page.getByTestId('reorder-rules')
     await expect(rules.getByTestId('rule-PLA-white')).toBeVisible()
     await shot(page, '30-filament')

@@ -63,6 +63,7 @@ class ExpenseCategory(StrEnum):
     EQUIPMENT = "equipment"
     SOFTWARE = "software"
     MARKETING = "marketing"
+    PARTS = "parts"                 # parts, packaging stock and consumables bought for the bill of materials
     MISC = "misc"
 
 
@@ -242,6 +243,17 @@ class OrderQcRecorded(Event):
     by: str = ""
 
 
+class ShippedLine(BaseModel):
+    """One line of a shipped order: units printed for it and units taken from the shelf (Inventory deducts the
+    bill of materials: parts for what was made, packaging for what left)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    product_type: str                           # the SKU of a catalog line, else the product
+    quantity: int = Field(ge=0)
+    from_stock: int = Field(default=0, ge=0)
+
+
 class OrderShipped(Event):
     """Feeds receivables (Phase 7): what the customer owes for this order."""
 
@@ -251,6 +263,50 @@ class OrderShipped(Event):
     carrier: str = ""
     tracking: str = ""
     by: str = ""
+    channel: str = ""                           # "stock": shipped to the shelf (a stock batch), not to a customer
+    lines: list[ShippedLine] = []
+
+
+class StockMoved(Event):
+    """Finished goods on the shelf moved (coordinator.finished_goods): built by a stock batch, reserved for or
+    released by an order, sold, or a stock count corrected."""
+
+    subject: ClassVar[str] = "evt.order.stock.moved"
+    sku: str
+    delta_on_hand: int = 0
+    delta_reserved: int = 0
+    reason: Literal["built", "reserved", "released", "sold", "counted"]
+    order_id: str | None = None
+    by: str = "auto"
+    note: str = ""
+
+
+class SetStockRule(Command):
+    """Shelf settings of a SKU (dashboard: Inventory > Finished goods): the minimum to keep and where it sits."""
+
+    subject: ClassVar[str] = "cmd.coordinator.set_stock_rule"
+    sku: str = Field(pattern=SKU_PATTERN)
+    min_stock: int = Field(ge=0, le=10_000)
+    location: str = Field(default="", max_length=40)
+    changed_by: str = ""
+
+
+class CountStock(Command):
+    """A stock count: how many finished pieces are on the shelf (corrects on_hand; never below what is reserved)."""
+
+    subject: ClassVar[str] = "cmd.coordinator.count_stock"
+    sku: str = Field(pattern=SKU_PATTERN)
+    on_hand: int = Field(ge=0, le=100_000)
+    note: str = Field(default="", max_length=200)
+    counted_by: str = ""
+
+
+class StockRuleChanged(Event):
+    subject: ClassVar[str] = "evt.order.stock.rule_changed"
+    sku: str
+    min_stock: int
+    location: str
+    by: str
 
 
 class OrderCancelled(Event):
@@ -841,6 +897,8 @@ class ReorderPlaced(Event):
     color: str
     spools: int
     est_cost_agorot: int
+    item_id: str | None = None                  # a part, packaging or consumable (inventory.items), not filament
+    quantity: float | None = None
 
 
 class ConfirmPoOrdered(Command):
@@ -866,6 +924,9 @@ class PurchaseOrdered(Event):
     vat_invoice: bool
     ordered_at: datetime
     grams_per_spool: float | None = None        # lets Finance price filament per gram from what was really paid
+    item_id: str | None = None                  # an item PO: booked as packaging or parts, not filament
+    item_kind: str | None = None                # part | packaging | consumable
+    quantity: float | None = None
 
 
 class ReceivePo(Command):
@@ -881,6 +942,8 @@ class PoReceived(Event):
     material: str
     color: str
     spool_ids: list[str]
+    item_id: str | None = None
+    quantity: float | None = None
 
 
 class LoadSpool(Command):
@@ -956,6 +1019,96 @@ class AcknowledgeInventoryAlert(Command):
     subject: ClassVar[str] = "cmd.inventory.ack_alert"
     alert_id: str
     acknowledged_by: str = ""
+
+
+# ---------------------------------------------------------------- parts, packaging, consumables (Wave 1 / M4)
+
+ITEM_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{0,39}$"
+
+
+class UpsertItem(Command):
+    """Add a stock item besides filament (magnets, inserts, screws, boxes, labels) or change one. ``on_hand`` only
+    for a new item: later changes are counts (CountItem) or deliveries (purchase orders)."""
+
+    subject: ClassVar[str] = "cmd.inventory.upsert_item"
+    item_id: str = Field(pattern=ITEM_ID_PATTERN)
+    name: str = Field(min_length=1, max_length=80)
+    item_kind: Literal["part", "packaging", "consumable"] = "part"
+    unit: str = Field(default="pcs", min_length=1, max_length=12)
+    on_hand: float | None = Field(default=None, ge=0, le=1_000_000)
+    min_qty: float = Field(default=0, ge=0, le=1_000_000)
+    reorder_qty: float = Field(default=0, ge=0, le=1_000_000)
+    supplier: str = Field(default="", max_length=120)
+    lead_days: int = Field(default=7, ge=0, le=365)
+    cost_agorot: int = Field(default=0, ge=0, le=10_000_000)     # net price of one unit
+    archived: bool = False
+    changed_by: str = ""
+
+
+class CountItem(Command):
+    subject: ClassVar[str] = "cmd.inventory.count_item"
+    item_id: str = Field(pattern=ITEM_ID_PATTERN)
+    on_hand: float = Field(ge=0, le=1_000_000)
+    counted_by: str = ""
+
+
+class BomLine(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    item_id: str = Field(pattern=ITEM_ID_PATTERN)
+    qty: float = Field(gt=0, le=1000)
+
+
+class SetBom(Command):
+    """What one finished piece of a SKU takes besides filament (replaces the SKU's whole list)."""
+
+    subject: ClassVar[str] = "cmd.inventory.set_bom"
+    sku: str = Field(pattern=SKU_PATTERN)
+    lines: list[BomLine] = Field(default=[], max_length=20)
+    changed_by: str = ""
+
+
+class ReorderItem(Command):
+    """Order an item now (a person decided: no approval). quantity = None: the item's reorder quantity."""
+
+    subject: ClassVar[str] = "cmd.inventory.reorder_item"
+    item_id: str = Field(pattern=ITEM_ID_PATTERN)
+    quantity: float | None = Field(default=None, gt=0, le=1_000_000)
+    requested_by: str = ""
+
+
+class ItemChanged(Event):
+    """An item was added, changed, counted, used (BOM) or received."""
+
+    subject: ClassVar[str] = "evt.inventory.item.changed"
+    item_id: str
+    name: str
+    on_hand: float
+    delta: float = 0
+    reason: str                                  # saved | counted | made | shipped | received
+    by: str = "auto"
+
+
+class BomChanged(Event):
+    subject: ClassVar[str] = "evt.inventory.bom.changed"
+    sku: str
+    lines: list[BomLine]
+    by: str
+
+
+class MarkSpoolDried(Command):
+    """The spool came out of the dryer (filament condition: the drying clock starts again)."""
+
+    subject: ClassVar[str] = "cmd.inventory.mark_dried"
+    spool_id: str
+    dried_by: str = ""
+
+
+class SpoolDried(Event):
+    subject: ClassVar[str] = "evt.inventory.spool.dried"
+    spool_id: str
+    material: str
+    color: str
+    by: str
 
 
 class SpoolRegistered(Event):

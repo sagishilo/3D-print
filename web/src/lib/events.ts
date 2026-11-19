@@ -111,6 +111,20 @@ export function describe(env: Envelope): Described {
       return out(`${d.sku}: ${d.action === 'slice' ? 'not sliced' : 'not saved'} · ${d.reason}`, 'warn', 'stock')
     case 'catalog.niche.updated':
       return out(`Niche “${d.name}” ${d.archived ? 'archived' : 'saved'}${d.skus_moved ? ` · ${d.skus_moved} product${d.skus_moved === 1 ? '' : 's'} moved` : ''} (${d.by})`, 'ok', 'stock')
+    case 'order.stock.moved': {
+      const what: Record<string, string> = { built: 'on the shelf', reserved: 'reserved from the shelf for', released: 'back on sale from',
+        sold: 'sold from the shelf with', counted: 'counted on the shelf' }
+      const n = Math.abs(Number(d.delta_on_hand) || Number(d.delta_reserved) || 0)
+      return out(`${d.sku}: ${n ? `${n} ` : ''}${what[String(d.reason)] ?? String(d.reason)}${d.order_id && d.reason !== 'counted' && d.reason !== 'built' ? ` ${d.order_id}` : ''}`, 'idle', 'stock')
+    }
+    case 'order.stock.rule_changed':
+      return out(`${d.sku}: keep at least ${d.min_stock} on the shelf${d.location ? ` (${d.location})` : ''} (${d.by})`, 'idle', 'stock')
+    case 'inventory.item.changed':
+      return out(`${d.name}: ${d.reason === 'saved' ? 'saved' : `${Number(d.delta) > 0 ? '+' : ''}${d.delta} ${d.reason}`} · ${d.on_hand} on hand`, 'idle', 'stock')
+    case 'inventory.bom.changed':
+      return out(`${d.sku}: parts per piece saved (${(d.lines as unknown[]).length} item${(d.lines as unknown[]).length === 1 ? '' : 's'}, ${d.by})`, 'idle', 'stock')
+    case 'inventory.spool.dried':
+      return out(`Spool ${d.spool_id} (${d.material} ${d.color}) dried (${d.by})`, 'ok', 'stock')
     case 'catalog.niche.rejected':
       return out(`Niche ${d.slug} not changed · ${d.reason}`, 'warn', 'stock')
     case 'personalization.model.ready':

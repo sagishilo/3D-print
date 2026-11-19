@@ -125,6 +125,14 @@ async def _margins(db, p: Period, scope: str | None, key: str) -> list:
         f"SELECT {key} AS k, category, stock, sum(net_agorot) AS net FROM reporting.sku_costs_v "
         f"WHERE entry_date >= %s AND entry_date < %s AND {where} GROUP BY 1, 2, 3", (p.start, p.end, *extra))
     allocated = [(r["k"], r["category"], int(r["net"])) for r in rows if not r["stock"]]
+    # Pieces sold from the shelf: what building them cost (stock-batch filament and power per piece) is this sale's
+    # cost of goods (Wave 1 / M4), so a SKU sold from stock shows its true margin.
+    sku_key = "sku" if key == "product_type" else key
+    for r in await db.fetchall(
+            f"SELECT {sku_key} AS k, sum(cost_agorot) AS net FROM reporting.stock_sales_v "
+            f"WHERE entry_date >= %s AND entry_date < %s AND {where} GROUP BY 1", (p.start, p.end, *extra)):
+        if int(r["net"] or 0):
+            allocated.append((r["k"], "from_stock", int(r["net"])))
     stock_build: dict[str, int] = {}
     for r in rows:
         if r["stock"]:

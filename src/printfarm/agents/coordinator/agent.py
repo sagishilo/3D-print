@@ -14,13 +14,14 @@ from psycopg.types.json import Jsonb
 from printfarm.agents.base import Agent, on
 from printfarm.agents.coordinator import saga
 from printfarm.contracts import deterministic_id
-from printfarm.contracts.catalog import UNASSIGNED
+from printfarm.contracts.catalog import STOCK_CHANNEL, UNASSIGNED
 from printfarm.contracts.messages import (
     AdvanceOrder,
     ApprovalDecided,
     ApprovalRequested,
     CancelOrder,
     ConfigChanged,
+    CountStock,
     CreateOrder,
     DecideApproval,
     OrderCreated,
@@ -36,9 +37,13 @@ from printfarm.contracts.messages import (
     RecordQc,
     RefundPayment,
     SetConfig,
+    SetStockRule,
     ShipOrder,
+    StockMoved,
+    StockRuleChanged,
 )
 from printfarm.contracts.orders import OrderLine, line_niche, price_order
+from printfarm.contracts.stock import restock_suggestion
 
 
 class CoordinatorAgent(Agent):
@@ -76,6 +81,9 @@ class CoordinatorAgent(Agent):
 
     @on("cmd.coordinator.create_order")
     async def create_order(self, env, cmd: CreateOrder, conn):
+        await self._create(conn, env, cmd)
+
+    async def _create(self, conn, env, cmd: CreateOrder) -> None:
         if await self._exists(conn, cmd.order_id):
             self.log.info("order %s already exists", cmd.order_id)
             return
@@ -84,7 +92,7 @@ class CoordinatorAgent(Agent):
                                         channel=cmd.channel, due_by=cmd.due_by, notes=cmd.notes, lines=lines,
                                         discount=cmd.discount_agorot, shipping=cmd.shipping_agorot,
                                         created_by=cmd.created_by or "unknown")
-        d = saga.start_created(cmd, self._switches())
+        d = saga.start_created(cmd, self._switches(), await self._shelf(conn, lines))
         await self.emit(conn, OrderCreated(order_id=cmd.order_id, customer_name=cmd.customer_name, channel=cmd.channel,
                                            items=lines, total_agorot=total, units=sum(x.quantity for x in lines),
                                            state=d.state), cause=env, correlationid=cmd.order_id)
@@ -114,6 +122,8 @@ class CoordinatorAgent(Agent):
         await self.emit(conn, OrderStageChanged(order_id=order_id, from_state=None, to_state=d.state, by=d.by),
                         cause=env, correlationid=order_id)
         for out in d.outgoing:
+            if isinstance(out, StockMoved):
+                await self._apply_stock(conn, env, out)
             await self.emit(conn, out, cause=env, correlationid=order_id)
 
     # Operator moves on the board: each one ends in a stage change or evt.order.move.rejected.
@@ -174,6 +184,8 @@ class CoordinatorAgent(Agent):
             await self.emit(conn, OrderUpdated(order_id=order_id, state=d.state, cause=cause), cause=env,
                             correlationid=order_id)
         for out in d.outgoing:
+            if isinstance(out, StockMoved):
+                await self._apply_stock(conn, env, out)
             if isinstance(out, OrderQcRecorded):
                 await conn.execute(
                     "INSERT INTO coordinator.qc_checks (order_id, passed, units_failed, units_checked, reason, checked_by, "
@@ -188,6 +200,81 @@ class CoordinatorAgent(Agent):
             "VALUES (%s, %s, %s, %s, %s)",
             (saga_id, from_state, to_state, env.id, env.type),
         )
+
+    # ------------------------------------------------------------ finished goods on the shelf (Wave 1 / M4)
+
+    async def _shelf(self, conn, lines: list[OrderLine]) -> dict[str, int]:
+        """Pieces free on the shelf (on hand minus reserved) for the catalog SKUs of a new order, locked until the
+        order is stored, so two orders never take the same piece."""
+        skus = sorted({line.sku for line in lines if line.product == "catalog"})
+        if not skus:
+            return {}
+        rows = await (await conn.execute(
+            "SELECT sku, on_hand - reserved AS free FROM coordinator.finished_goods WHERE sku = ANY(%s) FOR UPDATE",
+            (skus,))).fetchall()
+        return {r["sku"]: r["free"] for r in rows if r["free"] > 0}
+
+    async def _apply_stock(self, conn, env, m: StockMoved) -> None:
+        cur = await (await conn.execute(
+            "SELECT on_hand, reserved FROM coordinator.finished_goods WHERE sku = %s FOR UPDATE", (m.sku,))).fetchone()
+        on_hand = max(0, (cur["on_hand"] if cur else 0) + m.delta_on_hand)
+        reserved = min(max(0, (cur["reserved"] if cur else 0) + m.delta_reserved), on_hand)
+        row = await (await conn.execute(
+            "INSERT INTO coordinator.finished_goods (sku, on_hand, reserved) VALUES (%s, %s, %s) ON CONFLICT (sku) "
+            "DO UPDATE SET on_hand = EXCLUDED.on_hand, reserved = EXCLUDED.reserved, updated_at = now() "
+            "RETURNING on_hand, reserved, min_stock", (m.sku, on_hand, reserved))).fetchone()
+        await conn.execute(
+            "INSERT INTO coordinator.fg_ledger (sku, delta_on_hand, delta_reserved, reason, order_id, by, note) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (m.sku, m.delta_on_hand, m.delta_reserved, m.reason, m.order_id, m.by, m.note))
+        self.log.info("shelf %s: %s (%+d on hand, %+d reserved) -> %d on hand, %d reserved", m.sku, m.reason,
+                      m.delta_on_hand, m.delta_reserved, row["on_hand"], row["reserved"])
+        if m.reason == "sold":
+            await self._maybe_restock(conn, env, m.sku, row)
+
+    async def _maybe_restock(self, conn, env, sku: str, row) -> None:
+        """Automatic restock (setting stock.auto_restock, off by default): below its minimum, a SKU gets one stock
+        batch for the missing pieces, unless one is already being made."""
+        if not self.setting("stock.auto_restock") or row["min_stock"] <= 0:
+            return
+        busy = await (await conn.execute(
+            "SELECT coalesce(sum(i.quantity), 0) AS n FROM coordinator.order_items i "
+            "JOIN coordinator.orders o ON o.order_id = i.order_id JOIN coordinator.sagas s ON s.saga_id = i.order_id "
+            "WHERE i.sku = %s AND o.channel = %s AND s.state NOT IN ('SHIPPED', 'CANCELLED')",
+            (sku, STOCK_CHANNEL))).fetchone()
+        need = restock_suggestion(row["on_hand"], row["reserved"], row["min_stock"], int(busy["n"]))
+        p = await (await conn.execute(            # read only: the catalog belongs to the personalization agent
+            "SELECT material, color, name, niche, active FROM catalog.products WHERE sku = %s", (sku,))).fetchone()
+        if not need or p is None or not p["active"]:
+            return
+        order_id = f"stk-auto-{deterministic_id('restock', env.id)[:8]}"
+        cmd = CreateOrder(order_id=order_id, customer_name="Stock batch (auto restock)", channel=STOCK_CHANNEL,
+                          items=[OrderLine(product="catalog", sku=sku, text=p["name"][:40], material=p["material"],
+                                           color=p["color"], quantity=min(need, 50), unit_price_agorot=0,
+                                           niche=p["niche"])],
+                          dispatch=True, created_by="auto restock")
+        self.log.warning("auto restock: %s below its minimum, queueing %d", sku, min(need, 50))
+        await self._create(conn, env, cmd)
+
+    @on("cmd.coordinator.set_stock_rule")
+    async def set_stock_rule(self, env, cmd: SetStockRule, conn):
+        await conn.execute(
+            "INSERT INTO coordinator.finished_goods (sku, min_stock, location) VALUES (%s, %s, %s) ON CONFLICT (sku) "
+            "DO UPDATE SET min_stock = EXCLUDED.min_stock, location = EXCLUDED.location, updated_at = now()",
+            (cmd.sku, cmd.min_stock, cmd.location.strip()))
+        await self.emit(conn, StockRuleChanged(sku=cmd.sku, min_stock=cmd.min_stock, location=cmd.location.strip(),
+                                               by=cmd.changed_by or "unknown"), cause=env)
+
+    @on("cmd.coordinator.count_stock")
+    async def count_stock(self, env, cmd: CountStock, conn):
+        row = await (await conn.execute(
+            "SELECT on_hand, reserved FROM coordinator.finished_goods WHERE sku = %s FOR UPDATE", (cmd.sku,))).fetchone()
+        on_hand, reserved = (row["on_hand"], row["reserved"]) if row else (0, 0)
+        target = max(cmd.on_hand, reserved)       # pieces promised to open orders stay counted
+        move = StockMoved(sku=cmd.sku, delta_on_hand=target - on_hand, reason="counted", by=cmd.counted_by or "unknown",
+                          note=cmd.note or (f"counted {cmd.on_hand}, {reserved} reserved" if target != cmd.on_hand else ""))
+        await self._apply_stock(conn, env, move)
+        await self.emit(conn, move, cause=env)
 
     # ------------------------------------------------------------ approvals (human in the loop)
 

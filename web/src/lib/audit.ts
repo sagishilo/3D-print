@@ -31,7 +31,7 @@ const AREAS: Record<string, string> = {
   coordinator: 'Orders',
   fleet: 'Fleet',
   telemetry: 'Printers',
-  inventory: 'Filament',
+  inventory: 'Inventory',
   finance: 'Finance',
   personalization: 'Catalog',
   social: 'Social',

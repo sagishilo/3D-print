@@ -22,11 +22,13 @@ nothing. ``Switches`` are the automation settings orders.auto_* (off by default:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
 
 from printfarm.contracts import Payload
+from printfarm.contracts.catalog import STOCK_CHANNEL
 from printfarm.contracts.messages import (
     AdvanceOrder,
     CancelOrder,
@@ -49,8 +51,11 @@ from printfarm.contracts.messages import (
     PrepareCatalogItem,
     RecordQc,
     ShipOrder,
+    ShippedLine,
+    StockMoved,
 )
 from printfarm.contracts.orders import OrderLine, price_order, product_type
+from printfarm.contracts.stock import take_from_stock
 
 MAX_PRINT_ATTEMPTS = 2      # per unit, between two operator retries
 MAX_QC_ROUNDS = 3           # failed QC checks of one order before a person must look
@@ -114,16 +119,45 @@ def _context(order: dict, lines: list[OrderLine]) -> dict:
     return {"order": order, "items": items, "units": units, "qc": {"status": "pending", "rounds": 0}}
 
 
-def start_created(cmd: CreateOrder, sw: Switches) -> Decision:
+def _from_stock(ctx: dict, iid: str) -> int:
+    """Units of an item taken from the shelf (consumed at shipping even if one was reprinted after a QC failure)."""
+    return sum(1 for k, u in ctx["units"].items() if k.split(".")[0] == iid and u.get("from_stock"))
+
+
+def _take_stock(ctx: dict, lines: list[OrderLine], stock: Mapping[str, int], by: str) -> list[Payload]:
+    """Catalog lines take finished pieces from the shelf first: those units are not printed (status "stock")."""
+    oid, out = ctx["order"]["order_id"], []
+    takes = take_from_stock([(line.sku if line.product == "catalog" else "", line.quantity) for line in lines], stock)
+    for i, (line, n) in enumerate(zip(lines, takes, strict=True), start=1):
+        if not n:
+            continue
+        for u in range(1, n + 1):
+            ctx["units"][f"{i}.{u}"].update(status="stock", from_stock=True)
+        if n == line.quantity:                 # nothing of it to print: no model needed
+            ctx["items"][str(i)]["model_status"] = "ready"
+        out.append(StockMoved(sku=line.sku, delta_reserved=n, reason="reserved", order_id=oid, by=by))
+    return out
+
+
+def _all_done(ctx: dict) -> bool:
+    return all(u["status"] in ("printed", "stock") for u in ctx["units"].values())
+
+
+def start_created(cmd: CreateOrder, sw: Switches, stock: Mapping[str, int] | None = None) -> Decision:
+    """A new order. ``stock``: finished pieces available on the shelf per SKU (on hand minus reserved)."""
     pricing = price_order(list(cmd.items), discount_agorot=cmd.discount_agorot, shipping_agorot=cmd.shipping_agorot)
     order = {"order_id": cmd.order_id, "customer_name": cmd.customer_name, "channel": cmd.channel,
              "due_by": cmd.due_by.isoformat() if cmd.due_by else None, "total_agorot": pricing.total}
     if cmd.dispatch:
         order["dispatch"] = True
+    by = cmd.created_by or "unknown"
     ctx = _context(order, list(cmd.items))
+    reserved = _take_stock(ctx, list(cmd.items), stock, by) if stock and cmd.channel != STOCK_CHANNEL else []
     if cmd.as_lead and not cmd.dispatch:
-        return Decision(State.LEAD, ctx, by=cmd.created_by or "unknown")
-    return _received(ctx, _effective(ctx, sw), by=cmd.created_by or "unknown")
+        return Decision(State.LEAD, ctx, reserved, by=by)
+    d = _received(ctx, _effective(ctx, sw), by=by)
+    d.outgoing[:0] = reserved
+    return d
 
 
 def start_legacy(msg: OrderReceived, sw: Switches) -> Decision:
@@ -136,6 +170,13 @@ def start_legacy(msg: OrderReceived, sw: Switches) -> Decision:
 
 
 def _received(ctx: dict, sw: Switches, by: str) -> Decision:
+    if ctx["units"] and all(u["status"] == "stock" for u in ctx["units"].values()):
+        # Everything comes from the shelf: straight to packing and quality control.
+        if sw.qc_pass:
+            ctx["qc"]["status"] = "passed"
+            return Decision(State.QC, ctx, [OrderQcRecorded(order_id=ctx["order"]["order_id"], passed=True,
+                                                            reason="auto-pass switch on", by="auto")], by=by)
+        return Decision(State.QC, ctx, by=by)
     if sw.personalize:
         return _personalize(State.RECEIVED, ctx, by)
     return Decision(State.RECEIVED, ctx, by=by)
@@ -279,7 +320,15 @@ def _qc(state: State, ctx: dict, msg: RecordQc) -> Decision:
         return d
     for k in units:
         ctx["units"][k]["attempt"] += 1
-    d = _schedule(ctx, units, by)
+    # A shelf piece that failed is printed new; an item taken whole from the shelf has no model yet: prepare it
+    # first (the order waits in PERSONALIZING, and is scheduled when the models are ready, as any order).
+    no_model = sorted({k.split(".")[0] for k in units if ctx["items"][k.split(".")[0]].get("model") is None})
+    if no_model:
+        for iid in no_model:
+            ctx["items"][iid]["model_status"] = "pending"
+        d = _personalize(state, ctx, by)
+    else:
+        d = _schedule(ctx, units, by)
     d.outgoing.insert(0, record)
     d.reason = f"QC failed: {msg.reason}" if msg.reason else "QC failed"
     return d
@@ -291,9 +340,21 @@ def _ship(state: State, ctx: dict, msg: ShipOrder) -> Decision:
         return _reject(state, ctx, "SHIPPED", "only an order that passed QC can be shipped", by)
     oid = ctx["order"]["order_id"]
     ctx["shipped"] = {"carrier": msg.carrier, "tracking": msg.tracking, "by": by}
+    to_shelf = ctx["order"].get("channel") == STOCK_CHANNEL
+    lines, moves = [], []
+    for iid, item in ctx["items"].items():
+        ptype = product_type(item["product"], item.get("sku", ""))
+        taken = _from_stock(ctx, iid)
+        lines.append(ShippedLine(product_type=ptype, quantity=item["quantity"], from_stock=taken))
+        if to_shelf and item["product"] == "catalog":
+            moves.append(StockMoved(sku=item["sku"], delta_on_hand=item["quantity"], reason="built", order_id=oid, by=by))
+        elif taken:
+            moves.append(StockMoved(sku=item["sku"], delta_on_hand=-taken, delta_reserved=-taken, reason="sold",
+                                    order_id=oid, by=by))
     return Decision(State.SHIPPED, ctx, [
+        *moves,
         OrderShipped(order_id=oid, total_agorot=ctx["order"]["total_agorot"], carrier=msg.carrier,
-                     tracking=msg.tracking, by=by),
+                     tracking=msg.tracking, by=by, channel=ctx["order"].get("channel", ""), lines=lines),
         OrderCompleted(order_id=oid),
     ], by=by)
 
@@ -304,6 +365,9 @@ def _cancel(state: State, ctx: dict, msg: CancelOrder) -> Decision:
         return _reject(state, ctx, "CANCELLED", "units are on a printer: cancel the print on the printer first", by)
     oid = ctx["order"]["order_id"]
     out: list[Payload] = [OrderCancelled(order_id=oid, reason=msg.reason, by=by)]
+    for iid, item in ctx["items"].items():               # shelf pieces held for it go back on sale
+        if taken := _from_stock(ctx, iid):
+            out.append(StockMoved(sku=item["sku"], delta_reserved=-taken, reason="released", order_id=oid, by=by))
     if any(u["status"] == "queued" for u in ctx["units"].values()):
         out.append(CancelOrderJobs(order_id=oid))
     ctx["cancelled"] = {"reason": msg.reason, "by": by, "from": state.value}
@@ -365,7 +429,7 @@ def decide(state: State, ctx: dict, msg: Payload, sw: Switches = Switches()) -> 
             if key is None or ctx["units"][key]["status"] == "printed":
                 return Decision(state, ctx, changed=False)
             ctx["units"][key]["status"] = "printed"
-            if state in (State.SCHEDULING, State.PRINTING) and all(u["status"] == "printed" for u in ctx["units"].values()):
+            if state in (State.SCHEDULING, State.PRINTING) and _all_done(ctx):
                 if sw.qc_pass:
                     ctx["qc"]["status"] = "passed"
                     return Decision(State.QC, ctx, [OrderQcRecorded(order_id=ctx["order"]["order_id"], passed=True,

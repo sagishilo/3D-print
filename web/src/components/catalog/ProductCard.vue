@@ -63,6 +63,7 @@ const part = computed(() => {
         <dd class="mono">{{ Math.round(product.est_grams) }} g</dd>
       </div>
     </dl>
+    <span v-if="product.on_shelf" class="shelf small" :data-testid="`on-shelf-${product.sku}`">{{ product.on_shelf }} on the shelf · sold from stock first</span>
     <span v-if="product.in_production" class="muted small">{{ product.in_production }} in production for stock</span>
 
     <div class="actions">
@@ -138,6 +139,9 @@ const part = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.shelf {
+  color: var(--ok);
 }
 .niche {
   display: inline-flex;

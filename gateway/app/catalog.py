@@ -35,6 +35,7 @@ PRODUCTS_SQL = f"""
          p.updated_by, p.niche,
          coalesce((SELECT json_agg(t.niche ORDER BY t.niche) FROM catalog.product_tags t WHERE t.sku = p.sku), '[]')
            AS tags,
+         coalesce((SELECT f.on_hand - f.reserved FROM coordinator.finished_goods f WHERE f.sku = p.sku), 0) AS on_shelf,
          coalesce(d.sold_7d, 0) AS sold_7d, coalesce(d.sold_prev_7d, 0) AS sold_prev_7d,
          coalesce(d.in_production, 0) AS in_production
   FROM catalog.products p
