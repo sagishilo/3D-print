@@ -11,6 +11,9 @@ const SHOTS = process.env.PW_SCREENSHOTS ?? ''
 
 test.skip(!PASSWORD, 'set PRINTFARM_PASSWORD to the admin password of the running stack')
 
+/** The steps admin sees: an owner is in Expert mode, so Simple-only steps are left out (as the tour does). */
+const stepsOf = (id: TourId) => TOURS[id].steps.filter((s) => !s.mode || s.mode === 'expert')
+
 const ROUTE = Object.fromEntries(PAGE_TOURS.map((id) => [id, TOURS[id].steps[0].route])) as Record<TourId, string>
 
 /** Steps whose element depends on what the farm is doing right now (no printer waiting for clearing, no AMS, …). */
@@ -39,7 +42,7 @@ async function expectStep(page: Page, tour: TourId, step: TourStep, n: number): 
   const bubble = page.getByTestId('tour-bubble')
   await expect(bubble).toHaveAttribute('data-step', step.id)
   await expect(page.getByTestId('tour-title')).toHaveText(TOURS[tour].title)
-  await expect(page.getByTestId('tour-count')).toHaveText(`שלב ${n} מתוך ${TOURS[tour].steps.length}`)
+  await expect(page.getByTestId('tour-count')).toHaveText(`שלב ${n} מתוך ${stepsOf(tour).length}`)
   await expect(bubble.getByRole('heading', { level: 2 })).toHaveText(step.title)
   // Wait until the tour has decided: highlighted, or reported missing.
   await expect(bubble).toHaveAttribute('data-status', /^(anchored|missing)$/, { timeout: 10_000 })
@@ -77,7 +80,7 @@ for (const id of PAGE_TOURS) {
     await expect(button).toHaveText(/מדריך לעמוד/)
     await button.click()
 
-    for (const [i, step] of tour.steps.entries()) {
+    for (const [i, step] of stepsOf(id).entries()) {
       const anchored = await expectStep(page, id, step, i + 1)
       await expect(page).toHaveURL(new RegExp(`${ROUTE[id]}(\\?|$)`))
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/${id}-${String(i + 1).padStart(2, '0')}-${step.id}.png` })
@@ -108,7 +111,7 @@ for (const id of PAGE_TOURS) {
       if (step.id === 'system-nats') await expect(page.getByRole('tab', { name: 'NATS', selected: true })).toBeVisible()
       if (step.id === 'catalog-batch' && anchored) await expect(page.getByTestId('queue-batch')).toBeVisible()
 
-      await expect(page.getByTestId('tour-next')).toHaveText(i === tour.steps.length - 1 ? 'סיום' : 'הבא')
+      await expect(page.getByTestId('tour-next')).toHaveText(i === stepsOf(id).length - 1 ? 'סיום' : 'הבא')
       await page.getByTestId('tour-next').click()
     }
 
@@ -161,7 +164,7 @@ test('leaving the fleet tour in the middle closes the panel it opened and untick
 
   // Back and forth over the batch step: the tick comes and goes with the tour.
   await page.getByTestId('page-tour-fleet').click()
-  const at = TOURS.fleet.steps.findIndex((s) => s.id === 'fleet-batch')
+  const at = stepsOf('fleet').findIndex((s) => s.id === 'fleet-batch')
   for (let i = 0; i < at; i++) await page.getByTestId('tour-next').click()
   await expect(bubble).toHaveAttribute('data-step', 'fleet-batch')
   await expect(page.getByTestId('batch-bar')).toBeVisible()
@@ -181,7 +184,7 @@ test.describe('on a phone', () => {
       // On a phone the button is just the "?", still in the top bar.
       await expect(page.getByTestId(`page-tour-${id}`)).toHaveText('?', { useInnerText: true })
       await page.getByTestId(`page-tour-${id}`).click()
-      for (const [i, step] of TOURS[id].steps.entries()) {
+      for (const [i, step] of stepsOf(id).entries()) {
         await expectStep(page, id, step, i + 1)
         if (SHOTS && ['live-camera', 'orders-board', 'fleet-calibration-safety', 'social-review', 'finance-kpis', 'system-agents'].includes(step.id))
           await page.screenshot({ path: `${SHOTS}/phone-${id}-${step.id}.png` })

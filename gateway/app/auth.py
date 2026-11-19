@@ -11,13 +11,14 @@ import secrets
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import settings
 
@@ -275,6 +276,25 @@ def _me(user: dict, expires_at: int) -> dict:
 @router.get("/me")
 async def me(request: Request, claims: dict = Depends(require_auth)):
     user = await current_user(request, claims["uid"])
+    return _me(user, claims["exp"])
+
+
+class PrefsIn(BaseModel):
+    """Per-person display preferences; only the fields sent change. Unknown keys are refused."""
+    model_config = ConfigDict(extra="forbid")
+    theme: Literal["system", "light", "dark"] | None = None
+    density: Literal["comfortable", "compact"] | None = None
+    mode: Literal["simple", "expert"] | None = None   # simple hides the technical panels
+
+
+@router.patch("/prefs")
+async def save_prefs(body: PrefsIn, request: Request, claims: dict = Depends(require_csrf)):
+    """Theme, density and Simple / Expert mode follow the person to every device they sign in on."""
+    users = request.app.state.users
+    user = await users.get(claims["uid"])
+    prefs = {**(user.get("prefs") or {}), **body.model_dump(exclude_none=True)}
+    user = await users.update(user["id"], prefs=prefs)
+    forget(user["id"])
     return _me(user, claims["exp"])
 
 

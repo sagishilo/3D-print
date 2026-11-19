@@ -5,6 +5,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import Icon from '@/components/ui/Icon.vue'
 import { GROUPS, NAV } from '@/nav'
 import { useAuth } from '@/stores/auth'
+import { usePrefs } from '@/stores/prefs'
 import { usePrinters } from '@/stores/printers'
 import { useInventory } from '@/stores/inventory'
 import { useSystem } from '@/stores/system'
@@ -13,6 +14,7 @@ defineEmits<{ navigate: [] }>()
 
 const route = useRoute()
 const auth = useAuth()
+const prefs = usePrefs()
 const system = useSystem()
 // Only the screens this person's role may open.
 const visible = computed(() => NAV.filter((n) => !n.minRole || auth.can(n.minRole)))
@@ -21,7 +23,8 @@ const printers = usePrinters()
 const inventory = useInventory()
 
 const badges = computed<Record<string, { n: number; tone: string }>>(() => {
-  const systemIssues = system.unhealthy + system.dlqTotal
+  // Simple mode counts what an operator can act on (an agent down); dead letters are an Expert matter.
+  const systemIssues = system.unhealthy + (prefs.expert ? system.dlqTotal : 0)
   const printerIssues = printers.counts.failed
   return {
     '/system': { n: systemIssues, tone: 'danger' },
@@ -65,10 +68,10 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
     </div>
 
     <div class="agents">
-      <span class="group">Agents</span>
+      <span v-if="prefs.expert" class="group" data-testid="nav-agents">Agents</span>
       <component
         :is="auth.can('operator') ? RouterLink : 'span'"
-        v-for="a in system.coreAgents"
+        v-for="a in prefs.expert ? system.coreAgents : []"
         :key="a.name"
         v-bind="auth.can('operator') ? { to: { path: '/system', query: { tab: 'agents' } } } : {}"
         class="agent"
@@ -76,7 +79,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
         <span class="dot" :class="AGENT_TONE[a.status]" aria-hidden="true" />{{ a.label }}
         <span class="sr-only">: {{ a.status }}</span>
       </component>
-      <span v-if="!system.coreAgents.length" class="agent muted">Loading…</span>
+      <span v-if="prefs.expert && !system.coreAgents.length" class="agent muted">Loading…</span>
       <RouterLink to="/help" class="agent help" data-testid="nav-help" @click="$emit('navigate')">User guide · <span lang="he">מדריך למשתמש</span></RouterLink>
     </div>
   </nav>
@@ -103,7 +106,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
   height: 28px;
   border-radius: 8px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   display: flex;
   align-items: center;
   justify-content: center;

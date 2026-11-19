@@ -113,7 +113,7 @@ async function submit() {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--scrim);
   z-index: 45;
   display: flex;
   align-items: flex-start;

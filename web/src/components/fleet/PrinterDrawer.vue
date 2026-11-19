@@ -186,7 +186,7 @@ function took(start: string, end: string | null): string {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--scrim);
   z-index: 40;
   display: flex;
   justify-content: flex-end;

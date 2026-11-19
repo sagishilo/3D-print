@@ -47,6 +47,12 @@ describe('LoginView', () => {
     expect(wrapper.get('[role=alert]').text()).toBe('Too many failed attempts: retry in 840 s.')
   })
 
+  it('tells a busy server apart from a lockout', async () => {
+    serve(on('POST', '/api/v1/auth/login', () => json(429, { detail: 'too many requests; retry in 3 s' })))
+    const { wrapper } = await signIn()
+    expect(wrapper.get('[role=alert]').text()).toBe("The server is busy with this computer's requests: retry in 3 s.")
+  })
+
   it('goes back to the screen it came from after signing in', async () => {
     const calls = serve(
       on('POST', '/api/v1/auth/login', () => json(200, { ok: true })),

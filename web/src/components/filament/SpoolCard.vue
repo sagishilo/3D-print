@@ -57,7 +57,7 @@ const daysLeft = computed(() => {
   font: inherit;
 }
 .spool:hover {
-  border-color: #33404d;
+  border-color: var(--border-strong);
 }
 .spool.empty {
   opacity: 0.6;

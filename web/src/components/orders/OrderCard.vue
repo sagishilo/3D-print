@@ -54,7 +54,7 @@ const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
   font-size: 12px;
 }
 .card:hover {
-  border-color: #33404d;
+  border-color: var(--border-strong);
 }
 .card.attention {
   border-color: var(--danger);

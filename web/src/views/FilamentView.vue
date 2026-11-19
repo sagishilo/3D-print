@@ -8,6 +8,7 @@ import SpoolDialog from '@/components/filament/SpoolDialog.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { errorText } from '@/lib/api'
 import { ALERT_LABEL, dailyTotals, inPrintGrams, type MaterialRow, type PurchaseOrder } from '@/lib/filament'
 import { dateTime, shekels } from '@/lib/format'
@@ -19,7 +20,9 @@ import { useInventory } from '@/stores/inventory'
 import { usePrinters } from '@/stores/printers'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
+import { useAuth } from '@/stores/auth'
 
+const auth = useAuth()
 const inventory = useInventory()
 const printers = usePrinters()
 const approvals = useApprovals()
@@ -168,7 +171,9 @@ const avg = computed(() => Math.round(totals.value.reduce((a, d) => a + d.grams,
         @open="dialog = { spoolId: $event }"
       />
     </div>
-    <p v-if="!shownSpools.length" class="empty">No spools yet: register one.</p>
+    <EmptyState v-if="!shownSpools.length" icon="disc" title="No spools yet"
+      text="Register each spool when it arrives (scan its label or type one), so the farm knows what it can print."
+      :action-label="auth.can('operator') ? 'Register spool' : undefined" @action="dialog = { spoolId: null }" />
   </section>
 
   <section class="panel" data-testid="reorder-rules">

@@ -367,6 +367,7 @@ export const SYSTEM: TourStep[] = [
   ], 'בדרך כלל לא צריך להיכנס לכאן. נכנסים כשמספר אדום מופיע ליד **System & Agents** בתפריט.', [SYS_FIRST]),
   {
     id: 'system-kpis',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-tour="system-kpis"]'],
     title: 'מדדי המערכת',
@@ -379,6 +380,7 @@ export const SYSTEM: TourStep[] = [
   },
   {
     id: 'system-agents',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-tour="agents-panel"]'],
     title: 'Agents: הסוכנים',
@@ -391,6 +393,7 @@ export const SYSTEM: TourStep[] = [
   },
   {
     id: 'system-settings',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-testid="settings"]'],
     title: 'Automation toggles: מתגי אוטומציה',
@@ -403,11 +406,25 @@ export const SYSTEM: TourStep[] = [
   },
   {
     id: 'system-servers',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-tour="servers"]'],
     title: 'Servers: השרתים',
     body: ['השירותים שהמערכת צריכה: מסד הנתונים, מערכת ההודעות, ושרת המצלמות. ליד כל אחד כתוב אם הוא תקין.'],
     why: 'שרת אדום כאן מסביר תקלות במקומות אחרים, למשל מצלמות שלא עובדות.',
+    prepare: [SYS_FIRST],
+  },
+  {
+    id: 'system-simple-health',
+    mode: 'simple',
+    route: '/system',
+    targets: ['[data-tour="simple-health"]'],
+    title: 'הכול עובד?',
+    body: [
+      'במצב **Simple** המסך מראה שורה אחת: **Everything is running** (הכול עובד), או רשימה קצרה ופשוטה של מה שלא עובד.',
+      'הפרטים הטכניים (סוכנים, מערכת ההודעות, הודעות שנכשלו והגדרות אוטומציה) נמצאים במצב **Expert**.',
+    ],
+    why: 'רואים משהו אדום שלא עובר אחרי כמה דקות? ספרו לאחראי הטכני. אין צורך להבין את הפרטים בעצמכם.',
     prepare: [SYS_FIRST],
   },
   {
@@ -433,6 +450,7 @@ export const SYSTEM: TourStep[] = [
   },
   {
     id: 'system-dlq',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-tour="dlq"]'],
     title: 'Dead letter queue: הודעות שנכשלו',
@@ -445,6 +463,7 @@ export const SYSTEM: TourStep[] = [
   },
   {
     id: 'system-tabs',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-tour="system-tabs"]'],
     title: 'הלשוניות',
@@ -454,6 +473,7 @@ export const SYSTEM: TourStep[] = [
   },
   {
     id: 'system-nats',
+    mode: 'expert',
     route: '/system',
     targets: ['[data-testid="nats-streams"]'],
     title: 'NATS: מערכת ההודעות',

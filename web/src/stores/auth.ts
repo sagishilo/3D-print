@@ -22,6 +22,7 @@ export const useAuth = defineStore('auth', () => {
   const displayName = ref('')
   const role = ref<Role | null>(null)
   const mustChangePassword = ref(false)
+  const prefs = ref<Record<string, unknown>>({})
   const expiresAt = ref(0)
   const checked = ref(false)
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -62,6 +63,7 @@ export const useAuth = defineStore('auth', () => {
     displayName.value = me.display_name || me.user
     role.value = me.role
     mustChangePassword.value = me.must_change_password
+    prefs.value = { ...(me.prefs ?? {}) }
     expiresAt.value = me.expires_at * 1000
   }
 
@@ -98,11 +100,12 @@ export const useAuth = defineStore('auth', () => {
     uid.value = null
     role.value = null
     mustChangePassword.value = false
+    prefs.value = {}
     checked.value = true
   }
 
   onUnauthorized(expired)
 
-  return { user, uid, displayName, role, mustChangePassword, expiresAt, checked, isViewer, check, login, changePassword,
+  return { user, uid, displayName, role, mustChangePassword, prefs, expiresAt, checked, isViewer, check, login, changePassword,
     can, logout, expired }
 })

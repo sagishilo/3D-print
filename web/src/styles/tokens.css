@@ -1,4 +1,10 @@
-/* Design tokens, taken from docs/design/PrintFarm Ops Dashboard.html (dark operator console). */
+/* Design tokens. Dark is the original operator console (docs/design/PrintFarm Ops Dashboard.html); light is its
+   daylight counterpart. The theme follows the person's choice (prefs.theme: system | light | dark):
+     - "system" leaves <html> without data-theme, so the operating system's preference decides;
+     - "light" / "dark" set data-theme on <html>.
+   Density (prefs.density: comfortable | compact) sets data-density on <html>.
+   Every pair of text and background colours here is checked for WCAG AA contrast (web/tests/design.spec.ts). */
+
 :root {
   color-scheme: dark;
 
@@ -6,17 +12,43 @@
   --surface: #12151a;
   --surface-2: #181c22;
   --border: #252b34;
+  --border-strong: #3a4552;
   --text: #e6e9ee;
   --muted: #8b95a3;
   --accent: #4c8dff;
   --accent-hover: #7aabff;
+  --on-accent: #0b0d10;             /* text on an accent (or ok / warn / danger) background */
   --ok: #3fb950;
   --warn: #e3a008;
   --danger: #f85149;
-  --idle: #6e7681;
+  --danger-text: #ffb4ae;           /* error text on a danger tint */
+  --idle: #848d97;
+  --ok-bg: rgba(63, 185, 80, 0.1);
   --danger-bg: rgba(248, 81, 73, 0.1);
   --warn-bg: rgba(227, 160, 8, 0.1);
   --accent-bg: rgba(76, 141, 255, 0.1);
+  --accent-ring: rgba(76, 141, 255, 0.25);
+  --accent-line: rgba(76, 141, 255, 0.45);
+  --toast-danger: #1d1215;
+
+  --scrim: rgba(0, 0, 0, 0.55);     /* behind dialogs and drawers */
+  --scrim-strong: rgba(5, 7, 10, 0.72);   /* the tour's spotlight */
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Niche colours (Wave 1 / M3): a dot, a border or a chip outline next to text in --text; never text themselves. */
+  --niche-1: #4c8dff;
+  --niche-2: #3fb950;
+  --niche-3: #e3a008;
+  --niche-4: #db61a2;
+  --niche-5: #a371f7;
+  --niche-6: #39c5cf;
+  --niche-7: #f0883e;
+  --niche-8: #8b95a3;
+
+  /* Printer brand marks (onboarding) */
+  --brand-bambu: #15803d;
+  --brand-klipper: #b42318;
+  --on-brand: #ffffff;
 
   --radius: 12px;
   --radius-sm: 8px;
@@ -28,6 +60,112 @@
 
   --gutter: 28px;
   --sidebar: 236px;
+
+  /* Density: comfortable */
+  --control-h: 40px;
+  --control-h-sm: 32px;
+  --pad-panel: 16px;
+  --gap: 16px;
+  --gap-sm: 12px;
+  --cell-y: 10px;
+  --cell-x: 12px;
+  --page-y: 24px;
+}
+
+/* ---------------------------------------------------------------- light */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #d6dce4;
+  --border-strong: #aab4c1;
+  --text: #141a22;
+  --muted: #545f6d;
+  --accent: #1f5fd6;
+  --accent-hover: #174bab;
+  --on-accent: #ffffff;
+  --ok: #18733a;
+  --warn: #8a5a00;
+  --danger: #c4231c;
+  --danger-text: #9b1c16;
+  --idle: #5f6b78;
+  --ok-bg: rgba(24, 115, 58, 0.09);
+  --danger-bg: rgba(196, 35, 28, 0.08);
+  --warn-bg: rgba(138, 90, 0, 0.09);
+  --accent-bg: rgba(31, 95, 214, 0.08);
+  --accent-ring: rgba(31, 95, 214, 0.22);
+  --accent-line: rgba(31, 95, 214, 0.4);
+  --toast-danger: #fff1f0;
+
+  --scrim: rgba(15, 23, 42, 0.35);
+  --scrim-strong: rgba(15, 23, 42, 0.55);
+  --shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+
+  --niche-1: #1f5fd6;
+  --niche-2: #18733a;
+  --niche-3: #b07400;
+  --niche-4: #bf3989;
+  --niche-5: #7c4ddb;
+  --niche-6: #0e7c86;
+  --niche-7: #c4581a;
+  --niche-8: #5f6b78;
+}
+
+/* "system" (no data-theme): the light values when the operating system prefers light */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --border: #d6dce4;
+    --border-strong: #aab4c1;
+    --text: #141a22;
+    --muted: #545f6d;
+    --accent: #1f5fd6;
+    --accent-hover: #174bab;
+    --on-accent: #ffffff;
+    --ok: #18733a;
+    --warn: #8a5a00;
+    --danger: #c4231c;
+    --danger-text: #9b1c16;
+    --idle: #5f6b78;
+    --ok-bg: rgba(24, 115, 58, 0.09);
+    --danger-bg: rgba(196, 35, 28, 0.08);
+    --warn-bg: rgba(138, 90, 0, 0.09);
+    --accent-bg: rgba(31, 95, 214, 0.08);
+    --accent-ring: rgba(31, 95, 214, 0.22);
+    --accent-line: rgba(31, 95, 214, 0.4);
+    --toast-danger: #fff1f0;
+
+    --scrim: rgba(15, 23, 42, 0.35);
+    --scrim-strong: rgba(15, 23, 42, 0.55);
+    --shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+
+    --niche-1: #1f5fd6;
+    --niche-2: #18733a;
+    --niche-3: #b07400;
+    --niche-4: #bf3989;
+    --niche-5: #7c4ddb;
+    --niche-6: #0e7c86;
+    --niche-7: #c4581a;
+    --niche-8: #5f6b78;
+  }
+}
+
+/* ---------------------------------------------------------------- density: compact */
+:root[data-density='compact'] {
+  --control-h: 34px;
+  --control-h-sm: 28px;
+  --pad-panel: 12px;
+  --gap: 12px;
+  --gap-sm: 8px;
+  --cell-y: 6px;
+  --cell-x: 10px;
+  --page-y: 16px;
 }
 
 @media (max-width: 720px) {

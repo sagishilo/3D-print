@@ -407,7 +407,7 @@ const go = (n: number) => {
 .stepper .on .n {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
 }
 .stepper .done button {
   color: var(--ok);
@@ -458,13 +458,13 @@ h2 {
   justify-content: center;
   font: 800 18px var(--font-display);
   margin-bottom: 6px;
-  color: #fff;
+  color: var(--on-brand);
 }
 .logo.bambu {
-  background: #1fb35a;
+  background: var(--brand-bambu);
 }
 .logo.moonraker {
-  background: #c0392b;
+  background: var(--brand-klipper);
 }
 .logo.generic {
   background: var(--idle);
@@ -579,7 +579,7 @@ h2 {
 }
 .results.pass {
   border-color: var(--ok);
-  background: rgba(63, 185, 80, 0.06);
+  background: var(--ok-bg);
 }
 .results.fail {
   border-color: var(--danger);
@@ -617,7 +617,7 @@ h2 {
   align-items: center;
   justify-content: center;
   font: 700 12px var(--font);
-  color: var(--bg);
+  color: var(--on-accent);
 }
 .ok .mark {
   background: var(--ok);

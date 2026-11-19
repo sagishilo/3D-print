@@ -7,13 +7,16 @@ import { computed, onMounted, ref, watch } from 'vue'
 import ProductCard from '@/components/catalog/ProductCard.vue'
 import ProductDialog from '@/components/catalog/ProductDialog.vue'
 import Icon from '@/components/ui/Icon.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { errorText } from '@/lib/api'
 import { batchLine, type CatalogProduct, CATEGORY_LABEL, estimateLine, shortages, SORTS } from '@/lib/catalog'
 import { useCatalog } from '@/stores/catalog'
 import { useConfirm } from '@/stores/confirm'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
+import { useAuth } from '@/stores/auth'
 
+const auth = useAuth()
 const catalog = useCatalog()
 const confirm = useConfirm()
 const toasts = useToasts()
@@ -114,10 +117,11 @@ async function queue() {
       @edit="dialog = { product: p }"
     />
   </div>
-  <div v-if="catalog.loaded && !catalog.products.length && !catalog.error" class="empty">
-    <p>No SKUs{{ catalog.category ? ' in this category' : ' yet' }}.</p>
-    <p>Import a 3MF: best a plate sliced in Bambu Studio or OrcaSlicer, so it prints as is.</p>
-  </div>
+  <EmptyState v-if="catalog.loaded && !catalog.products.length && !catalog.error && catalog.category" icon="grid"
+    title="No products in this category" text="Choose another category, or All." action-label="Show all" @action="catalog.category = null" />
+  <EmptyState v-else-if="catalog.loaded && !catalog.products.length && !catalog.error" icon="grid" title="No products yet"
+    text="Import a 3MF: best a plate sliced in Bambu Studio or OrcaSlicer, so it prints as is."
+    :action-label="auth.can('operator') ? 'Import 3MF' : undefined" @action="dialog = { product: null }" />
 
   <section v-if="catalog.inBatch.length" class="batch" aria-label="Batch" data-testid="batch-bar">
     <div class="what">
@@ -213,7 +217,7 @@ async function queue() {
   border: 1px solid var(--accent);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow);
 }
 .what {
   display: flex;

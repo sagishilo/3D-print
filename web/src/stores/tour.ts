@@ -4,15 +4,18 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { type TourId, TOURS } from '@/lib/page-tours'
+import { usePrefs } from '@/stores/prefs'
 
 const doneKey = (id: TourId) => (id === 'general' ? 'pf.tour.done' : `pf.tour.${id}.done`)
 
 export const useTour = defineStore('tour', () => {
+  const prefs = usePrefs()
   const tourId = ref<TourId>('general')
   const index = ref<number | null>(null)
 
   const tour = computed(() => TOURS[tourId.value])
-  const steps = computed(() => tour.value.steps)
+  // Steps for the other display mode are left out (Simple hides the panels some steps point at).
+  const steps = computed(() => tour.value.steps.filter((s) => !s.mode || s.mode === prefs.mode))
   const title = computed(() => tour.value.title)
   const active = computed(() => index.value !== null)
   const step = computed(() => (index.value === null ? null : steps.value[index.value]))

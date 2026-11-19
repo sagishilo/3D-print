@@ -221,15 +221,15 @@ const bubbleStyle = computed(() => ({ top: `${placement.value.top}px`, left: `${
   transition: background 0.2s ease;
 }
 .blocker.dim {
-  background: rgba(5, 7, 10, 0.72);
+  background: var(--scrim-strong);
 }
 .spot {
   position: fixed;
   border-radius: 12px;
   box-shadow:
     0 0 0 2px var(--accent),
-    0 0 0 6px rgba(76, 141, 255, 0.25),
-    0 0 0 200vmax rgba(5, 7, 10, 0.72);
+    0 0 0 6px var(--accent-ring),
+    0 0 0 200vmax var(--scrim-strong);
   pointer-events: none;
   transition:
     top 0.25s ease,
@@ -245,7 +245,7 @@ const bubbleStyle = computed(() => ({ top: `${placement.value.top}px`, left: `${
   background: var(--surface);
   border: 1px solid var(--accent);
   border-radius: var(--radius);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow);
   padding: 16px 18px 14px;
   font-size: 14px;
   line-height: 1.65;
@@ -304,7 +304,7 @@ header {
   background: var(--border);
 }
 .dots .past {
-  background: rgba(76, 141, 255, 0.45);
+  background: var(--accent-line);
 }
 .dots .on {
   background: var(--accent);

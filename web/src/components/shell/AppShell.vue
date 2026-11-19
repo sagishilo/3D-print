@@ -101,10 +101,10 @@ watch(
   flex-direction: column;
 }
 .content {
-  padding: 24px var(--gutter) 40px;
+  padding: var(--page-y) var(--gutter) 40px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--gap);
   max-width: 1440px;
   width: 100%;
 }
@@ -130,7 +130,7 @@ watch(
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
     z-index: 34;
   }
 }

@@ -35,6 +35,8 @@ export interface TourStep {
   prepare?: TourAction[]
   /** Scroll a tall element to the top of the screen (its header stays visible) instead of centring it. */
   scrollTo?: 'start'
+  /** Shown only in this display mode (Simple hides the technical panels these steps point at). */
+  mode?: 'simple' | 'expert'
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -139,6 +141,18 @@ export const TOUR_STEPS: TourStep[] = [
     ],
     why: 'המערכת אף פעם לא מפרסמת לבד. אדם תמיד קורא ומאשר כל תגובה. ככה התגובות נשמעות אנושיות, נכונות, ומכבדות את כללי הקבוצה.',
     missing: 'עוד אין פוסטים שמחכים לאישור. כשיגיע פוסט של קונה, הטיוטה שלו תופיע כאן.',
+  },
+  {
+    id: 'user-menu',
+    route: '/live',
+    targets: ['[data-testid="user-menu"]'],
+    title: 'השם שלכם: הגדרות תצוגה',
+    body: [
+      'לחיצה על השם שלכם בפינה העליונה מראה את התפקיד שלכם, ומשם אפשר לבחור:',
+      '**Theme**: בהיר (**Light**), כהה (**Dark**), או כמו במחשב (**System**). **Density**: מרווח (**Comfortable**) או צפוף (**Compact**), כדי לראות יותר על המסך.',
+      '**Mode**: **Simple** לעבודה היומיומית (בלי הפרטים הטכניים), או **Expert** שמראה הכול.',
+    ],
+    why: 'ההגדרות נשמרות למשתמש שלכם, ומחכות לכם בכל מחשב או טלפון שתיכנסו ממנו.',
   },
   {
     id: 'done',

@@ -180,7 +180,7 @@ async function replayAll() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #ffb4ae;
+  color: var(--danger-text);
 }
 .error-line {
   display: flex;

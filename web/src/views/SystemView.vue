@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AgentsTable from '@/components/system/AgentsTable.vue'
 import AuditPanel from '@/components/system/AuditPanel.vue'
 import BackupsPanel from '@/components/system/BackupsPanel.vue'
+import SimpleHealth from '@/components/system/SimpleHealth.vue'
 import DlqPanel from '@/components/system/DlqPanel.vue'
 import NatsPanel from '@/components/system/NatsPanel.vue'
 import PrintersPanel from '@/components/system/PrintersPanel.vue'
@@ -17,6 +18,7 @@ import KpiCard from '@/components/ui/KpiCard.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import { count, duration } from '@/lib/format'
 import { useAuth } from '@/stores/auth'
+import { usePrefs } from '@/stores/prefs'
 import { useSystem } from '@/stores/system'
 
 type TabId = 'overview' | 'agents' | 'nats' | 'dlq' | 'config' | 'audit'
@@ -26,19 +28,23 @@ const route = useRoute()
 const router = useRouter()
 const system = useSystem()
 const auth = useAuth()
+const prefs = usePrefs()
 
+// Simple mode shows the overview (and the audit log for owners); the technical tabs are Expert-only.
+const TECHNICAL: TabId[] = ['agents', 'nats', 'dlq', 'config']
 const tabs = computed(() => [
   { id: 'overview', label: 'Overview' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'nats', label: 'NATS' },
-  { id: 'dlq', label: `DLQ · ${system.dlqTotal}` },
-  { id: 'config', label: 'Config' },
+  ...(prefs.expert
+    ? [{ id: 'agents', label: 'Agents' }, { id: 'nats', label: 'NATS' }, { id: 'dlq', label: `DLQ · ${system.dlqTotal}` },
+        { id: 'config', label: 'Config' }]
+    : []),
   ...(auth.can('owner') ? [{ id: 'audit', label: 'Audit log' }] : []),   // owners only (the gateway checks too)
 ])
 const tab = computed<TabId>({
   get: () => {
     const t = route.query.tab as TabId
-    return TAB_IDS.includes(t) && (t !== 'audit' || auth.can('owner')) ? t : 'overview'
+    const allowed = TAB_IDS.includes(t) && (t !== 'audit' || auth.can('owner')) && (prefs.expert || !TECHNICAL.includes(t))
+    return allowed ? t : 'overview'
   },
   set: (t) => void router.replace({ query: t === 'overview' ? {} : { tab: t } }),
 })
@@ -105,7 +111,8 @@ const kpis = computed(() => {
   <div class="page-head">
     <div>
       <h1>System &amp; Agents</h1>
-      <p>Agent health, NATS JetStream, dead-letter queue and automation config</p>
+      <p v-if="prefs.expert">Agent health, NATS JetStream, dead-letter queue and automation config</p>
+      <p v-else>Is everything running · printers · backups</p>
     </div>
     <button type="button" class="btn" data-tour="system-refresh" @click="refresh"><Icon name="refresh" :size="14" />Refresh</button>
   </div>
@@ -114,7 +121,15 @@ const kpis = computed(() => {
 
   <p v-if="system.error" class="error" role="alert"><Icon name="alert" :size="14" /> {{ system.error }}</p>
 
-  <template v-if="tab === 'overview'">
+  <template v-if="tab === 'overview' && !prefs.expert">
+    <SimpleHealth />
+    <div class="grid-2">
+      <PrintersPanel />
+      <BackupsPanel />
+    </div>
+  </template>
+
+  <template v-else-if="tab === 'overview'">
     <div class="kpis" data-tour="system-kpis">
       <KpiCard v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :sub="k.sub" :sub-tone="k.subTone" />
     </div>

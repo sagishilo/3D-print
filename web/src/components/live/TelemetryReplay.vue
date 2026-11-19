@@ -221,7 +221,7 @@ polyline {
   stroke: var(--warn);
 }
 .progress {
-  fill: rgba(63, 185, 80, 0.12);
+  fill: var(--ok-bg);
   stroke: none;
 }
 .cursor {
@@ -271,7 +271,7 @@ polyline {
   background: var(--warn);
 }
 .sw.progress {
-  background: rgba(63, 185, 80, 0.5);
+  background: var(--ok); opacity: 0.5;
   height: 8px;
 }
 .scrub {

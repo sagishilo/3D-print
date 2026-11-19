@@ -305,3 +305,21 @@ def test_recovery_makes_an_enabled_owner_with_a_one_time_password(c):
     assert audit and audit[0]["payload"] == {"user": "noa"} and temp not in repr(c.app.state.db.audit)
     with pytest.raises(LookupError):
         c.portal.call(recover.recover, c.app.state.users, c.app.state.db, "ghost")
+
+
+# ---------------------------------------------------------------- display preferences (M2)
+def test_prefs_are_saved_per_person_and_merged(c):
+    make(c, "noa", "viewer")
+    sign_in(c, "noa")
+    r = c.patch("/api/v1/auth/prefs", json={"theme": "light"}, headers=csrf(c))
+    assert r.status_code == 200 and r.json()["prefs"] == {"theme": "light"}
+    r = c.patch("/api/v1/auth/prefs", json={"density": "compact", "mode": "expert"}, headers=csrf(c))
+    assert r.json()["prefs"] == {"theme": "light", "density": "compact", "mode": "expert"}   # viewers may choose too
+    assert c.get("/api/v1/auth/me").json()["prefs"]["density"] == "compact"
+    assert c.patch("/api/v1/auth/prefs", json={"theme": "pink"}, headers=csrf(c)).status_code == 422
+    assert c.patch("/api/v1/auth/prefs", json={"role": "owner"}, headers=csrf(c)).status_code == 422
+    assert c.patch("/api/v1/auth/prefs", json={"theme": "dark"}).status_code == 403          # CSRF
+    # another person's prefs are untouched
+    c.cookies.clear()
+    login(c)
+    assert c.get("/api/v1/auth/me").json()["prefs"] == {}

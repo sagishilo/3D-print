@@ -88,8 +88,8 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 40px;
-  padding: 8px 14px;
+  min-height: var(--control-h);
+  padding: 6px 14px;
   border-radius: var(--radius-sm);
   font: 500 13px var(--font);
   cursor: pointer;
@@ -100,19 +100,19 @@ textarea {
   text-decoration: none;
 }
 .btn:hover:not(:disabled) {
-  border-color: #33404d;
+  border-color: var(--border-strong);
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 .btn-sm {
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: var(--control-h-sm);
+  padding: 4px 10px;
 }
 .btn-primary {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 .btn-primary:hover:not(:disabled) {
@@ -129,8 +129,8 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: var(--control-h);
+  height: var(--control-h);
   border-radius: var(--radius-sm);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -143,10 +143,10 @@ textarea {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: var(--pad-panel);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--gap-sm);
   min-width: 0;
 }
 .panel-head {
@@ -166,13 +166,13 @@ textarea {
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr));
-  gap: 16px;
+  gap: var(--gap);
   align-items: start;
 }
 .kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px;
+  gap: var(--gap-sm);
 }
 
 /* ---------------------------------------------------------------- pills, chips, dots */
@@ -231,7 +231,7 @@ textarea {
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font: 600 11px var(--font);
   text-align: center;
 }
@@ -263,7 +263,7 @@ table.data {
 }
 table.data th {
   text-align: left;
-  padding: 10px 12px;
+  padding: var(--cell-y) var(--cell-x);
   font: 500 12px var(--font);
   color: var(--muted);
   border-bottom: 1px solid var(--border);
@@ -271,7 +271,7 @@ table.data th {
 }
 table.data td {
   text-align: left;
-  padding: 10px 12px;
+  padding: var(--cell-y) var(--cell-x);
   font: 400 13px var(--font);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
@@ -291,7 +291,7 @@ table.data .num {
 /* ---------------------------------------------------------------- inputs */
 .input,
 .select {
-  min-height: 40px;
+  min-height: var(--control-h);
   padding: 0 12px;
   border-radius: var(--radius-sm);
   background: var(--bg);

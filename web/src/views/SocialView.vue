@@ -9,13 +9,16 @@ import LeadReview from '@/components/social/LeadReview.vue'
 import SocialSettings from '@/components/social/SocialSettings.vue'
 import Icon from '@/components/ui/Icon.vue'
 import KpiCard from '@/components/ui/KpiCard.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { errorText } from '@/lib/api'
 import { ago } from '@/lib/format'
 import { type Capture, captureLine, type Label, leadsCsv, modelLine, STATUS_LABEL, usd } from '@/lib/social'
 import { useSocial } from '@/stores/social'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
+import { useAuth } from '@/stores/auth'
 
+const auth = useAuth()
 const social = useSocial()
 const toasts = useToasts()
 const adding = ref(false)
@@ -102,10 +105,11 @@ function exportLeads() {
       <div class="cards">
         <CaptureCard v-for="c in social.captures" :key="c.capture_id" :capture="c" :threshold="social.threshold"
           @label="label(c, $event)" @rescore="rescore(c)" />
-        <p v-if="social.loaded && !social.captures.length" class="empty">
-          Nothing captured{{ social.captureFilter ? ' with this status' : ' yet' }}. Group members capture posts with the browser
-          extension (see Capture extension below), or use Add post.
-        </p>
+        <EmptyState v-if="social.loaded && !social.captures.length && social.captureFilter" icon="activity" title="Nothing with this status"
+          action-label="Show all" @action="social.captureFilter = null" />
+        <EmptyState v-else-if="social.loaded && !social.captures.length" icon="activity" title="No posts captured yet"
+          text="Group members capture posts with the browser extension (Capture extension, below), or paste one here."
+          :action-label="auth.can('operator') ? 'Add post' : undefined" @action="adding = true" />
       </div>
     </section>
 

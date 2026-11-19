@@ -137,7 +137,7 @@ const rows = computed(() => items.value.map((i) => ({ i, d: describe(i.data) }))
   white-space: normal;
 }
 .sev-critical td.event {
-  color: #ffb4ae;
+  color: var(--danger-text);
 }
 .link {
   background: none;

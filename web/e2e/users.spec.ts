@@ -74,7 +74,12 @@ test('an operator works the floor but cannot manage users or settings', async ({
   await expect(nav.getByRole('link', { name: 'Users', exact: true })).toHaveCount(0)
   await expect(page.getByTestId('new-order-button')).toBeEnabled()
   await expect(page.getByTestId('pause-all')).toBeEnabled()
-  // owner-only: system toggles are disabled, there is no Audit tab, and /users sends you back
+  // owner-only: system toggles are disabled, there is no Audit tab, and /users sends you back. An operator starts in
+  // Simple mode (no Config tab): switch to Expert to see the toggles.
+  await expect(page.getByTestId('user-menu')).toBeVisible()
+  await page.getByTestId('user-menu').click()
+  await page.getByTestId('mode-expert').click()
+  await expect(page.getByTestId('mode-expert')).toHaveAttribute('aria-checked', 'true')
   await page.goto('/system?tab=config')
   await expect(page.getByTestId('settings').getByRole('switch').first()).toBeDisabled()
   await expect(page.getByRole('tab', { name: 'Audit log' })).toHaveCount(0)

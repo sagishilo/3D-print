@@ -12,6 +12,7 @@ import { useApprovals } from '@/stores/approvals'
 import { vCan } from '@/directives/can'
 import { useConfirm } from '@/stores/confirm'
 import { useLive } from '@/stores/live'
+import { usePrefs } from '@/stores/prefs'
 import { usePrinters } from '@/stores/printers'
 import { useSystem } from '@/stores/system'
 import { useToasts } from '@/stores/toasts'
@@ -23,6 +24,7 @@ const route = useRoute()
 // Every screen's page tour starts from the same place: the far right of the top bar (nothing beside it changes width).
 const pageTour = computed(() => route.meta.tour)
 const live = useLive()
+const prefs = usePrefs()
 const approvals = useApprovals()
 const printers = usePrinters()
 const system = useSystem()
@@ -38,7 +40,7 @@ const results = computed(() => {
   const out: { label: string; hint: string; to: string | { path: string; query: Record<string, string> } }[] = []
   for (const p of printers.list) if (p.id.includes(q)) out.push({ label: p.id, hint: 'printer', to: { path: '/fleet', query: { printer: p.id } } })
   for (const n of NAV) if (n.label.toLowerCase().includes(q)) out.push({ label: n.label, hint: 'screen', to: n.to })
-  for (const a of system.agents) if (a.label.toLowerCase().includes(q)) out.push({ label: a.label, hint: 'agent', to: { path: '/system', query: { tab: 'agents' } } })
+  if (prefs.expert) for (const a of system.agents) if (a.label.toLowerCase().includes(q)) out.push({ label: a.label, hint: 'agent', to: { path: '/system', query: { tab: 'agents' } } })
   return out.slice(0, 8)
 })
 function go(to: (typeof results.value)[number]['to']) {
@@ -214,7 +216,7 @@ kbd {
   height: 18px;
   border-radius: 999px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font: 700 11px var(--font);
   display: flex;
   align-items: center;

@@ -119,7 +119,7 @@ const replayState = computed(() => {
 .filter.on {
   background: var(--surface-2);
   color: var(--text);
-  border-color: #33404d;
+  border-color: var(--border-strong);
 }
 .items {
   list-style: none;
@@ -157,6 +157,6 @@ const replayState = computed(() => {
   color: var(--idle);
 }
 .tone-danger .text {
-  color: #ffb4ae;
+  color: var(--danger-text);
 }
 </style>

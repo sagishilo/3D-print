@@ -24,7 +24,7 @@ const tours = useTour()
 <style scoped>
 .page-tour {
   gap: 7px;
-  border-color: rgba(76, 141, 255, 0.45);
+  border-color: var(--accent-line);
   color: var(--accent);
   background: var(--accent-bg);
 }

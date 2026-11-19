@@ -7,13 +7,16 @@ import EventFeed from '@/components/live/EventFeed.vue'
 import PrinterTile from '@/components/live/PrinterTile.vue'
 import TelemetryReplay from '@/components/live/TelemetryReplay.vue'
 import Icon from '@/components/ui/Icon.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { clock } from '@/lib/format'
 import { useLive } from '@/stores/live'
 import { type DisplayStatus, STATUS_TONE, usePrinters } from '@/stores/printers'
+import { useAuth } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const printers = usePrinters()
+const auth = useAuth()
 const live = useLive()
 const replayEl = ref<HTMLElement | null>(null)
 
@@ -85,9 +88,11 @@ const gapText = computed(() => {
   <section class="tiles" aria-label="Printers">
     <PrinterTile v-for="p in printers.list" :key="p.id" :printer="p" :selected="p.id === selected" @history="toggle" />
   </section>
-  <p v-if="!printers.list.length && !printers.loading && !printers.error" class="panel empty">
-    No printers yet. They come from config/fleet.toml (or fleet.sim.toml for the simulator) once the fleet agent runs.
-  </p>
+  <section v-if="!printers.list.length && !printers.loading && !printers.error" class="panel">
+    <EmptyState icon="monitor" title="No printers yet"
+      text="Printers appear here once they are connected. The connection guide walks through it step by step, with a live test."
+      :action-label="auth.can('operator') ? 'Connect a printer' : undefined" to="/fleet/add" />
+  </section>
 
   <div ref="replayEl" class="grid-2 lower">
     <TelemetryReplay v-if="selected" :printer-id="selected" @close="select(null)" />

@@ -54,7 +54,7 @@ watch(
   padding: 20px;
 }
 .confirm::backdrop {
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
 }
 h2 {
   font: 600 16px var(--font);

@@ -38,11 +38,11 @@ const toasts = useToasts()
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow);
 }
 .toast.tone-danger {
   border-color: var(--danger);
-  background: #1d1215;
+  background: var(--toast-danger);
 }
 .dot {
   margin-top: 5px;

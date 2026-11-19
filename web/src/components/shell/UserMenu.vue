@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// The signed-in person: name and role, change password, sign out. A viewer also sees "Read-only" next to it.
+// The signed-in person: name and role, display settings (theme, density, Simple / Expert), change password, sign out.
+// A viewer also sees "Read-only" next to it. Display settings are saved per person (stores/prefs.ts).
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -8,12 +9,28 @@ import Icon from '@/components/ui/Icon.vue'
 import { ROLE_HELP, ROLE_LABEL } from '@/lib/roles'
 import { useAuth } from '@/stores/auth'
 import { useLive } from '@/stores/live'
+import { type Density, type Mode, type Theme, usePrefs } from '@/stores/prefs'
 import { useToasts } from '@/stores/toasts'
 
 const auth = useAuth()
 const live = useLive()
 const router = useRouter()
 const toasts = useToasts()
+const prefs = usePrefs()
+
+const THEMES: { id: Theme; label: string }[] = [
+  { id: 'system', label: 'System' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+]
+const DENSITIES: { id: Density; label: string }[] = [
+  { id: 'comfortable', label: 'Comfortable' },
+  { id: 'compact', label: 'Compact' },
+]
+const MODES: { id: Mode; label: string; help: string }[] = [
+  { id: 'simple', label: 'Simple', help: 'Daily work: technical panels (NATS, dead letters, agents, advanced settings) are hidden' },
+  { id: 'expert', label: 'Expert', help: 'Everything, including the technical panels of System & Agents' },
+]
 
 const open = ref(false)
 const changing = ref(false)
@@ -74,6 +91,30 @@ function changed() {
         <span v-if="auth.role" class="chip role" :class="auth.role" data-testid="user-role">{{ ROLE_LABEL[auth.role] }}</span>
         <span v-if="auth.role" class="muted small">{{ ROLE_HELP[auth.role] }}</span>
       </div>
+      <div class="prefs" data-testid="display-prefs">
+        <div class="pref">
+          <span class="label">Theme</span>
+          <div class="seg" role="radiogroup" aria-label="Theme">
+            <button v-for="t in THEMES" :key="t.id" type="button" role="radio" :aria-checked="prefs.theme === t.id"
+              :class="{ on: prefs.theme === t.id }" :data-testid="`theme-${t.id}`" @click="prefs.set({ theme: t.id })">{{ t.label }}</button>
+          </div>
+        </div>
+        <div class="pref">
+          <span class="label">Density</span>
+          <div class="seg" role="radiogroup" aria-label="Density">
+            <button v-for="d in DENSITIES" :key="d.id" type="button" role="radio" :aria-checked="prefs.density === d.id"
+              :class="{ on: prefs.density === d.id }" :data-testid="`density-${d.id}`" @click="prefs.set({ density: d.id })">{{ d.label }}</button>
+          </div>
+        </div>
+        <div class="pref">
+          <span class="label">Mode</span>
+          <div class="seg" role="radiogroup" aria-label="Simple or Expert mode">
+            <button v-for="m in MODES" :key="m.id" type="button" role="radio" :aria-checked="prefs.mode === m.id" :title="m.help"
+              :class="{ on: prefs.mode === m.id }" :data-testid="`mode-${m.id}`" @click="prefs.set({ mode: m.id })">{{ m.label }}</button>
+          </div>
+          <span class="muted small" data-testid="mode-help">{{ MODES.find((m) => m.id === prefs.mode)?.help }}</span>
+        </div>
+      </div>
       <button type="button" role="menuitem" class="item" data-testid="change-password" @click="(open = false), (changing = true)">
         <Icon name="lock" :size="14" />Change password
       </button>
@@ -121,12 +162,12 @@ function changed() {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  min-width: 260px;
+  min-width: 300px;
   max-width: calc(100vw - 24px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow);
   padding: 6px;
   z-index: 40;
 }
@@ -147,6 +188,50 @@ function changed() {
 }
 .small {
   font-size: 12px;
+}
+.prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.pref {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pref .label {
+  font: 600 11px var(--font);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg button {
+  flex: 1;
+  min-height: 30px;
+  padding: 0 8px;
+  background: var(--surface);
+  border: 0;
+  border-inline-start: 1px solid var(--border);
+  color: var(--muted);
+  font: 500 12px var(--font);
+  cursor: pointer;
+}
+.seg button:first-child {
+  border-inline-start: 0;
+}
+.seg button.on {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
 }
 .item {
   width: 100%;
@@ -169,7 +254,7 @@ function changed() {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;

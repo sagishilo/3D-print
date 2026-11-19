@@ -28,7 +28,9 @@ function nextPath(): string {
 
 function message(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 429) return `Too many failed attempts: ${errorText(err).replace(/^locked out; /, '')}.`
+    // 429 is either the sign-in lockout (wrong passwords) or the gateway's request limit (busy): say which.
+    if (err.status === 429 && /^locked out/.test(errorText(err))) return `Too many failed attempts: ${errorText(err).replace(/^locked out; /, '')}.`
+    if (err.status === 429) return `The server is busy with this computer's requests: ${errorText(err).replace(/^too many requests; /, '')}.`
     if (err.status === 401) return `Wrong username or password.${errorText(err).replace(/^wrong username or password;?/, '')}`
   }
   return `Could not sign in: ${errorText(err)}`
@@ -130,7 +132,7 @@ async function submit() {
   height: 32px;
   border-radius: 8px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   display: flex;
   align-items: center;
   justify-content: center;

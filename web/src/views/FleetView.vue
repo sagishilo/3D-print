@@ -8,6 +8,7 @@ import FleetLog from '@/components/fleet/FleetLog.vue'
 import PrinterDrawer from '@/components/fleet/PrinterDrawer.vue'
 import PrinterTile from '@/components/live/PrinterTile.vue'
 import Icon from '@/components/ui/Icon.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { command, errorText, printerCommand } from '@/lib/api'
 import { BATCH_LABEL, type BatchAction, describePlan, planBatch } from '@/lib/fleet'
 import { clock } from '@/lib/format'
@@ -188,9 +189,11 @@ async function batch(action: BatchAction) {
       @details="openDetails"
     />
   </section>
-  <p v-if="!shown.length" class="panel empty">
-    {{ printers.list.length ? 'No printer in this state.' : 'No printers yet: see Add printer.' }}
-  </p>
+  <section v-if="!shown.length" class="panel">
+    <EmptyState v-if="printers.list.length" icon="search" title="No printer in this state" text="Choose another filter, or All." action-label="Show all" @action="filter = 'all'" />
+    <EmptyState v-else icon="monitor" title="No printers yet" text="Connect the first printer: the guide checks the connection before anything is added."
+      :action-label="auth.can('operator') ? 'Connect a printer' : undefined" to="/fleet/add" />
+  </section>
 
   <FleetLog @open="openDetails" />
 
@@ -261,7 +264,7 @@ async function batch(action: BatchAction) {
   border-radius: var(--radius);
   border: 1px solid var(--accent);
   background: var(--surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow);
 }
 .batch-actions {
   display: flex;
