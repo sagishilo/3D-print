@@ -413,6 +413,19 @@ export const FINANCE: TourStep[] = [
     prepare: [tab('finance-tabs', 'receivables', 'overview')],
   },
   {
+    id: 'finance-documents',
+    route: '/finance',
+    targets: ['[data-testid="documents"]'],
+    title: 'Documents: קבלות וחשבוניות',
+    body: [
+      'כשספק החשבוניות מחובר (Morning, ב-Integrations), כל תשלום מקבל מסמך לבד: עוסק מורשה מקבל **חשבונית מס / קבלה**, ועוסק פטור **קבלה**. כל החזר מקבל **חשבונית זיכוי**.',
+      'Morning נותן למסמך מספר, שומר את ה-PDF, ובחשבונית מעל הסף מבקש בעצמו מספר הקצאה (חשבוניות ישראל). המספר וקישור ל-PDF מופיעים כאן וגם ליד התשלום בהזמנה.',
+      'מסמך שנכשל מופיע עם הסיבה ועם **Issue again**. תשלומים שעוד אין להם מסמך מופיעים למטה, עם **Issue document**.',
+    ],
+    why: 'לא צריך להקליד כל תשלום פעמיים: פעם במערכת ופעם בתוכנת החשבוניות.',
+    prepare: [tab('finance-tabs', 'documents', 'overview')],
+  },
+  {
     id: 'finance-vat',
     route: '/finance',
     targets: ['[data-testid="vat"]'],

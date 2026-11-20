@@ -339,7 +339,7 @@ def _ship(state: State, ctx: dict, msg: ShipOrder) -> Decision:
     if state != State.QC or ctx["qc"]["status"] != "passed":
         return _reject(state, ctx, "SHIPPED", "only an order that passed QC can be shipped", by)
     oid = ctx["order"]["order_id"]
-    ctx["shipped"] = {"carrier": msg.carrier, "tracking": msg.tracking, "by": by}
+    ctx["shipped"] = {"carrier": msg.carrier, "tracking": msg.tracking, "tracking_url": msg.tracking_url, "by": by}
     to_shelf = ctx["order"].get("channel") == STOCK_CHANNEL
     lines, moves = [], []
     for iid, item in ctx["items"].items():
@@ -354,7 +354,8 @@ def _ship(state: State, ctx: dict, msg: ShipOrder) -> Decision:
     return Decision(State.SHIPPED, ctx, [
         *moves,
         OrderShipped(order_id=oid, total_agorot=ctx["order"]["total_agorot"], carrier=msg.carrier,
-                     tracking=msg.tracking, by=by, channel=ctx["order"].get("channel", ""), lines=lines),
+                     tracking=msg.tracking, tracking_url=msg.tracking_url, by=by, channel=ctx["order"].get("channel", ""),
+                     lines=lines),
         OrderCompleted(order_id=oid),
     ], by=by)
 

@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from datetime import UTC, date, datetime, timedelta
 
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from printfarm.agents.base import Agent, on
-from printfarm.agents.integrations import alerts, stores
+from printfarm.agents.integrations import alerts, couriers, invoicing, stores
 from printfarm.agents.integrations.connectors import REGISTRY
 from printfarm.agents.integrations.framework import (
     FAILURES_TO_NOTIFY,
@@ -43,16 +44,25 @@ from printfarm.contracts.messages import (
     ConfigureConnector,
     ConnectorChanged,
     ConnectorSynced,
+    CreateShipment,
+    DocumentIssued,
+    IssueDocument,
     MapStoreSku,
     NotificationQueued,
     NotificationRequested,
     OrderShipped,
+    PaymentRecorded,
+    PaymentRefunded,
     RunConnector,
+    ShipmentReady,
+    ShipmentRefused,
+    ShipmentStatusChanged,
     StoreOrderAction,
     StoreOrderChanged,
     StoreOrderReady,
     StorePushFinished,
     StoreSkuMapped,
+    UpdateShipment,
 )
 
 TICK_S = 5
@@ -120,6 +130,8 @@ class IntegrationsAgent(Agent):
         for cid in due:
             await self.run(cid, trigger="schedule")
         await self.push_due(now)
+        await self.issue_due(now)
+        await self.track_due(now)
         return due
 
     # ------------------------------------------------------------ one sync
@@ -452,7 +464,7 @@ class IntegrationsAgent(Agent):
             "INSERT INTO integrations.pushes (connector_id, kind, external_id, order_id, payload) "
             "VALUES (%s, 'tracking', %s, %s, %s) ON CONFLICT (connector_id, kind, external_id) DO NOTHING",
             (row["connector_id"], row["external_id"], msg.order_id,
-             Jsonb({"carrier": msg.carrier, "tracking": msg.tracking, "url": getattr(msg, "tracking_url", "") or ""})))
+             Jsonb({"carrier": msg.carrier, "tracking": msg.tracking, "url": msg.tracking_url})))
 
     async def push_due(self, now: datetime) -> int:
         """Send what is due back to the stores (enabled connectors only), one at a time, retrying with backoff."""
@@ -503,3 +515,276 @@ class IntegrationsAgent(Agent):
         if rows:
             self.relay.wakeup.set()
         return sent
+
+    # ------------------------------------------------------------ invoicing (W2-B): a document per payment
+
+    def _invoicer(self, enabled: dict[str, bool]) -> invoicing.InvoicingConnector | None:
+        """The invoicing provider in use: the first one switched on."""
+        for c in self.registry.values():
+            if isinstance(c, invoicing.InvoicingConnector) and enabled.get(c.id):
+                return c
+        return None
+
+    async def _connectors_state(self, conn) -> dict[str, dict]:
+        rows = await (await conn.execute(
+            "SELECT connector_id, enabled, mode, settings, interval_s FROM integrations.connectors")).fetchall()
+        return {r["connector_id"]: dict(r) for r in rows}
+
+    async def _queue_document(self, conn, *, payment_id: str, order_id: str | None, amount: int, refund: bool,
+                              requested_by: str, manual_request: bool = False) -> int | None:
+        state = await self._connectors_state(conn)
+        c = self._invoicer({k: v["enabled"] for k, v in state.items()})
+        if c is None:
+            return None
+        settings = c.settings_with_defaults(state[c.id]["settings"] or {})
+        if not manual_request and not settings.get("auto_issue", True):
+            return None
+        fs = await (await conn.execute("SELECT business_type FROM finance.settings WHERE id = 1")).fetchone()
+        kind = invoicing.kind_for(fs["business_type"] if fs else "murshe", refund)
+        row = await (await conn.execute(
+            "INSERT INTO integrations.documents (connector_id, payment_id, order_id, kind, amount_agorot, status, error, "
+            "requested_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (connector_id, payment_id) DO NOTHING "
+            "RETURNING id", (c.id, payment_id, order_id, kind or "credit", amount, "pending" if kind else "manual",
+                             None if kind else "osek patur: refund the receipt by hand in the invoicing provider",
+                             requested_by))).fetchone()
+        if row is not None and kind is None:
+            await self.emit(conn, DocumentIssued(payment_id=payment_id, order_id=order_id, connector_id=c.id,
+                                                 doc_kind="credit", status="manual",
+                                                 error="osek patur: refund the receipt by hand"))
+        return row["id"] if row else None
+
+    @on("evt.order.payment.recorded")
+    async def payment_recorded(self, env, msg: PaymentRecorded, conn):
+        await self._queue_document(conn, payment_id=msg.payment_id, order_id=msg.order_id, amount=msg.amount_agorot,
+                                   refund=False, requested_by="auto")
+
+    @on("evt.order.payment.refunded")
+    async def payment_refunded(self, env, msg: PaymentRefunded, conn):
+        await self._queue_document(conn, payment_id=msg.payment_id, order_id=msg.order_id, amount=msg.amount_agorot,
+                                   refund=True, requested_by="auto")
+
+    @on("cmd.integrations.issue_document")
+    async def issue_document(self, env, cmd: IssueDocument, conn):
+        """A person asks for a payment's document: queue it, or try a failed one again."""
+        cur = await conn.execute(
+            "UPDATE integrations.documents SET status = 'pending', attempts = 0, next_at = now(), error = NULL, "
+            "requested_by = %s WHERE payment_id = %s AND status IN ('failed', 'pending')",
+            (cmd.requested_by or "unknown", cmd.payment_id))
+        if cur.rowcount:
+            return
+        p = await (await conn.execute(
+            "SELECT payment_id, order_id, kind, amount_agorot FROM coordinator.payments WHERE payment_id = %s",
+            (cmd.payment_id,))).fetchone()
+        if p is None:
+            self.log.warning("issue_document: no payment %s", cmd.payment_id)
+            return
+        await self._queue_document(conn, payment_id=p["payment_id"], order_id=p["order_id"], amount=p["amount_agorot"],
+                                   refund=p["kind"] == "refund", requested_by=cmd.requested_by or "unknown",
+                                   manual_request=True)
+
+    async def _doc_request(self, conn, d: dict) -> invoicing.DocRequest:
+        p = await (await conn.execute(
+            "SELECT payment_id, amount_agorot, method, at FROM coordinator.payments WHERE payment_id = %s",
+            (d["payment_id"],))).fetchone()
+        if p is None:
+            raise SyncError(f"payment {d['payment_id']} is not recorded")
+        order, items = None, []
+        if d["order_id"]:
+            order = await (await conn.execute(
+                "SELECT order_id, customer_name, customer_ref, total_agorot, shipping_agorot, discount_agorot "
+                "FROM coordinator.orders WHERE order_id = %s", (d["order_id"],))).fetchone()
+            items = await (await conn.execute(
+                "SELECT i.product, i.text, i.quantity, i.line_total_agorot, coalesce(c.name, i.product) AS label "
+                "FROM coordinator.order_items i LEFT JOIN catalog.products c ON c.sku = i.sku AND i.product = 'catalog' "
+                "WHERE i.order_id = %s ORDER BY i.item_id::int", (d["order_id"],))).fetchall()
+            items = [{**i, "label": "Nameplate" if i["product"] == "nameplate" else i["label"]} for i in items]
+        linked = None
+        if d["kind"] == "credit" and d["order_id"]:
+            row = await (await conn.execute(
+                "SELECT external_id FROM integrations.documents WHERE order_id = %s AND kind <> 'credit' "
+                "AND status = 'issued' ORDER BY issued_at DESC LIMIT 1", (d["order_id"],))).fetchone()
+            linked = row["external_id"] if row else None
+        fs = await (await conn.execute("SELECT business_type FROM finance.settings WHERE id = 1")).fetchone()
+        return invoicing.build(kind=d["kind"], payment=dict(p), order=dict(order) if order else None,
+                               items=[dict(i) for i in items], vat_exempt=(fs or {}).get("business_type") == "patur",
+                               linked_external_id=linked)
+
+    async def issue_due(self, now: datetime) -> int:
+        """Issue the documents that are due with their provider (enabled only), retrying with backoff."""
+        async with self.db.tx() as conn:
+            rows = await (await conn.execute(
+                "SELECT d.*, c.mode, c.settings FROM integrations.documents d JOIN integrations.connectors c "
+                "USING (connector_id) WHERE d.status = 'pending' AND d.next_at <= %s AND c.enabled ORDER BY d.id LIMIT 20",
+                (now,))).fetchall()
+        done = 0
+        for d in rows:
+            c = self.registry.get(d["connector_id"])
+            if not isinstance(c, invoicing.InvoicingConnector):
+                continue
+            values = self.secret_values(c)
+            ctx = SyncContext(mode=d["mode"], cursor={}, settings=d["settings"] or {}, secrets=values, now=now,
+                              log=lambda m, cid=c.id: self.log.info("%s: %s", cid, m))
+            error, issued, req = "", None, None
+            try:
+                missing = c.live_missing(values, c.settings_with_defaults(d["settings"] or {})) if d["mode"] == "live" else []
+                if missing:
+                    raise SyncError(f"live mode needs {', '.join(missing)}")
+                async with self.db.tx() as conn:
+                    req = await self._doc_request(conn, d)
+                issued = await asyncio.wait_for(c.issue(ctx, req, d["id"]), SYNC_TIMEOUT_S)
+            except SyncError as exc:
+                error = str(exc)[:500]
+            except TimeoutError:
+                error = f"no answer within {SYNC_TIMEOUT_S} s"
+            except Exception as exc:  # noqa: BLE001 - a connector bug is a failed document, shown on the dashboard
+                self.log.exception("%s issue crashed", c.id)
+                error = f"{type(exc).__name__}: {str(exc)[:300]}"
+            attempts = int(d["attempts"]) + 1
+            status = "issued" if issued else ("failed" if attempts >= PUSH_ATTEMPTS else "pending")
+            async with self.db.tx() as conn:
+                await conn.execute(
+                    "UPDATE integrations.documents SET status = %s, attempts = %s, error = %s, next_at = %s, "
+                    "external_id = %s, number = %s, url = %s, allocation = %s, request = %s, "
+                    "issued_at = CASE WHEN %s = 'issued' THEN now() END WHERE id = %s",
+                    (status, attempts, error or None, now + timedelta(seconds=backoff_s(attempts, PUSH_RETRY_S)),
+                     issued.external_id if issued else None, issued.number if issued else None,
+                     issued.url if issued else None, (issued.allocation or None) if issued else None,
+                     Jsonb(req.to_json() if req else {}), status, d["id"]))
+                await self.emit(conn, DocumentIssued(payment_id=d["payment_id"], order_id=d["order_id"], connector_id=c.id,
+                                                     doc_kind=d["kind"], status=status, number=issued.number if issued else "",
+                                                     url=issued.url if issued else "", error=error))
+                if status == "failed":
+                    await self.queue(conn, alerts.Note(
+                        "integration", "warning", f"{c.label} did not issue the document of payment {d['payment_id']}",
+                        f"{PUSH_ATTEMPTS} tries failed: {error}. Issue it again from Finance > Documents, or in {c.label}.",
+                        "/finance?tab=documents", f"doc:{d['id']}", min_role="owner"))
+            done += bool(issued)
+        if rows:
+            self.relay.wakeup.set()
+        return done
+
+    # ------------------------------------------------------------ shipping (W2-B): parcels and where they are
+
+    async def _refuse_shipment(self, conn, env, cmd: CreateShipment, reason: str) -> None:
+        self.log.info("shipment of %s refused: %s", cmd.order_id, reason)
+        await self.emit(conn, ShipmentRefused(order_id=cmd.order_id, carrier=cmd.carrier, reason=reason,
+                                              by=cmd.created_by or "unknown"), cause=env, correlationid=cmd.order_id)
+
+    @on("cmd.integrations.create_shipment")
+    async def create_shipment(self, env, cmd: CreateShipment, conn):
+        saga = await (await conn.execute(
+            "SELECT state, context FROM coordinator.sagas WHERE saga_id = %s", (cmd.order_id,))).fetchone()
+        if saga is None:
+            return await self._refuse_shipment(conn, env, cmd, f"no order {cmd.order_id}")
+        passed = saga["state"] == "QC" and (saga["context"] or {}).get("qc", {}).get("status") == "passed"
+        if not passed and saga["state"] != "SHIPPED":
+            return await self._refuse_shipment(conn, env, cmd, "only an order that passed QC can be shipped")
+        live = await (await conn.execute(
+            "SELECT shipment_id FROM integrations.shipments WHERE order_id = %s AND status <> 'cancelled'",
+            (cmd.order_id,))).fetchone()
+        if live is not None:
+            return await self._refuse_shipment(conn, env, cmd, f"it already has parcel {live['shipment_id']}: cancel "
+                                                               "that label first")
+        n = (await (await conn.execute("SELECT count(*) AS n FROM integrations.shipments WHERE order_id = %s",
+                                       (cmd.order_id,))).fetchone())["n"] + 1
+        sid = couriers.shipment_id(cmd.order_id, n)
+        courier = self.registry.get(cmd.carrier)
+        tracking, tracking_url, label_url, connector_id, carrier = cmd.tracking.strip(), cmd.tracking_url, "", None, cmd.carrier
+        service = cmd.service
+        if isinstance(courier, couriers.CourierConnector):
+            state = (await self._connectors_state(conn)).get(courier.id, {})
+            if not state.get("enabled"):
+                return await self._refuse_shipment(conn, env, cmd, f"{courier.label} is switched off (Integrations)")
+            settings = courier.settings_with_defaults(state.get("settings") or {})
+            service = service or str(settings.get("service") or "")
+            ctx = SyncContext(mode=state["mode"], cursor={}, settings=state.get("settings") or {},
+                              secrets=self.secret_values(courier), now=datetime.now(UTC),
+                              log=lambda m: self.log.info("%s: %s", courier.id, m))
+            try:
+                label = await asyncio.wait_for(courier.create_label(ctx, cmd.order_id, cmd.ship_to.model_dump(),
+                                                                    cmd.weight_g, service, int(time.time()) % 1_000_000),
+                                               SYNC_TIMEOUT_S)
+            except (SyncError, TimeoutError) as exc:
+                return await self._refuse_shipment(conn, env, cmd, f"{courier.label}: {exc or 'no answer'}")
+            if label is not None:
+                tracking, label_url = label.tracking, label.label_url
+                tracking_url = label.tracking_url or courier.tracking_url(tracking)
+            elif not tracking:
+                return await self._refuse_shipment(conn, env, cmd, f"make the label at {courier.label} and type its "
+                                                                   "tracking number")
+            elif not courier.valid_tracking(tracking):
+                return await self._refuse_shipment(conn, env, cmd, f"{tracking} is not a {courier.label} tracking number")
+            else:
+                tracking = tracking.upper()
+                tracking_url = courier.tracking_url(tracking)
+            connector_id, carrier = courier.id, courier.label
+        label_url = label_url or f"/api/v1/shipments/{sid}/label"
+        by = cmd.created_by or "unknown"
+        await conn.execute(
+            "INSERT INTO integrations.shipments (shipment_id, order_id, connector_id, carrier, service, tracking, "
+            "tracking_url, label_url, ship_to, weight_g, events, created_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (sid, cmd.order_id, connector_id, carrier, service, tracking, tracking_url, label_url,
+             Jsonb(cmd.ship_to.model_dump()), cmd.weight_g,
+             Jsonb([{"status": "label_created", "at": datetime.now(UTC).isoformat(), "text": "", "by": by}]), by))
+        await self.emit(conn, ShipmentReady(shipment_id=sid, order_id=cmd.order_id, carrier=carrier, tracking=tracking,
+                                            tracking_url=tracking_url, label_url=label_url, by=by,
+                                            mark_shipped=cmd.mark_shipped and passed), cause=env, correlationid=cmd.order_id)
+
+    async def _move_shipment(self, conn, sid: str, to: str, *, text: str, by: str, cause=None) -> str | None:
+        row = await (await conn.execute(
+            "SELECT order_id, status, events FROM integrations.shipments WHERE shipment_id = %s FOR UPDATE",
+            (sid,))).fetchone()
+        if row is None:
+            return f"no parcel {sid}"
+        why = couriers.can_move(row["status"], to)
+        if why:
+            return why
+        events = [*(row["events"] or []), {"status": to, "at": datetime.now(UTC).isoformat(), "text": text, "by": by}]
+        await conn.execute(
+            "UPDATE integrations.shipments SET status = %s, events = %s, status_at = now(), updated_at = now() "
+            "WHERE shipment_id = %s", (to, Jsonb(events), sid))
+        await self.emit(conn, ShipmentStatusChanged(shipment_id=sid, order_id=row["order_id"], status=to,
+                                                    previous=row["status"], text=text, by=by), cause=cause,
+                        correlationid=row["order_id"])
+        return None
+
+    @on("cmd.integrations.update_shipment")
+    async def update_shipment(self, env, cmd: UpdateShipment, conn):
+        why = await self._move_shipment(conn, cmd.shipment_id, cmd.status, text=cmd.note, by=cmd.changed_by or "unknown",
+                                        cause=env)
+        if why:
+            self.log.warning("parcel %s not moved to %s: %s", cmd.shipment_id, cmd.status, why)
+
+    async def track_due(self, now: datetime) -> int:
+        """Ask the couriers where their open parcels are (each at most once per the connector's interval)."""
+        async with self.db.tx() as conn:
+            rows = await (await conn.execute(
+                "SELECT s.shipment_id, s.connector_id, s.tracking, s.status, s.events, c.mode, c.settings "
+                "FROM integrations.shipments s JOIN integrations.connectors c USING (connector_id) "
+                "WHERE s.status IN ('label_created', 'in_transit') AND c.enabled AND s.tracking <> '' "
+                "AND (s.last_checked_at IS NULL OR s.last_checked_at <= %s - make_interval(secs => c.interval_s)) "
+                "ORDER BY s.last_checked_at NULLS FIRST LIMIT 20", (now,))).fetchall()
+        moved = 0
+        for r in rows:
+            c = self.registry.get(r["connector_id"])
+            if not isinstance(c, couriers.CourierConnector):
+                continue
+            ctx = SyncContext(mode=r["mode"], cursor={}, settings=r["settings"] or {}, secrets=self.secret_values(c),
+                              now=now, log=lambda m, cid=c.id: self.log.info("%s: %s", cid, m))
+            checks = sum(1 for e in r["events"] or [] if e.get("by") == "courier")
+            try:
+                found = await asyncio.wait_for(c.track(ctx, r["tracking"], r["status"], checks), SYNC_TIMEOUT_S)
+            except Exception as exc:  # noqa: BLE001 - tracking is best effort: try again next time
+                self.log.warning("%s: tracking %s failed: %s", c.id, r["tracking"], exc)
+                found = []
+            async with self.db.tx() as conn:
+                await conn.execute("UPDATE integrations.shipments SET last_checked_at = %s WHERE shipment_id = %s",
+                                   (now, r["shipment_id"]))
+                step = couriers.latest(found, r["status"])
+                if step is not None and await self._move_shipment(conn, r["shipment_id"], step.status, text=step.text,
+                                                                  by="courier") is None:
+                    moved += 1
+        if moved:
+            self.relay.wakeup.set()
+        return moved

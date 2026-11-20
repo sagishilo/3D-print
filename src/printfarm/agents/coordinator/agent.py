@@ -39,6 +39,7 @@ from printfarm.contracts.messages import (
     RefundPayment,
     SetConfig,
     SetStockRule,
+    ShipmentReady,
     ShipOrder,
     StockMoved,
     StockRuleChanged,
@@ -119,6 +120,14 @@ class CoordinatorAgent(Agent):
             pay = RecordPayment(order_id=msg.order_id, amount_agorot=msg.paid_agorot, method=PaymentMethod.CARD,
                                 paid_at=msg.paid_at, receipt_no=msg.external_name or None, recorded_by=msg.connector_id)
             await self._payment(env, pay, conn, refund=False, payment_id=f"pay-{msg.order_id}")
+
+    @on("evt.integrations.shipment.ready")
+    async def shipment_ready(self, env, msg: ShipmentReady, conn):
+        """A parcel exists for an order that passed QC (W2-B): it ships with that carrier and tracking."""
+        if not msg.mark_shipped:
+            return
+        await self._advance(env, ShipOrder(order_id=msg.order_id, carrier=msg.carrier[:60], tracking=msg.tracking[:80],
+                                           tracking_url=msg.tracking_url[:300], shipped_by=msg.by), conn)
 
     @on("evt.order.order.received")
     async def order_received(self, env, msg: OrderReceived, conn):

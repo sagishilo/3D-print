@@ -42,6 +42,48 @@ export interface OrderCard {
   qc: 'pending' | 'passed' | null
   items: OrderItem[]
   plates: { plate_id: string; printer_id: string; status: string }[]
+  /** W2-B: the live parcel (Shipped's sub-state). */
+  shipment?: { shipment_id: string; carrier: string; tracking: string; tracking_url: string; status: ShipmentStatus; status_at: string } | null
+}
+
+export type ShipmentStatus = 'label_created' | 'in_transit' | 'delivered' | 'returned' | 'cancelled'
+export type DocStatus = 'pending' | 'issued' | 'failed' | 'manual' | 'skipped'
+
+export interface ShipTo {
+  name?: string
+  street?: string
+  city?: string
+  zip?: string
+  phone?: string
+}
+
+export interface Shipment {
+  shipment_id: string
+  connector_id: string | null
+  carrier: string
+  service: string
+  tracking: string
+  tracking_url: string
+  label_url: string
+  status: ShipmentStatus
+  ship_to: ShipTo
+  events: { status: string; at: string; text: string; by: string }[]
+  created_by: string
+  created_at: string
+  status_at: string
+}
+
+export interface OrderDocument {
+  id: number
+  payment_id: string
+  kind: 'receipt' | 'invoice_receipt' | 'credit'
+  status: DocStatus
+  number: string | null
+  url: string | null
+  allocation: string | null
+  error: string | null
+  amount_agorot: number
+  issued_at: string | null
 }
 
 export interface OrderDetail extends OrderCard {
@@ -64,6 +106,10 @@ export interface OrderDetail extends OrderCard {
   /** The checklists of the niches its lines were sold under (each check once). */
   qc_checklist?: { item: string; niche: string; niche_name: string }[]
   jobs: { job_id: string; status: string; plate_id: string | null; printer_id: string | null; plate_status: string | null }[]
+  documents?: OrderDocument[]
+  shipments?: Shipment[]
+  ship_to?: ShipTo
+  invoicing_on?: boolean
 }
 
 export interface OrderStats {

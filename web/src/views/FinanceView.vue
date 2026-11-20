@@ -6,6 +6,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import DocumentsPanel from '@/components/finance/DocumentsPanel.vue'
 import MoneyDialog from '@/components/finance/MoneyDialog.vue'
 import UnitEconomicsPanel from '@/components/finance/UnitEconomicsPanel.vue'
 import DownloadMenu from '@/components/ui/DownloadMenu.vue'
@@ -30,13 +31,14 @@ const toasts = useToasts()
 onMounted(() => void finance.load())
 watch(() => [finance.period, finance.month], () => void finance.load())
 
-const TAB_IDS = ['overview', 'income', 'expenses', 'products', 'receivables', 'vat', 'settings']
+const TAB_IDS = ['overview', 'income', 'expenses', 'products', 'receivables', 'documents', 'vat', 'settings']
 const tabs = computed(() => [
   { id: 'overview', label: 'Overview' },
   { id: 'income', label: 'Income' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'products', label: 'Products' },
   { id: 'receivables', label: `Receivables · ${finance.receivables.length}` },
+  { id: 'documents', label: 'Documents' },
   { id: 'vat', label: 'VAT' },
   { id: 'settings', label: 'Settings' },
 ])
@@ -320,6 +322,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   </section>
 
   <!-- ------------------------------------------------ VAT -->
+  <DocumentsPanel v-else-if="tab === 'documents'" />
   <section v-else-if="tab === 'vat' && finance.vat" class="panel" data-testid="vat">
     <div class="panel-head">
       <h2>VAT {{ finance.vat.year }}</h2>

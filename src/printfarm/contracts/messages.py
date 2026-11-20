@@ -185,6 +185,7 @@ class ShipOrder(Command):
     order_id: str
     carrier: str = Field(default="", max_length=60)
     tracking: str = Field(default="", max_length=80)
+    tracking_url: str = Field(default="", max_length=300)
     shipped_by: str = ""
 
 
@@ -262,6 +263,7 @@ class OrderShipped(Event):
     total_agorot: int
     carrier: str = ""
     tracking: str = ""
+    tracking_url: str = ""
     by: str = ""
     channel: str = ""                           # "stock": shipped to the shelf (a stock batch), not to a customer
     lines: list[ShippedLine] = []
@@ -1695,3 +1697,109 @@ class StorePushFinished(Event):
     ok: bool
     attempts: int = 1
     error: str = ""
+
+
+# ---------------------------------------------------------------- invoicing and shipping (Wave 2 / W2-B)
+
+ShipmentStatus = Literal["label_created", "in_transit", "delivered", "returned", "cancelled"]
+
+
+class IssueDocument(Command):
+    """Issue (or retry) the receipt / tax invoice-receipt of a payment, or the credit document of a refund, with
+    the invoicing provider (Finance > Documents, the order's payments). Automatic issuing does the same."""
+
+    subject: ClassVar[str] = "cmd.integrations.issue_document"
+    payment_id: str = Field(min_length=1, max_length=80)
+    requested_by: str = ""
+
+
+class DocumentIssued(Event):
+    """A payment's document was issued (or failed again, or needs doing by hand in the provider)."""
+
+    subject: ClassVar[str] = "evt.integrations.document.issued"
+    payment_id: str
+    order_id: str | None = None
+    connector_id: str
+    doc_kind: str                                # receipt | invoice_receipt | credit
+    status: str                                  # issued | failed | manual | pending (will retry)
+    number: str = ""
+    url: str = ""
+    error: str = ""
+
+
+class ShipTo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(default="", max_length=80)
+    street: str = Field(default="", max_length=120)
+    city: str = Field(default="", max_length=60)
+    zip: str = Field(default="", max_length=12)
+    phone: str = Field(default="", max_length=30)
+
+
+class CreateShipment(Command):
+    """Ship an order (Order Pipeline > QC > Ship): a courier connector makes the label and tracking number
+    (``carrier`` = its connector id, e.g. israel-post), or a carrier typed by hand with its tracking number
+    (``carrier`` = its name). ``mark_shipped``: the order moves to Shipped once the parcel exists."""
+
+    subject: ClassVar[str] = "cmd.integrations.create_shipment"
+    order_id: str = Field(min_length=1, max_length=40)
+    carrier: str = Field(min_length=1, max_length=60)
+    service: str = Field(default="", max_length=40)
+    tracking: str = Field(default="", max_length=80)
+    tracking_url: str = Field(default="", max_length=300)
+    ship_to: ShipTo = ShipTo()
+    weight_g: int | None = Field(default=None, ge=1, le=100_000)
+    mark_shipped: bool = True
+    created_by: str = ""
+
+    @model_validator(mode="after")
+    def _safe_link(self) -> CreateShipment:
+        if self.tracking_url and not self.tracking_url.startswith("https://"):
+            raise ValueError("a tracking link must start with https://")
+        return self
+
+
+class UpdateShipment(Command):
+    """A parcel moved on (in transit, delivered, returned) or its label was cancelled: by hand, for a carrier
+    without tracking, or to correct it."""
+
+    subject: ClassVar[str] = "cmd.integrations.update_shipment"
+    shipment_id: str = Field(min_length=1, max_length=60)
+    status: ShipmentStatus
+    note: str = Field(default="", max_length=200)
+    changed_by: str = ""
+
+
+class ShipmentReady(Event):
+    """A parcel exists (label made, tracking known): the coordinator moves the order to Shipped with it."""
+
+    subject: ClassVar[str] = "evt.integrations.shipment.ready"
+    shipment_id: str
+    order_id: str
+    carrier: str
+    tracking: str = ""
+    tracking_url: str = ""
+    label_url: str = ""
+    by: str = ""
+    mark_shipped: bool = True
+
+
+class ShipmentRefused(Event):
+    """No parcel: the courier refused the label (or the order cannot ship): the reason, for the person who asked."""
+
+    subject: ClassVar[str] = "evt.integrations.shipment.refused"
+    order_id: str
+    carrier: str
+    reason: str
+    by: str = ""
+
+
+class ShipmentStatusChanged(Event):
+    subject: ClassVar[str] = "evt.integrations.shipment.status"
+    shipment_id: str
+    order_id: str
+    status: str
+    previous: str
+    text: str = ""
+    by: str = "auto"

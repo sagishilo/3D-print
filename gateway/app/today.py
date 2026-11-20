@@ -248,6 +248,25 @@ def store_orders(counts: dict, now: datetime) -> list[Item]:
     return out
 
 
+def billing(counts: dict) -> list[Item]:
+    """W2-B: documents the provider would not issue (or that need doing by hand), labels that never left."""
+    out = []
+    for key, title, why in (
+            ("failed_documents", "document{s} could not be issued", "Issue again from Finance › Documents."),
+            ("manual_documents", "refund{s} need{v} a document by hand", "Do it in the invoicing provider.")):
+        n = int(counts.get(key) or 0)
+        if n:
+            out.append(Item(id=f"docs:{key}", kind="document", priority="today", count=n, visible_to="operator",
+                            title=f"{n} " + title.format(s="s" if n != 1 else "", v="" if n != 1 else "s"), why=why,
+                            action=link("/finance?tab=documents", "Documents")))
+    stale = int(counts.get("stale_labels") or 0)
+    if stale:
+        out.append(Item(id="parcels:stale", kind="parcel", priority="today", count=stale,
+                        title=f"{stale} parcel label{'s' if stale != 1 else ''} made over 2 days ago, not sent yet",
+                        why="Send them, or cancel the label on the order.", action=link("/orders", "Orders")))
+    return out
+
+
 def receivables(rows: list[dict], now: datetime) -> list[Item]:
     late = [r for r in rows if _age(r.get("shipped_at"), now) > RECEIVABLE_DAYS * 86400]
     if not late:
@@ -326,6 +345,8 @@ async def today(request: Request, niche: str | None = None, claims: dict = Depen
     items += spool_changes((await _safe(lambda: schedule_mod.snapshot(request), {})).get("unplaced", []))
     from . import stores as stores_mod
     items += store_orders(await _safe(lambda: stores_mod.waiting_counts(db), {}), now)
+    from . import billing as billing_mod
+    items += billing(await _safe(lambda: billing_mod.waiting_counts(db), {}))
 
     from . import orders as orders_mod  # the board's cards: one place decides "stuck" and the status line
     cards = await _safe(lambda: orders_mod._cards(

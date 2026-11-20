@@ -2,7 +2,9 @@
 // One order: the actions its stage allows (the same moves as dragging on the board, plus QC, ship, cancel and
 // payments), line items with prices, every unit's progress, payments and the stage history.
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+import ShipPanel from '@/components/orders/ShipPanel.vue'
 import Icon from '@/components/ui/Icon.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { command, errorText } from '@/lib/api'
@@ -31,7 +33,8 @@ const texts = reactive<Record<string, string>>({})
 const failUnits = ref<string[]>([])
 const qcReason = ref('')
 const ticked = ref<string[]>([])
-const ship = reactive({ carrier: '', tracking: '' })
+const { t } = useI18n()
+const shipPanel = ref<InstanceType<typeof ShipPanel> | null>(null)
 const pay = reactive({ amount: '', method: 'bit' })
 
 const TONE: Record<OrderState, Tone> = {
@@ -99,7 +102,7 @@ function retryTexts() {
 const checklist = computed(() => o.value?.qc_checklist ?? [])
 const ticks = () => checklist.value.map((c) => ({ item: c.item, ok: ticked.value.includes(c.item) }))
 const allTicked = computed(() => checklist.value.every((c) => ticked.value.includes(c.item)))
-async function passQc() {
+async function passQc(): Promise<boolean> {
   if (!allTicked.value) {
     const open = checklist.value.filter((c) => !ticked.value.includes(c.item)).map((c) => c.item)
     const ok = await confirm.ask({
@@ -107,11 +110,24 @@ async function passQc() {
       text: `Not ticked: ${open.join('; ')}. Pass the order anyway? What was ticked is saved with the check.`,
       confirmLabel: 'Pass anyway',
     })
-    if (!ok) return
+    if (!ok) return false
   }
   await run('QC passed', () => orders.qc(id(), true, [], qcReason.value, ticks()))
   ticked.value = []
+  return true
 }
+// W2-B: one click from QC to a parcel: pass, wait for the coordinator to confirm, then ship with the form below
+async function passAndShip() {
+  if (!(await passQc())) return
+  for (let i = 0; i < 20 && o.value?.qc !== 'passed'; i++) {
+    await new Promise((r) => setTimeout(r, 750))
+    await load()
+  }
+  if (o.value?.qc !== 'passed') return toasts.error(t('shipping.notShipped'), t('shipping.qcNotConfirmed'))
+  await shipPanel.value?.ship()
+}
+const docFor = (paymentId: string) => o.value?.documents?.find((d) => d.payment_id === paymentId)
+const issueDoc = (paymentId: string) => run(t('documents.asked'), () => command('documents.issue', { payment_id: paymentId }), t('documents.askedText'))
 async function failQc() {
   const units = failUnits.value
   const ok = await confirm.ask({
@@ -124,7 +140,6 @@ async function failQc() {
   ticked.value = []
   failUnits.value = []
 }
-const doShip = () => run('Order shipped', () => orders.ship(id(), ship.carrier.trim(), ship.tracking.trim()))
 async function cancel() {
   const ok = await confirm.ask({
     title: `Cancel order ${id()}?`,
@@ -206,17 +221,20 @@ async function recordPayment() {
               </fieldset>
               <div class="row">
                 <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" data-testid="qc-pass" @click="passQc"><Icon name="check" :size="14" />Pass</button>
+                <button v-can="'operator'" type="button" class="btn" :disabled="busy" data-testid="qc-pass-ship" @click="passAndShip">{{ t('shipping.passAndShip') }}</button>
                 <button v-can="'operator'" type="button" class="btn btn-danger" :disabled="busy" data-testid="qc-fail" @click="failQc">Fail · reprint</button>
               </div>
             </div>
-            <div v-else class="ship">
-              <label>Carrier<input v-model="ship.carrier" class="input" maxlength="60" placeholder="Israel Post, pickup, …" /></label>
-              <label>Tracking<input v-model="ship.tracking" class="input" maxlength="80" /></label>
-              <button v-can="'operator'" type="button" class="btn btn-primary" :disabled="busy" data-testid="ship" @click="doShip">Mark shipped</button>
-            </div>
+            <details class="ship" data-tour="order-ship" :open="o.qc === 'passed' || undefined">
+              <summary class="small muted" data-testid="ship-open">{{ t('shipping.title') }}</summary>
+              <ShipPanel ref="shipPanel" :order="o" :qc-passed="o.qc === 'passed'" @shipped="load" />
+            </details>
           </template>
           <span v-else-if="o.state === 'SCHEDULING' || o.state === 'PRINTING'" class="muted small">Printers drive this stage.</span>
           <button v-can="'operator'" v-if="canCancel" type="button" class="btn btn-sm cancel" :disabled="busy" @click="cancel">Cancel order</button>
+        </section>
+        <section v-if="o.state === 'SHIPPED' && o.shipments?.some((x) => x.status !== 'cancelled')" class="actions ship" data-testid="order-parcel">
+          <ShipPanel :order="o" :qc-passed="false" @shipped="load" />
         </section>
 
         <!-- ------------------------------------------------ items and prices -->
@@ -254,8 +272,18 @@ async function recordPayment() {
         <!-- ------------------------------------------------ payments -->
         <h3>Payments</h3>
         <ul class="list">
-          <li v-for="p in o.payments" :key="p.payment_id">
+          <li v-for="p in o.payments" :key="p.payment_id" :data-testid="`payment-${p.payment_id}`">
             {{ dateTime(p.at) }} · <b class="mono">{{ p.kind === 'refund' ? '−' : '' }}{{ shekels(p.amount_agorot) }}</b> · {{ p.method }} · {{ p.recorded_by }}
+            <span class="doc small" :data-testid="`doc-${p.payment_id}`">
+              <template v-if="docFor(p.payment_id)?.status === 'issued'">
+                · <a :href="docFor(p.payment_id)!.url ?? '#'" target="_blank" rel="noopener noreferrer">{{ t(`documents.kinds.${docFor(p.payment_id)!.kind}`) }} {{ docFor(p.payment_id)!.number }}</a>
+              </template>
+              <template v-else-if="docFor(p.payment_id)">
+                · <span :class="{ 'text-warn': docFor(p.payment_id)!.status !== 'pending' }">{{ t(`documents.status.${docFor(p.payment_id)!.status}`) }}</span>
+                <button v-if="docFor(p.payment_id)!.status === 'failed'" v-can="'operator'" type="button" class="btn btn-sm" @click="issueDoc(p.payment_id)">{{ t('documents.issueAgain') }}</button>
+              </template>
+              <button v-else-if="o.invoicing_on" v-can="'operator'" type="button" class="btn btn-sm" :data-testid="`issue-${p.payment_id}`" @click="issueDoc(p.payment_id)">{{ t('documents.issue') }}</button>
+            </span>
           </li>
           <li v-if="!o.payments.length" class="muted">No payment recorded yet.</li>
         </ul>

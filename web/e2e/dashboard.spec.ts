@@ -286,7 +286,7 @@ test.describe('order pipeline', () => {
     for (const c of await checks.all()) await c.check()
     await drawer.getByTestId('qc-pass').click()
     await expect(drawer.getByTestId('qc-checklist-result')).toContainText('checklist 3/3', { timeout: 30_000 })
-    await drawer.getByLabel('Carrier').fill('Israel Post')
+    await drawer.getByLabel('Carrier', { exact: true }).fill('Israel Post')
     await drawer.getByTestId('ship').click()
     await expect(card('SHIPPED')).toBeVisible({ timeout: 30_000 })
 

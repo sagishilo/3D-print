@@ -81,7 +81,9 @@ export const useLive = defineStore('live', () => {
     if (d.safety) toasts.push({ tone: 'danger', title: 'Safety: pause not confirmed', text: d.text, sticky: true })
     if (d.kind === 'printer.pause.confirmed') toasts.ok('Printer paused', d.text)
     if (d.kind.startsWith('approval.')) void useApprovals().load()
-    if (d.kind.startsWith('order.') || d.kind.startsWith('fleet.') || d.kind.startsWith('personalization.')) useOrders().reloadSoon()
+    if (d.kind.startsWith('order.') || d.kind.startsWith('fleet.') || d.kind.startsWith('personalization.') ||
+      d.kind.startsWith('integrations.shipment.') || d.kind.startsWith('integrations.document.')) useOrders().reloadSoon()
+    if (d.kind === 'integrations.shipment.refused') toasts.error(`Order ${data.order_id} not shipped`, String(data.reason))
     if (d.kind.startsWith('inventory.') || d.kind === 'fleet.plate.scheduled' || d.kind === 'fleet.plate.finished') useInventory().reloadSoon()
     if (d.kind === 'inventory.alert.raised' && data.severity !== 'info') toasts.push({ tone: 'warn', title: data.alert_kind === 'low_item' ? 'Parts & packaging' : 'Filament', text: d.text }, 10000)
     if (d.kind.startsWith('finance.') || d.kind.startsWith('order.payment.') || d.kind === 'order.order.shipped') useFinance().reloadSoon()

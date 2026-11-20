@@ -76,7 +76,7 @@ def _status(state: str, ctx: dict) -> str:
     return state.lower()
 
 
-def _card(r: dict, items: list[dict], plates: list[dict], now: datetime) -> dict:
+def _card(r: dict, items: list[dict], plates: list[dict], now: datetime, shipment: dict | None = None) -> dict:
     ctx = r["context"] or {}
     state = r["state"]
     stage = ctx.get("attention", {}).get("from", "RECEIVED") if state == "NEEDS_ATTENTION" else state
@@ -95,13 +95,14 @@ def _card(r: dict, items: list[dict], plates: list[dict], now: datetime) -> dict
                    "color": i["color"], "quantity": i["quantity"], "niche": i.get("niche") or "unassigned",
                    "model": model.get(i["item_id"], {})} for i in items],
         "plates": plates,
+        "shipment": shipment,              # W2-B: the live parcel (Shipped's sub-state), or None
     }
 
 
 async def _cards(db, where: str, params: tuple, limit: int) -> list[dict]:
     rows = await db.fetchall(f"{ORDER_SQL} WHERE {where} ORDER BY o.created_at DESC LIMIT {int(limit)}", params)
     ids = [r["order_id"] for r in rows]
-    items, plates = {}, {}
+    items, plates, parcels = {}, {}, {}
     if ids:
         for i in await db.fetchall("SELECT * FROM coordinator.order_items WHERE order_id = ANY(%s) ORDER BY order_id, "
                                    "item_id::int", (ids,)):
@@ -111,8 +112,14 @@ async def _cards(db, where: str, params: tuple, limit: int) -> list[dict]:
                 "JOIN fleet.plates p ON p.plate_id = j.plate_id WHERE j.order_id = ANY(%s) "
                 "AND p.status IN ('scheduled', 'printing')", (ids,)):
             plates.setdefault(p["order_id"], []).append({k: p[k] for k in ("plate_id", "printer_id", "status")})
+        for s in await db.fetchall(
+                "SELECT DISTINCT ON (order_id) order_id, shipment_id, carrier, tracking, tracking_url, status, status_at "
+                "FROM integrations.shipments WHERE order_id = ANY(%s) AND status <> 'cancelled' "
+                "ORDER BY order_id, created_at DESC", (ids,)):
+            parcels[s["order_id"]] = {k: s[k] for k in s if k != "order_id"}
     now = datetime.now(UTC)
-    return [_card(r, items.get(r["order_id"], []), plates.get(r["order_id"], []), now) for r in rows]
+    return [_card(r, items.get(r["order_id"], []), plates.get(r["order_id"], []), now, parcels.get(r["order_id"]))
+            for r in rows]
 
 
 @router.get("")
@@ -162,6 +169,16 @@ async def plates(request: Request):
     return {"plates": rows}
 
 
+async def _ship_to(db, order_id: str, row: dict) -> dict:
+    """Where to send it: the store's shipping address (a store order), else the customer's name and phone."""
+    rows = await db.fetchall("SELECT payload FROM integrations.store_orders WHERE order_id = %s LIMIT 1", (order_id,))
+    found = ((rows[0]["payload"] or {}).get("ship_to") if rows else None) or {}
+    if found:
+        return found
+    ref = str(row.get("customer_ref") or "")
+    return {"name": row.get("customer_name") or "", "phone": ref if ref and "@" not in ref else ""}
+
+
 @router.get("/{order_id}")
 async def order_detail(order_id: str, request: Request):
     db = request.app.state.db
@@ -194,6 +211,17 @@ async def order_detail(order_id: str, request: Request):
         "qc_checklist": qc_checklist(await db.fetchall(
             "SELECT n.slug, n.name, n.qc_checklist FROM catalog.niches n WHERE n.slug IN "
             "(SELECT DISTINCT niche FROM coordinator.order_items WHERE order_id = %s) ORDER BY n.sort", (order_id,))),
+        # W2-B: each payment's document, the parcels (newest first), and where the store would ship it
+        "documents": await db.fetchall(
+            "SELECT id, payment_id, kind, status, number, url, allocation, error, amount_agorot, issued_at "
+            "FROM integrations.documents WHERE order_id = %s ORDER BY id", (order_id,)),
+        "shipments": await db.fetchall(
+            "SELECT shipment_id, connector_id, carrier, service, tracking, tracking_url, label_url, status, ship_to, "
+            "events, created_by, created_at, status_at FROM integrations.shipments WHERE order_id = %s "
+            "ORDER BY created_at DESC", (order_id,)),
+        "ship_to": await _ship_to(db, order_id, row),
+        "invoicing_on": bool(await db.fetchall(
+            "SELECT 1 FROM integrations.connectors WHERE kind = 'invoicing' AND enabled LIMIT 1")),
         "jobs": await db.fetchall(
             "SELECT j.job_id, j.status, j.plate_id, p.printer_id, p.status AS plate_status FROM fleet.jobs j "
             "LEFT JOIN fleet.plates p ON p.plate_id = j.plate_id WHERE j.order_id = %s ORDER BY j.created_at", (order_id,)),

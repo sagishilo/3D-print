@@ -34,9 +34,11 @@ from printfarm.contracts.messages import (
     CountStock,
     CreateExpense,
     CreateOrder,
+    CreateShipment,
     DecideApproval,
     DecideLead,
     DismissSuspicion,
+    IssueDocument,
     LabelCapture,
     LoadSpool,
     MapStoreSku,
@@ -66,6 +68,7 @@ from printfarm.contracts.messages import (
     StoreOrderAction,
     UpdateFinanceSettings,
     UpdatePo,
+    UpdateShipment,
     UpsertCatalogProduct,
     UpsertItem,
     UpsertMaintenanceTask,
@@ -209,6 +212,10 @@ COMMANDS: dict[str, CommandSpec] = {
     # Wave 2 / W2-A: store orders: which product a store SKU is, and an order that waits (operators run the shop)
     "integrations.map_sku": CommandSpec(MapStoreSku, "mapped_by"),
     "integrations.store_order": CommandSpec(StoreOrderAction, "requested_by"),
+    # Wave 2 / W2-B: a payment's document (receipt / tax invoice-receipt / credit) and an order's parcel
+    "documents.issue": CommandSpec(IssueDocument, "requested_by"),
+    "shipments.create": CommandSpec(CreateShipment, "created_by"),
+    "shipments.update": CommandSpec(UpdateShipment, "changed_by"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting, min_role="owner"),
     # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
     "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),

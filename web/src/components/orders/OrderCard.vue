@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // One order on the board: number, time in stage, items, customer, due date, what it waits for, plates.
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ago, dateTime } from '@/lib/format'
 import type { OrderCard } from '@/lib/order-types'
@@ -12,6 +13,7 @@ import { useNiche } from '@/stores/niche'
 const props = defineProps<{ card: OrderCard }>()
 defineEmits<{ open: [id: string] }>()
 
+const { t } = useI18n()
 const live = useLive()
 const niche = useNiche()
 /** The niches its lines were sold under (a dot each). */
@@ -42,11 +44,23 @@ const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
       <span :class="{ late: overdue }">due {{ card.due_by ? dateTime(card.due_by) : '—' }}</span>
     </span>
     <span class="status" :class="{ danger: attention }">{{ card.status }}</span>
+    <span v-if="card.shipment" class="chip parcel" :class="card.shipment.status" :data-testid="`card-parcel-${card.order_id}`">{{ t(`shipping.status.${card.shipment.status}`) }}</span>
     <span v-for="p in card.plates" :key="p.plate_id" class="chip plate">{{ p.plate_id.replace(/^plate-/, 'P-').slice(0, 10) }} · {{ p.printer_id }}</span>
   </article>
 </template>
 
 <style scoped>
+.chip.parcel {
+  align-self: flex-start;
+  font-family: inherit;
+  color: var(--accent);
+}
+.chip.parcel.delivered {
+  color: var(--ok);
+}
+.chip.parcel.returned {
+  color: var(--danger-text);
+}
 .card {
   display: flex;
   flex-direction: column;

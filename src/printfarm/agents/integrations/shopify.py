@@ -36,7 +36,7 @@ query Orders($first: Int!, $after: String, $q: String) {
     nodes {
       id legacyResourceId name createdAt updatedAt cancelledAt displayFinancialStatus note email phone
       customer { firstName lastName email phone }
-      shippingAddress { name phone }
+      shippingAddress { name phone address1 address2 city zip }
       currentTotalPriceSet { shopMoney { amount currencyCode } }
       totalDiscountsSet { shopMoney { amount } }
       totalShippingPriceSet { shopMoney { amount } }
@@ -89,7 +89,11 @@ def parse_order(node: Mapping) -> StoreOrder:
         lines=tuple(lines), total_agorot=money("currentTotalPriceSet"), shipping_agorot=money("totalShippingPriceSet"),
         discount_agorot=money("totalDiscountsSet"),
         currency=(((node.get("currentTotalPriceSet") or {}).get("shopMoney") or {}).get("currencyCode") or "ILS"),
-        note=str(node.get("note") or "")[:200], updated_at=str(node.get("updatedAt") or ""))
+        note=str(node.get("note") or "")[:200], updated_at=str(node.get("updatedAt") or ""),
+        ship_to={"name": str(ship.get("name") or name)[:80],
+                 "street": " ".join(x for x in (ship.get("address1"), ship.get("address2")) if x)[:120],
+                 "city": str(ship.get("city") or "")[:60], "zip": str(ship.get("zip") or "")[:12],
+                 "phone": str(ship.get("phone") or customer.get("phone") or "")[:30]} if ship else {})
 
 
 def search_query(updated_since: str | None, import_since: str | None) -> str:
@@ -110,7 +114,9 @@ def fake_orders(batch: int, base: datetime) -> list[StoreOrder]:
     at = base.replace(microsecond=0)
     return [
         StoreOrder(f"F{batch}-1", f"#{batch}001", "Noa Levi", "noa@example.com", at - timedelta(hours=3), True, "paid",
-                   False, (nameplate("black", "Noa"),), 4900),
+                   False, (nameplate("black", "Noa"),), 4900,
+                   ship_to={"name": "Noa Levi", "street": "Herzl 1", "city": "Tel Aviv", "zip": "6100001",
+                            "phone": "050-0000001"}),
         StoreOrder(f"F{batch}-2", f"#{batch}002", "Dan Cohen", "dan@example.com", at - timedelta(hours=2), True, "paid",
                    False, (nameplate("white", "Dan", 2), StoreLine("GIFT-WRAP", "Gift wrap", 1, 1000)),
                    4900 * 2 + 1000 + 2500 - 1000, shipping_agorot=2500, discount_agorot=1000, note="Birthday gift"),

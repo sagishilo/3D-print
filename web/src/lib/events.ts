@@ -144,6 +144,16 @@ export function describe(env: Envelope): Described {
     case 'integrations.push.finished':
       return d.ok ? out(`${d.connector_id} has the tracking of ${d.order_id}`, 'ok', 'order')
         : out(`${d.connector_id} did not take the tracking of ${d.order_id} (try ${d.attempts}): ${d.error}`, 'warn', 'order')
+    case 'integrations.document.issued':
+      return d.status === 'issued' ? out(`Document ${d.number} issued for payment ${d.payment_id}`, 'ok', 'money')
+        : d.status === 'manual' ? out(`Payment ${d.payment_id}: do its document by hand in the provider`, 'warn', 'money')
+          : out(`Document for payment ${d.payment_id} not issued${d.status === 'failed' ? ' (gave up)' : ' (retrying)'}: ${d.error}`, d.status === 'failed' ? 'danger' : 'warn', 'money')
+    case 'integrations.shipment.ready':
+      return out(`Order ${d.order_id}: parcel with ${d.carrier}${d.tracking ? ` · ${d.tracking}` : ''}`, 'ok', 'order')
+    case 'integrations.shipment.refused':
+      return out(`Order ${d.order_id} not shipped: ${d.reason}`, 'warn', 'order')
+    case 'integrations.shipment.status':
+      return out(`Order ${d.order_id}: parcel ${String(d.status).replace('_', ' ')}${d.text ? ` (${d.text})` : ''}`, d.status === 'returned' ? 'warn' : 'ok', 'order')
     case 'notify.queued':
       return out(`Notification: ${d.title}`, d.severity === 'critical' ? 'danger' : d.severity === 'warning' ? 'warn' : 'idle', 'system')
     case 'catalog.niche.rejected':

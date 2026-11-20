@@ -1,7 +1,8 @@
 """The connectors this build knows. W2-0 ships one: a demo store that exercises the whole framework (scheduling,
 backoff, mapping, health, secrets status) without any outside service. Real ones (stores, invoicing, couriers,
 alert channels) are added in W2-A, W2-B and W2-D, each a class like this one, registered in REGISTRY.
-W2-A: Shopify (shopify.py, on the store framework in stores.py).
+W2-A: Shopify (shopify.py, on the store framework in stores.py). W2-B: Morning (morning.py, invoicing.py) and
+Israel Post (israelpost.py, couriers.py).
 """
 
 from __future__ import annotations
@@ -39,9 +40,11 @@ class DemoStore(Connector):
 
 
 def _registry() -> dict[str, Connector]:
+    from printfarm.agents.integrations.israelpost import IsraelPost
+    from printfarm.agents.integrations.morning import Morning
     from printfarm.agents.integrations.shopify import Shopify
 
-    return {c.id: c for c in (DemoStore(), Shopify())}
+    return {c.id: c for c in (DemoStore(), Shopify(), Morning(), IsraelPost())}
 
 
 REGISTRY: dict[str, Connector] = _registry()

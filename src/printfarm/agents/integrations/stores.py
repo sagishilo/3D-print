@@ -69,11 +69,13 @@ class StoreOrder:
     currency: str = "ILS"
     note: str = ""
     updated_at: str = ""
+    ship_to: Mapping[str, str] = field(default_factory=dict)   # name, street, city, zip, phone (W2-B ship form)
 
     def to_payload(self) -> dict:
         d = asdict(self)
         d["placed_at"] = self.placed_at.isoformat() if self.placed_at else None
         d["lines"] = [dict(asdict(line), properties=dict(line.properties)) for line in self.lines]
+        d["ship_to"] = dict(self.ship_to)
         return d
 
     @classmethod
