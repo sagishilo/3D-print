@@ -8,6 +8,7 @@ import AgentsTable from '@/components/system/AgentsTable.vue'
 import AuditPanel from '@/components/system/AuditPanel.vue'
 import BackupsPanel from '@/components/system/BackupsPanel.vue'
 import IntegrationsHealth from '@/components/system/IntegrationsHealth.vue'
+import PhoneAppPanel from '@/components/system/PhoneAppPanel.vue'
 import SimpleHealth from '@/components/system/SimpleHealth.vue'
 import DlqPanel from '@/components/system/DlqPanel.vue'
 import NatsPanel from '@/components/system/NatsPanel.vue'
@@ -128,6 +129,7 @@ const kpis = computed(() => {
       <PrintersPanel />
       <BackupsPanel />
       <IntegrationsHealth />
+      <PhoneAppPanel />
     </div>
   </template>
 
@@ -152,6 +154,7 @@ const kpis = computed(() => {
     <div class="grid-2">
       <BackupsPanel />
       <IntegrationsHealth />
+      <PhoneAppPanel />
     </div>
     <DlqPanel :limit="5" />
   </template>

@@ -132,7 +132,7 @@ async function restock(s: FinishedGood) {
   flex-wrap: wrap;
 }
 .check {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -150,7 +150,7 @@ async function restock(s: FinishedGood) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 8px;
+  margin-inline-end: 8px;
 }
 .actions {
   display: flex;

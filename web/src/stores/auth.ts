@@ -3,6 +3,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
+import { currentLocale, switchLocale } from '@/i18n'
 import { api, onUnauthorized, refreshSession } from '@/lib/api'
 import { allows, type Role } from '@/lib/roles'
 
@@ -65,6 +66,9 @@ export const useAuth = defineStore('auth', () => {
     mustChangePassword.value = me.must_change_password
     prefs.value = { ...(me.prefs ?? {}) }
     expiresAt.value = me.expires_at * 1000
+    // the person's language follows them to this device (W2-D): switching reloads once
+    const lang = me.prefs?.lang
+    if ((lang === 'en' || lang === 'he') && lang !== currentLocale()) switchLocale(lang)
   }
 
   async function login(username: string, password: string): Promise<Me> {

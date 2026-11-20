@@ -145,21 +145,21 @@ img.held {
 .tl {
   position: absolute;
   top: 10px;
-  left: 10px;
+  inset-inline-start: 10px;
   display: flex;
   gap: 6px;
 }
 .tr {
   position: absolute;
   top: 10px;
-  right: 10px;
+  inset-inline-end: 10px;
   display: flex;
   gap: 6px;
 }
 .snap {
   position: absolute;
   bottom: 10px;
-  right: 10px;
+  inset-inline-end: 10px;
   display: inline-flex;
   padding: 6px;
   border-radius: 6px;

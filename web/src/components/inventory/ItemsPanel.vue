@@ -178,7 +178,7 @@ async function reorder(i: StockItem) {
   flex-wrap: wrap;
 }
 .head-btn {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .actions {
   display: flex;

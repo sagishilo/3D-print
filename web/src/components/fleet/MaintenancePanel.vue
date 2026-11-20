@@ -211,10 +211,10 @@ h3 {
   border-radius: var(--radius-sm);
 }
 .tasks li.overdue {
-  box-shadow: inset 3px 0 0 var(--danger-text);
+  box-shadow: inset calc(3px * var(--dir-x, 1)) 0 0 var(--danger-text);
 }
 .tasks li.due {
-  box-shadow: inset 3px 0 0 var(--warn);
+  box-shadow: inset calc(3px * var(--dir-x, 1)) 0 0 var(--warn);
 }
 .what {
   display: flex;

@@ -146,7 +146,7 @@ async function bedCleared() {
 }
 .select {
   position: absolute;
-  left: 10px;
+  inset-inline-start: 10px;
   top: 124px;
   display: inline-flex;
   padding: 6px;

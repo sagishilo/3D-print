@@ -66,7 +66,7 @@ async function dried(spoolId: string) {
   flex-wrap: wrap;
 }
 .rows li button {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .warn {
   color: var(--warn);

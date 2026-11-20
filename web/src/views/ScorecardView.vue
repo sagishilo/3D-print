@@ -197,7 +197,7 @@ defineExpose({ load })
   color: var(--warn);
 }
 .pill.best {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--accent);
 }
 .figures {
@@ -224,7 +224,7 @@ small {
 .insight {
   margin: 0;
   padding: 8px 12px;
-  border-right: 3px solid var(--accent-line);
+  border-inline-end: 3px solid var(--accent-line);
   background: var(--surface-2);
   border-radius: var(--radius-sm);
   font-size: 13px;
@@ -244,7 +244,7 @@ small {
   font-size: 13px;
 }
 .tips li > :last-child {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .daily {
   margin-top: var(--gap);

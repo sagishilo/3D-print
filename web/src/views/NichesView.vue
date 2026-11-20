@@ -210,7 +210,7 @@ async function run(fn: () => Promise<unknown>, what: string) {
   border-radius: 50%;
 }
 .pill {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
@@ -233,11 +233,11 @@ dt {
 }
 dd {
   margin: 0;
-  text-align: right;
+  text-align: end;
 }
 .qc ul {
   margin: 6px 0 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   font-size: 13px;
 }
 .card footer {

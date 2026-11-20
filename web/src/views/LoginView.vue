@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import PasswordChangeForm from '@/components/account/PasswordChangeForm.vue'
 import Icon from '@/components/ui/Icon.vue'
+import { currentLocale, LOCALE_NAMES, switchLocale } from '@/i18n'
 import { ApiError, errorText } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 
@@ -56,6 +57,7 @@ async function submit() {
     busy.value = false
   }
 }
+const otherLang = currentLocale() === 'he' ? 'en' : 'he'
 </script>
 
 <template>
@@ -99,14 +101,24 @@ async function submit() {
         <button type="submit" class="btn btn-primary submit" :disabled="busy || !username || !password">
           {{ busy ? 'Signing in…' : 'Sign in' }}
         </button>
-        <p class="note">Session is kept in a secure HttpOnly cookie. Nothing is stored in this browser's local storage.</p>
+        <p class="note">Session is kept in a secure HttpOnly cookie. This browser keeps only your language choice.</p>
       </form>
-      <p class="foot">HTTPS · LAN only</p>
+      <p class="foot">HTTPS · LAN only ·
+        <button type="button" class="linkish" translate="no" data-testid="login-lang" @click="switchLocale(otherLang)">{{ LOCALE_NAMES[otherLang] }}</button>
+      </p>
     </main>
   </div>
 </template>
 
 <style scoped>
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
 .login {
   min-height: 100vh;
   display: flex;

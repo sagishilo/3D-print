@@ -121,10 +121,11 @@ watch(
   }
   .side {
     position: fixed;
-    inset: 0 auto 0 0;
+    inset-block: 0;
+    inset-inline-start: 0;
     width: min(280px, 85vw);
     z-index: 35;
-    transform: translateX(-100%);
+    transform: translateX(calc(-100% * var(--dir-x, 1)));
     transition: transform 0.2s ease;
   }
   .nav-open .side {

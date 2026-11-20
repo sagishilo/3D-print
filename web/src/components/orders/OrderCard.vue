@@ -102,7 +102,7 @@ const attention = computed(() => props.card.state === 'NEEDS_ATTENTION')
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 4px;
+  margin-inline-end: 4px;
   vertical-align: middle;
 }
 .items {

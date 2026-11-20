@@ -36,6 +36,20 @@
 		reverse_proxy gateway:8000
 	}
 
+	# W2-D: this farm's own HTTPS certificate authority (the public root, never its key), so phones on the LAN can
+	# trust the dashboard and install it as an app. Settings > Security > install a CA certificate (README).
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition "attachment; filename=printfarm-ca.crt"
+		file_server
+	}
+
+	# the phone app's service worker and manifest: always checked for a new version
+	@pwa path /sw.js /manifest.webmanifest
+	header @pwa Cache-Control "no-cache"
+
 	# the dashboard (Vue build baked into this image at /srv/web); index.html for client-side routes
 	handle {
 		root * /srv/web

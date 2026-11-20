@@ -43,8 +43,9 @@ def _registry() -> dict[str, Connector]:
     from printfarm.agents.integrations.israelpost import IsraelPost
     from printfarm.agents.integrations.morning import Morning
     from printfarm.agents.integrations.shopify import Shopify
+    from printfarm.agents.integrations.telegram import Email, Telegram
 
-    return {c.id: c for c in (DemoStore(), Shopify(), Morning(), IsraelPost())}
+    return {c.id: c for c in (DemoStore(), Shopify(), Morning(), IsraelPost(), Telegram(), Email())}
 
 
 REGISTRY: dict[str, Connector] = _registry()

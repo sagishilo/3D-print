@@ -51,7 +51,7 @@ const on = computed(() => rows.value.filter((c) => c.enabled))
 
 <style scoped>
 .manage {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .list {
   list-style: none;
@@ -68,7 +68,7 @@ const on = computed(() => rows.value.filter((c) => c.enabled))
   font-size: 13px;
 }
 .list li .small {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .dot {
   width: 8px;

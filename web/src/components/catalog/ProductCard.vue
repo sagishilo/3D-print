@@ -205,7 +205,7 @@ const part = computed(() => {
 }
 .est {
   color: var(--warn);
-  margin-left: 2px;
+  margin-inline-start: 2px;
 }
 .actions {
   display: flex;

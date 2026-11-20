@@ -96,7 +96,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', outside))
 .menu {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  inset-inline-end: 0;
   min-width: 220px;
   list-style: none;
   margin: 0;
@@ -117,7 +117,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', outside))
   border: 0;
   border-radius: 6px;
   color: var(--text);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   font-size: 13px;
 }
@@ -126,7 +126,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', outside))
   background: var(--surface-2);
 }
 .n {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 12px;
 }
 /* Phones: the top bar has one row of controls: the coloured dot only (the label names it for screen readers). */
@@ -143,8 +143,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', outside))
   .menu {
     position: fixed;
     top: 56px;
-    right: 8px;
-    left: 8px;
+    inset-inline-end: 8px;
+    inset-inline-start: 8px;
     min-width: 0;
   }
 }

@@ -279,7 +279,7 @@ label {
   flex-direction: column;
 }
 .total {
-  text-align: right;
+  text-align: end;
 }
 .big {
   font: 700 28px var(--font-display);
@@ -303,12 +303,12 @@ label {
   width: 10px;
   height: 10px;
   border-radius: 2px;
-  margin-right: 8px;
+  margin-inline-end: 8px;
 }
 .text {
   white-space: pre-wrap;
   direction: rtl;
-  text-align: right;
+  text-align: end;
   font: 14px/1.6 var(--font-body, inherit);
   background: var(--surface-2);
   border-radius: var(--radius-sm);

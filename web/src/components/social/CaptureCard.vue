@@ -60,7 +60,7 @@ const reason = computed(() => {
   background: var(--surface);
 }
 .card.lead {
-  border-left: 3px solid var(--ok);
+  border-inline-start: 3px solid var(--ok);
 }
 .card.selected {
   border-color: var(--accent);

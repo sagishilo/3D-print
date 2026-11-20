@@ -88,7 +88,7 @@ const rows = computed(() => report.value?.products ?? [])
   flex-wrap: wrap;
 }
 .sell {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -115,7 +115,7 @@ const rows = computed(() => report.value?.products ?? [])
   width: 10px;
   height: 10px;
   border-radius: 2px;
-  margin-right: 5px;
+  margin-inline-end: 5px;
   vertical-align: -1px;
 }
 .legend i.margin {
@@ -140,6 +140,6 @@ const rows = computed(() => report.value?.products ?? [])
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 8px;
+  margin-inline-end: 8px;
 }
 </style>

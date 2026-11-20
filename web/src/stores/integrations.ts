@@ -52,6 +52,7 @@ export interface Notification {
   body: string
   link: string
   status: 'pending' | 'sent' | 'held' | 'failed' | 'skipped' | 'dashboard'
+  channels?: string[]
   created_at: string
 }
 
@@ -104,5 +105,6 @@ export const useIntegrations = defineStore('integrations', () => {
     configure: (id: string, change: { enabled?: boolean; mode?: 'fake' | 'live'; interval_s?: number; settings?: Record<string, SettingValue> }) =>
       command('integrations.configure', { connector_id: id, ...change }),
     runNow: (id: string) => command('integrations.run', { connector_id: id }),
+    testAlert: (id: string) => command('integrations.test_alert', { connector_id: id }),
   }
 })

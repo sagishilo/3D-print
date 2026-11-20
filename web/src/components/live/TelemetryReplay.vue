@@ -257,7 +257,7 @@ polyline {
   display: inline-block;
   width: 14px;
   height: 3px;
-  margin-right: 6px;
+  margin-inline-end: 6px;
   vertical-align: middle;
   border-radius: 2px;
 }

@@ -14,7 +14,19 @@ import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 
 import App from './App.vue'
-import { i18n } from './i18n'
+import { applyLocale, i18n, initialLocale } from './i18n'
 import { createAppRouter } from './router'
 
+i18n.global.locale.value = initialLocale()
 createApp(App).use(createPinia()).use(i18n).use(createAppRouter()).mount('#app')
+applyLocale(initialLocale())          // Hebrew: right to left, and the older screens translated as they render
+
+// The phone app (W2-D): the service worker keeps the shell for offline opening. Only in the built app, and only on
+// HTTPS (a trusted certificate): browsers refuse service workers anywhere else.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* not trusted yet (the farm's certificate): the dashboard works the same, only not installable */
+    })
+  })
+}

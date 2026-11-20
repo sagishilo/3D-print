@@ -5,6 +5,15 @@
   box-sizing: border-box;
 }
 
+/* Right to left (Hebrew, W2-D): layout uses logical properties (inline start / end); the few physical effects
+   (an inset accent bar, a sliding panel) multiply by --dir-x. Hebrew falls back to the system's Hebrew font. */
+[dir='rtl'] {
+  --dir-x: -1;
+}
+[dir='rtl'] body {
+  font-family: var(--font), 'Segoe UI', Arial, 'Noto Sans Hebrew', sans-serif;
+}
+
 html,
 body {
   margin: 0;
@@ -262,7 +271,7 @@ table.data {
   min-width: 560px;
 }
 table.data th {
-  text-align: left;
+  text-align: start;
   padding: var(--cell-y) var(--cell-x);
   font: 500 12px var(--font);
   color: var(--muted);
@@ -270,7 +279,7 @@ table.data th {
   white-space: nowrap;
 }
 table.data td {
-  text-align: left;
+  text-align: start;
   padding: var(--cell-y) var(--cell-x);
   font: 400 13px var(--font);
   border-bottom: 1px solid var(--border);
@@ -300,7 +309,7 @@ table.data .num {
   font: 400 14px var(--font);
 }
 .select {
-  padding-right: 28px;
+  padding-inline-end: 28px;
 }
 
 .empty {

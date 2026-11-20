@@ -182,7 +182,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  text-align: left;
+  text-align: start;
   padding: var(--pad-panel);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -197,10 +197,10 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
 }
 .kpi.urgent {
   border-color: var(--danger-text);
-  box-shadow: inset 3px 0 0 var(--danger-text);
+  box-shadow: inset calc(3px * var(--dir-x, 1)) 0 0 var(--danger-text);
 }
 .kpi.warn {
-  box-shadow: inset 3px 0 0 var(--warn);
+  box-shadow: inset calc(3px * var(--dir-x, 1)) 0 0 var(--warn);
 }
 .k-label {
   font-size: 12px;
@@ -247,7 +247,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
   gap: 20px;
 }
 .seg {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: inline-flex;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -274,7 +274,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .pill {
   border: 1px solid var(--border);
@@ -292,7 +292,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
 }
 .pill .n {
   font-variant-numeric: tabular-nums;
-  margin-left: 2px;
+  margin-inline-start: 2px;
 }
 .pill.urgent .n {
   color: var(--danger-text);
@@ -360,7 +360,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: 6px;
+  margin-inline-start: 6px;
   padding: 0 6px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -371,7 +371,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
   border-radius: 50%;
 }
 .tech {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   font-size: 11px;
 }
 .act {
@@ -419,7 +419,7 @@ async function run(item: TodayItem, action: TodayAction = item.action) {
   .row > :nth-child(3) { grid-area: what; }
   .row > :nth-child(4) { grid-area: act; justify-self: start; }
   .pills {
-    margin-left: 0;
+    margin-inline-start: 0;
   }
 }
 @media (max-width: 420px) {

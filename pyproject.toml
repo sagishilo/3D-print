@@ -37,7 +37,7 @@ printfarm = "printfarm.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-printfarm = ["store/migrations/*.sql", "simulator/assets/*"]
+printfarm = ["store/migrations/*.sql", "simulator/assets/*", "agents/integrations/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

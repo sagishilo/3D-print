@@ -74,7 +74,7 @@ const insight = computed(() => data.value?.insights[0] ?? null)
 .insight {
   margin: 10px 0;
   padding: 8px 12px;
-  border-right: 3px solid var(--accent-line);
+  border-inline-end: 3px solid var(--accent-line);
   background: var(--surface-2);
   border-radius: var(--radius-sm);
   font-size: 13px;

@@ -187,7 +187,7 @@ kbd {
   color: var(--text);
 }
 .group {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 11px;
   color: var(--muted);
 }

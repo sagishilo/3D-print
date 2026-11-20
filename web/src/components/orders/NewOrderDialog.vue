@@ -264,7 +264,7 @@ label {
 }
 .total {
   padding-bottom: 10px;
-  text-align: right;
+  text-align: end;
   font-size: 13px;
 }
 .icon-btn.small {
@@ -290,7 +290,7 @@ label {
 }
 .sum dd {
   margin: 0;
-  text-align: right;
+  text-align: end;
 }
 .grand {
   font-weight: 700;
@@ -305,7 +305,7 @@ label {
   flex-direction: row;
   align-items: center;
   gap: 6px;
-  margin-right: auto;
+  margin-inline-end: auto;
   color: var(--text);
 }
 </style>

@@ -273,7 +273,7 @@ async function batch(action: BatchAction) {
   flex: 1;
 }
 .n {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   padding: 0 6px;
   border-radius: 999px;
   background: var(--bg);

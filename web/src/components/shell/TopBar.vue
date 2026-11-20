@@ -139,7 +139,7 @@ async function pauseAll() {
 }
 .placeholder {
   flex: 1;
-  text-align: left;
+  text-align: start;
   font-size: 13px;
 }
 .search-box input {
@@ -159,8 +159,8 @@ kbd {
 .results {
   position: absolute;
   top: 44px;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   list-style: none;
   margin: 0;
   padding: 4px;
@@ -171,7 +171,7 @@ kbd {
 }
 .results button {
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 8px 10px;
   background: none;
   border: 0;
@@ -184,7 +184,7 @@ kbd {
   background: var(--surface-2);
 }
 .right {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   gap: 10px;
   align-items: center;
@@ -193,7 +193,7 @@ kbd {
 .count {
   position: absolute;
   top: -4px;
-  right: -4px;
+  inset-inline-end: -4px;
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
@@ -235,6 +235,14 @@ kbd {
   }
   .btn-danger {
     padding: 8px 8px;
+  }
+}
+@media (max-width: 420px) {
+  /* a narrow phone (and the longer Hebrew words): the controls take two lines rather than leave the screen */
+  .right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
   }
 }
 </style>

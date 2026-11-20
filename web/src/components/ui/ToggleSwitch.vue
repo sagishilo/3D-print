@@ -41,7 +41,7 @@ const model = defineModel<boolean>({ required: true })
 .knob {
   position: absolute;
   top: 3px;
-  left: 3px;
+  inset-inline-start: 3px;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -49,7 +49,7 @@ const model = defineModel<boolean>({ required: true })
   transition: left 0.15s ease;
 }
 .switch.on .knob {
-  left: 21px;
+  inset-inline-start: 21px;
   background: var(--bg);
 }
 </style>

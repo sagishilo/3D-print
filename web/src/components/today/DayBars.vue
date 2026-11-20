@@ -75,7 +75,7 @@ figcaption {
   font: 600 15px var(--font-display);
 }
 .link {
-  margin-left: auto;
+  margin-inline-start: auto;
   background: none;
   border: 0;
   padding: 0;

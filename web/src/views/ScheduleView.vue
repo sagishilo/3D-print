@@ -9,7 +9,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Icon from '@/components/ui/Icon.vue'
 import { vCan } from '@/directives/can'
 import { errorText } from '@/lib/api'
-import { dateTime, duration } from '@/lib/format'
+import { dateTime, duration, uiLocale } from '@/lib/format'
 import { type Block, hourLabel, type JobAction, type Lane, placeBlock, type QueuedJob, useSchedule } from '@/stores/schedule'
 import { useToasts } from '@/stores/toasts'
 
@@ -21,7 +21,7 @@ onMounted(() => void schedule.load())
 const s = computed(() => schedule.data)
 const asTable = ref(false)
 
-const time = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+const time = (iso: string) => new Date(iso).toLocaleTimeString(uiLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
 
 // ---------------------------------------------------------------- the time axis and the day's windows
 const ticks = computed(() => {
@@ -299,7 +299,7 @@ const settingsLink = '/system'
   white-space: nowrap;
 }
 .tick.now {
-  left: 0;
+  inset-inline-start: 0;
   transform: none;
   color: var(--text);
   font-weight: 600;
@@ -335,7 +335,7 @@ const settingsLink = '/system'
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  text-align: left;
+  text-align: start;
   cursor: default;
   box-shadow: 0 0 0 2px var(--surface-2);
 }
@@ -350,7 +350,7 @@ const settingsLink = '/system'
 }
 .nothing {
   position: absolute;
-  left: 10px;
+  inset-inline-start: 10px;
   top: 11px;
 }
 .tip {
@@ -397,7 +397,7 @@ const settingsLink = '/system'
   font-size: 12px;
 }
 .tag {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   font-size: 11px;
   padding: 0 6px;
   border-radius: 999px;

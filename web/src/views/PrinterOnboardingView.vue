@@ -520,7 +520,7 @@ h2 {
 }
 .form .input,
 .form .select {
-  text-align: left;
+  text-align: start;
 }
 .hint {
   color: var(--muted);
@@ -659,7 +659,7 @@ pre {
   padding: 10px 12px;
   font: 12.5px/1.6 var(--font-mono);
   overflow-x: auto;
-  text-align: left;
+  text-align: start;
   background: var(--bg);
 }
 .practice {

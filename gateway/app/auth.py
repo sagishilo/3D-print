@@ -285,6 +285,7 @@ class PrefsIn(BaseModel):
     theme: Literal["system", "light", "dark"] | None = None
     density: Literal["comfortable", "compact"] | None = None
     mode: Literal["simple", "expert"] | None = None   # simple hides the technical panels
+    lang: Literal["en", "he"] | None = None           # W2-D: the dashboard's language (Hebrew is right to left)
     niche: str | None = Field(default=None, pattern=r"^(all|[a-z0-9][a-z0-9-]{0,31})$")   # the top bar's niche
 
 

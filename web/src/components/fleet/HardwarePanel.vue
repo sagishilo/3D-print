@@ -157,7 +157,7 @@ dt {
 }
 dd {
   margin: 0;
-  text-align: right;
+  text-align: end;
 }
 .fan {
   display: grid;
@@ -182,7 +182,7 @@ dd {
   background: var(--warn);
 }
 .pct {
-  text-align: right;
+  text-align: end;
   font-size: 12px;
 }
 .ok {
@@ -191,7 +191,7 @@ dd {
 }
 .codes {
   margin: 0;
-  padding-left: 16px;
+  padding-inline-start: 16px;
   color: var(--warn);
   font-size: 12px;
 }

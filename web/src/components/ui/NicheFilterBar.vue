@@ -34,7 +34,7 @@ const niche = useNiche()
   border-radius: 50%;
 }
 .link {
-  margin-left: auto;
+  margin-inline-start: auto;
   background: none;
   border: 0;
   color: var(--accent);

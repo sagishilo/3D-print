@@ -15,6 +15,7 @@ export interface Prefs {
   theme?: Theme
   density?: Density
   mode?: Mode
+  lang?: 'en' | 'he' // W2-D: the dashboard's language (src/i18n/index.ts)
   niche?: string // a niche slug, or 'all' (stores/niche.ts)
 }
 

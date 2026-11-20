@@ -1,4 +1,5 @@
 // Today (Wave 1 / M7): what waits for a person across the farm, ranked. Shapes of gateway/app/today.py.
+import { uiLocale } from '@/lib/format'
 import type { Role } from '@/lib/roles'
 
 export type Priority = 'now' | 'today' | 'week'
@@ -126,5 +127,5 @@ export const STAGE_SHORT: Record<string, string> = {
 /** "Mon 17" from "2026-11-17" (the chart's day labels). */
 export function dayLabel(iso: string): string {
   const d = new Date(`${iso}T12:00:00`)
-  return `${d.toLocaleDateString('en-GB', { weekday: 'short' })} ${d.getDate()}`
+  return `${d.toLocaleDateString(uiLocale(), { weekday: 'short' })} ${d.getDate()}`
 }

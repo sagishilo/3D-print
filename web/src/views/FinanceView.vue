@@ -473,7 +473,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   display: inline-block;
   width: 12px;
   height: 8px;
-  margin-right: 6px;
+  margin-inline-end: 6px;
   vertical-align: middle;
   border-radius: 2px;
 }
@@ -564,7 +564,7 @@ h3 {
 }
 .list {
   margin: 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   font-size: 13px;
 }
 .foot {
@@ -575,7 +575,7 @@ h3 {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  margin-right: 8px;
+  margin-inline-end: 8px;
   vertical-align: middle;
 }
 </style>

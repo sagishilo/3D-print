@@ -9,6 +9,7 @@ import Icon from '@/components/ui/Icon.vue'
 import { ROLE_HELP, ROLE_LABEL } from '@/lib/roles'
 import { useAuth } from '@/stores/auth'
 import { useLive } from '@/stores/live'
+import { currentLocale, type Locale, LOCALE_NAMES, LOCALES, switchLocale } from '@/i18n'
 import { type Density, type Mode, type Theme, usePrefs } from '@/stores/prefs'
 import { useToasts } from '@/stores/toasts'
 
@@ -17,6 +18,14 @@ const live = useLive()
 const router = useRouter()
 const toasts = useToasts()
 const prefs = usePrefs()
+
+// W2-D: the language follows the person (saved with the prefs) and this browser; switching reloads the page once
+const lang = currentLocale()
+async function setLang(l: Locale) {
+  if (l === lang) return
+  await prefs.set({ lang: l })
+  switchLocale(l)
+}
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'system', label: 'System' },
@@ -93,6 +102,13 @@ function changed() {
       </div>
       <div class="prefs" data-testid="display-prefs">
         <div class="pref">
+          <span class="label">Language · שפה</span>
+          <div class="seg" role="radiogroup" aria-label="Language · שפה" translate="no">
+            <button v-for="l in LOCALES" :key="l" type="button" role="radio" :aria-checked="lang === l" :lang="l"
+              :class="{ on: lang === l }" :data-testid="`lang-${l}`" @click="setLang(l)">{{ LOCALE_NAMES[l] }}</button>
+          </div>
+        </div>
+        <div class="pref">
           <span class="label">Theme</span>
           <div class="seg" role="radiogroup" aria-label="Theme">
             <button v-for="t in THEMES" :key="t.id" type="button" role="radio" :aria-checked="prefs.theme === t.id"
@@ -161,7 +177,7 @@ function changed() {
 .menu {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  inset-inline-end: 0;
   min-width: 300px;
   max-width: calc(100vw - 24px);
   background: var(--surface);
@@ -245,7 +261,7 @@ function changed() {
   color: var(--text);
   font: 500 13px var(--font);
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 .item:hover,
 .item:focus-visible {

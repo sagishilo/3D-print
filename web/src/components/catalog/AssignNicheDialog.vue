@@ -142,7 +142,7 @@ h2 {
   border-bottom: 0;
 }
 .now {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;

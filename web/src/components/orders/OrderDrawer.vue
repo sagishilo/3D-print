@@ -339,7 +339,7 @@ async function recordPayment() {
   height: 100%;
   overflow-y: auto;
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -418,7 +418,7 @@ async function recordPayment() {
   gap: 8px;
 }
 .cancel {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .small {
   font-size: 12px;
@@ -446,7 +446,7 @@ h3 {
 }
 .sum dd {
   margin: 0;
-  text-align: right;
+  text-align: end;
 }
 .grand {
   font-weight: 700;
@@ -455,7 +455,7 @@ h3 {
 .list,
 .history {
   margin: 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   font-size: 13px;
   display: flex;
   flex-direction: column;

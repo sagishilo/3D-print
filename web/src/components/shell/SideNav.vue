@@ -90,7 +90,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
 <style scoped>
 .sidenav {
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   padding: 20px 14px;
   display: flex;
   flex-direction: column;
@@ -160,10 +160,10 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
   color: var(--accent);
 }
 .item .badge {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .soon {
-  margin-left: auto;
+  margin-inline-start: auto;
   font: 500 10px var(--font-mono);
   color: var(--idle);
   border: 1px solid var(--border);

@@ -1803,3 +1803,14 @@ class ShipmentStatusChanged(Event):
     previous: str
     text: str = ""
     by: str = "auto"
+
+
+# ---------------------------------------------------------------- alert channels (Wave 2 / W2-D)
+
+
+class SendTestAlert(Command):
+    """An owner checks an alert channel (Integrations > Send a test): one message to that channel only."""
+
+    subject: ClassVar[str] = "cmd.integrations.test_alert"
+    connector_id: str = Field(pattern=CONNECTOR_ID_PATTERN)
+    requested_by: str = ""

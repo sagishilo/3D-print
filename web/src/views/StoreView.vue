@@ -309,10 +309,10 @@ const mapLabel = (m: { product: string; sku: string; material: string; color: st
 }
 .actions {
   white-space: nowrap;
-  text-align: right;
+  text-align: end;
 }
 .actions .btn + .btn {
-  margin-left: 6px;
+  margin-inline-start: 6px;
 }
 .two {
   display: grid;

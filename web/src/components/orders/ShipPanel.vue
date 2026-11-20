@@ -178,7 +178,7 @@ defineExpose({ ship })
   flex-wrap: wrap;
 }
 .st {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
@@ -191,7 +191,7 @@ defineExpose({ ship })
 }
 .events {
   margin: 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
 }
 .row {
   display: flex;

@@ -217,7 +217,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   place-items: center;
   width: 20px;
   height: 20px;
-  margin-right: 4px;
+  margin-inline-end: 4px;
   border-radius: 50%;
   border: 1px solid var(--border);
   font: 600 11px var(--font-mono);

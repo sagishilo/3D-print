@@ -200,7 +200,7 @@ function took(start: string, end: string | null): string {
   height: 100%;
   overflow-y: auto;
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
   padding: 20px;
   display: flex;
   flex-direction: column;

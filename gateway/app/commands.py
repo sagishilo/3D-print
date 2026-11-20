@@ -58,6 +58,7 @@ from printfarm.contracts.messages import (
     RescoreCapture,
     ResumePrint,
     RunConnector,
+    SendTestAlert,
     SetBom,
     SetConfig,
     SetPrinterPolicy,
@@ -216,6 +217,8 @@ COMMANDS: dict[str, CommandSpec] = {
     "documents.issue": CommandSpec(IssueDocument, "requested_by"),
     "shipments.create": CommandSpec(CreateShipment, "created_by"),
     "shipments.update": CommandSpec(UpdateShipment, "changed_by"),
+    # Wave 2 / W2-D: check an alert channel (Telegram, e-mail)
+    "integrations.test_alert": CommandSpec(SendTestAlert, "requested_by", min_role="owner"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting, min_role="owner"),
     # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
     "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),

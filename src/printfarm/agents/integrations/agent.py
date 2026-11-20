@@ -20,12 +20,13 @@ import asyncio
 import os
 import time
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from printfarm.agents.base import Agent, on
-from printfarm.agents.integrations import alerts, couriers, invoicing, stores
+from printfarm.agents.integrations import alerts, channels, couriers, invoicing, stores
 from printfarm.agents.integrations.connectors import REGISTRY
 from printfarm.agents.integrations.framework import (
     FAILURES_TO_NOTIFY,
@@ -54,6 +55,7 @@ from printfarm.contracts.messages import (
     PaymentRecorded,
     PaymentRefunded,
     RunConnector,
+    SendTestAlert,
     ShipmentReady,
     ShipmentRefused,
     ShipmentStatusChanged,
@@ -69,6 +71,7 @@ TICK_S = 5
 SYNC_TIMEOUT_S = 120
 RUNS_KEPT = 200                  # per connector
 PUSH_ATTEMPTS = 8                # then a person is told and it stops trying
+ALERT_ATTEMPTS = 5                # a notification no channel could take: given up, shown on the dashboard
 PUSH_RETRY_S = 60                # doubled per failed attempt (framework.backoff_s)
 
 
@@ -132,6 +135,7 @@ class IntegrationsAgent(Agent):
         await self.push_due(now)
         await self.issue_due(now)
         await self.track_due(now)
+        await self.deliver_due(now)
         return due
 
     # ------------------------------------------------------------ one sync
@@ -263,10 +267,10 @@ class IntegrationsAgent(Agent):
             return None
         row = await (await conn.execute(
             "INSERT INTO notify.outbox (topic, severity, title, body, link, dedupe_key, min_role, status, source_event) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, 'dashboard', %s) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING RETURNING id",
             (note.topic, note.severity, note.title[:200], note.body[:2000], note.link[:300], note.dedupe_key,
-             note.min_role, source))).fetchone()
+             note.min_role, "pending" if await self._channels_on(conn) else "dashboard", source))).fetchone()
         if row is None:
             return None                       # already told about this one
         await self.emit(conn, NotificationQueued(notification_id=row["id"], topic=note.topic, severity=note.severity,
@@ -788,3 +792,99 @@ class IntegrationsAgent(Agent):
         if moved:
             self.relay.wakeup.set()
         return moved
+
+    # ------------------------------------------------------------ alert delivery (W2-D): Telegram, e-mail
+
+    async def _channels_on(self, conn) -> dict[str, dict]:
+        state = await self._connectors_state(conn)
+        return {cid: st for cid, st in state.items()
+                if st["enabled"] and isinstance(self.registry.get(cid), channels.AlertChannel)}
+
+    @on("cmd.integrations.test_alert")
+    async def test_alert(self, env, cmd: SendTestAlert, conn):
+        """An owner checks a channel: one test message to that channel only, quiet hours or not."""
+        on_now = await self._channels_on(conn)
+        if cmd.connector_id not in on_now:
+            self.log.warning("test alert: %s is not a switched-on channel", cmd.connector_id)
+            return
+        skip = {cid: "skipped" for cid in on_now if cid != cmd.connector_id}
+        await conn.execute(
+            "INSERT INTO notify.outbox (topic, severity, title, body, link, min_role, status, delivery) "
+            "VALUES ('test', 'info', %s, %s, '/integrations', 'owner', 'pending', %s)",
+            ("Test from PrintFarm", f"Sent by {cmd.requested_by or 'an owner'}: this channel works.", Jsonb(skip)))
+
+    async def deliver_due(self, now: datetime) -> int:
+        """Send what is due to every switched-on channel: each channel once per notification, quiet hours held
+        (critical safety alerts go anyway), failures retried, a notification older than a day dropped."""
+        async with self.db.tx() as conn:
+            on_now = await self._channels_on(conn)
+            if not on_now:
+                return 0
+            await conn.execute("UPDATE notify.outbox SET status = 'skipped', error = 'too old to send' "
+                               "WHERE status IN ('pending', 'held') AND created_at < %s", (now - timedelta(days=1),))
+            rows = await (await conn.execute(
+                "SELECT id, topic, severity, title, body, link, delivery, attempts, channels FROM notify.outbox "
+                "WHERE status IN ('pending', 'held') AND next_at <= %s ORDER BY id LIMIT 30", (now,))).fetchall()
+        sent_total = 0
+        for r in rows:
+            note = channels.OutNote(r["id"], r["topic"], r["severity"], r["title"], r["body"], r["link"])
+            delivery = dict(r["delivery"] or {})
+            sent = list(r["channels"] or [])
+            errors, hold_until = [], None
+            for cid, st in on_now.items():
+                if delivery.get(cid) in ("sent", "skipped"):
+                    continue
+                c = self.registry[cid]
+                settings = c.settings_with_defaults(st["settings"] or {})
+                local = now.astimezone(ZoneInfo(os.getenv("TZ_LOCAL", "Asia/Jerusalem")))
+                decision = channels.route(note, settings, local)
+                if decision == "skip":
+                    delivery[cid] = "skipped"
+                    continue
+                if decision == "hold":
+                    delivery[cid] = "held"
+                    end = channels.quiet_ends(local, settings["quiet_from"], settings["quiet_until"])
+                    hold_until = min(hold_until or end, end)
+                    continue
+                values = self.secret_values(c)
+                ctx = SyncContext(mode=st["mode"], cursor={}, settings={**(st["settings"] or {}), **settings},
+                                  secrets=values, now=now, log=lambda m, i=cid: self.log.info("%s: %s", i, m))
+                try:
+                    missing = c.live_missing(values, settings) if st["mode"] == "live" else []
+                    if missing:
+                        raise SyncError(f"live mode needs {', '.join(missing)}")
+                    msg = channels.text(note, lang=str(settings.get("lang") or "he"),
+                                        dashboard_url=str(settings.get("dashboard_url") or ""))
+                    await asyncio.wait_for(c.send(ctx, msg), SYNC_TIMEOUT_S)
+                except SyncError as exc:
+                    errors.append(f"{c.label}: {exc}"[:300])
+                    delivery[cid] = "failed"
+                    continue
+                except TimeoutError:
+                    errors.append(f"{c.label}: no answer within {SYNC_TIMEOUT_S} s")
+                    delivery[cid] = "failed"
+                    continue
+                except Exception as exc:  # noqa: BLE001 - a channel bug is a failed delivery, shown on the dashboard
+                    self.log.exception("%s send crashed", cid)
+                    errors.append(f"{c.label}: {type(exc).__name__}")
+                    delivery[cid] = "failed"
+                    continue
+                delivery[cid] = "sent"
+                sent.append(cid if st["mode"] == "live" else f"{cid} (test)")
+                sent_total += 1
+            attempts = int(r["attempts"]) + (1 if errors else 0)
+            if errors:
+                status = "failed" if attempts >= ALERT_ATTEMPTS else "pending"
+                next_at = now + timedelta(seconds=backoff_s(attempts, 60))
+            elif hold_until is not None:
+                status, next_at = "held", hold_until.astimezone(UTC)
+            else:
+                status, next_at = ("sent" if sent else "skipped"), now
+            async with self.db.tx() as conn:
+                await conn.execute(
+                    "UPDATE notify.outbox SET status = %s, delivery = %s, channels = %s, attempts = %s, error = %s, "
+                    "next_at = %s, sent_at = CASE WHEN %s = 'sent' THEN now() ELSE sent_at END WHERE id = %s",
+                    (status, Jsonb(delivery), Jsonb(sent), attempts, "; ".join(errors) or None, next_at, status, r["id"]))
+        if rows:
+            self.relay.wakeup.set()
+        return sent_total

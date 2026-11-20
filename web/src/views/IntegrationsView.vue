@@ -75,6 +75,16 @@ async function newTestOrders(c: Connector) {
   }
 }
 
+async function testAlert(c: Connector) {
+  try {
+    await integrations.testAlert(c.connector_id)
+    toasts.info(t('integrations.testAsked'), t('integrations.testText'))
+    integrations.reloadSoon(6000)
+  } catch (err) {
+    toasts.error(c.label, errorText(err))
+  }
+}
+
 const since = (iso: string | null) => (iso ? t('common.ago', { t: ago(new Date(iso).getTime(), Date.now()) }) : t('common.never'))
 </script>
 
@@ -114,6 +124,7 @@ const since = (iso: string | null) => (iso ? t('common.ago', { t: ago(new Date(i
           </select>
         </label>
         <button type="button" class="btn btn-sm" :disabled="!c.enabled" :data-testid="`run-${c.connector_id}`" @click="runNow(c)"><Icon name="refresh" :size="14" />{{ t('integrations.runNow') }}</button>
+        <button v-if="c.kind === 'alerts'" type="button" class="btn btn-sm" :disabled="!c.enabled" :data-testid="`test-alert-${c.connector_id}`" @click="testAlert(c)">{{ t('integrations.testAlert') }}</button>
       </div>
 
       <dl class="facts">
@@ -172,7 +183,7 @@ const since = (iso: string | null) => (iso ? t('common.ago', { t: ago(new Date(i
       <li v-for="n in integrations.notifications" :key="n.id" :class="n.severity" :data-testid="`note-${n.id}`">
         <span class="sev" :class="n.severity">{{ t(`notifications.severity.${n.severity}`) }}</span>
         <span class="what"><b>{{ n.title }}</b><span v-if="n.body" class="muted small">{{ n.body }}</span></span>
-        <span class="muted small">{{ dateTime(n.created_at) }} · {{ t(`notifications.status.${n.status}`) }}</span>
+        <span class="muted small">{{ dateTime(n.created_at) }} · {{ t(`notifications.status.${n.status}`) }}<template v-if="n.channels?.length"> · {{ t('notifications.sentTo', { list: n.channels.join(', ') }) }}</template></span>
         <RouterLink v-if="n.link" class="btn btn-sm" :to="n.link">{{ t('common.open') }}</RouterLink>
       </li>
     </ul>
@@ -204,7 +215,7 @@ const since = (iso: string | null) => (iso ? t('common.ago', { t: ago(new Date(i
 }
 .card.h-failing,
 .card.h-down {
-  box-shadow: inset 3px 0 0 var(--danger-text);
+  box-shadow: inset calc(3px * var(--dir-x, 1)) 0 0 var(--danger-text);
 }
 .card header {
   display: flex;
@@ -224,7 +235,7 @@ const since = (iso: string | null) => (iso ? t('common.ago', { t: ago(new Date(i
   padding: 1px 8px;
 }
 .health {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);

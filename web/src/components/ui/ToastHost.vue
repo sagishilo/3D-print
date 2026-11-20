@@ -22,7 +22,7 @@ const toasts = useToasts()
 <style scoped>
 .toasts {
   position: fixed;
-  right: 16px;
+  inset-inline-end: 16px;
   bottom: 16px;
   z-index: 50;
   display: flex;

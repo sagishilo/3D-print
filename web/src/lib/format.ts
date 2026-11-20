@@ -1,4 +1,10 @@
-// Small display helpers (en, times in the browser's time zone).
+// Small display helpers (times in the browser's time zone). Dates and times follow the page's language (W2-D:
+// Hebrew month and weekday names when <html lang="he">); numbers and money keep one format in both languages.
+
+/** The locale for dates and times: Hebrew when the page is in Hebrew. */
+export function uiLocale(): string {
+  return typeof document !== 'undefined' && document.documentElement.lang === 'he' ? 'he-IL' : 'en-GB'
+}
 
 export function ago(fromMs: number, nowMs = Date.now()): string {
   if (!fromMs) return '—'
@@ -23,14 +29,14 @@ export function duration(seconds: number | null | undefined): string {
 export function clock(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('en-GB', { hour12: false })
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString(uiLocale(), { hour12: false })
 }
 
 export function dateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+  return d.toLocaleString(uiLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 export function bytes(n: number | null | undefined): string {

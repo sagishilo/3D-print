@@ -47,7 +47,7 @@ const daysLeft = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  text-align: left;
+  text-align: start;
   padding: 12px 14px;
   border-radius: var(--radius);
   border: 1px solid var(--border);

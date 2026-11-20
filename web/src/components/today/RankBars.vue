@@ -67,6 +67,6 @@ a.label:hover {
   font-variant-numeric: tabular-nums;
   color: var(--text);
   min-width: 28px;
-  text-align: right;
+  text-align: end;
 }
 </style>

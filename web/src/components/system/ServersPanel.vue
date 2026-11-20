@@ -94,7 +94,7 @@ const rows = computed(() => {
 }
 .name {
   font-weight: 500;
-  margin-right: auto;
+  margin-inline-end: auto;
 }
 .detail {
   font-size: 12px;
