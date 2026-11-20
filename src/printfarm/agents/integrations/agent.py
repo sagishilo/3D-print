@@ -252,6 +252,18 @@ class IntegrationsAgent(Agent):
     async def failure_detected(self, env, msg, conn):
         await self._from_event(env, msg, conn)
 
+    @on("evt.printer.failure.suspected")
+    async def failure_suspected(self, env, msg, conn):
+        await self._from_event(env, msg, conn)
+
+    @on("evt.fleet.maintenance.due")
+    async def maintenance_due(self, env, msg, conn):
+        await self._from_event(env, msg, conn)
+
+    @on("evt.fleet.plate_stack.empty")
+    async def plate_stack_empty(self, env, msg, conn):
+        await self._from_event(env, msg, conn)
+
     @on("evt.fleet.plate.finished")
     async def plate_finished(self, env, msg, conn):
         await self._from_event(env, msg, conn)

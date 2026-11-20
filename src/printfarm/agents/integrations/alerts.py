@@ -32,6 +32,22 @@ def for_event(kind: str, d: dict, today: date) -> Note | None:
             return Note("safety", "critical", f"{d.get('printer_id')}: {d.get('message')}",
                         f"Detected by {d.get('detector')}; {d.get('action_taken')}.", f"/fleet?printer={d.get('printer_id')}",
                         f"failure:{d.get('printer_id')}:{d.get('plate_id')}:{d.get('detector')}")
+        case "printer.failure.suspected":
+            paused = d.get("action_taken") == "pause_sent"
+            return Note("safety", "critical", f"{d.get('printer_id')}: the camera sees a likely failure",
+                        f"{round(float(d.get('score') or 0) * 100)}% on {d.get('frames')} frames in a row. "
+                        + ("The printer was paused; check it before resuming." if paused else
+                           "Look at the camera and pause it if the print is failing."),
+                        "/today", f"suspect:{d.get('failure_id')}")
+        case "fleet.maintenance.due" if d.get("overdue"):
+            return Note("maintenance", "warning", f"Maintenance overdue on {d.get('printer_id')}: {d.get('label')}",
+                        "The printer gets no new plates until it is done." if d.get("blocks") else
+                        "Mark it done on the printer's Maintenance tab when it is done.",
+                        f"/fleet?printer={d.get('printer_id')}", f"maint:{d.get('printer_id')}:{d.get('task_id')}:{today.isoformat()}")
+        case "fleet.plate_stack.empty":
+            return Note("plate_stack", "warning", f"{d.get('printer_id')} used its last plate",
+                        "Refill the plate stack and clear the bed; until then the printer waits.",
+                        f"/fleet?printer={d.get('printer_id')}", f"stack:{d.get('printer_id')}:{today.isoformat()}")
         case "fleet.plate.finished" if d.get("succeeded") is False:
             return Note("print_failed", "warning", f"A print failed on {d.get('printer_id')}",
                         f"Plate {d.get('plate_id')} ({d.get('material')} {d.get('color')}) did not finish; its units are "

@@ -22,6 +22,7 @@ export interface TodayItem {
   age_s: number
   count: number
   score: number
+  meta?: { alt?: TodayAction; printer_id?: string } // alt: a second action (W2-C camera suspicion: "It's fine")
 }
 
 export interface TodayList {
@@ -43,7 +44,7 @@ export const KIND_ICON: Record<string, string> = {
   bed: 'check', attention: 'alert', confirm: 'inbox', qc: 'check', ship: 'external', stuck: 'history', leads: 'activity',
   approval: 'inbox', po: 'disc', receive: 'download', spool_short: 'alert', spool_empty: 'disc', low_stock: 'disc',
   low_item: 'grid', restock: 'grid', dry: 'disc', receivable: 'bars', margin: 'bars', backup: 'lock', dlq: 'alert',
-  agents: 'gear',
+  agents: 'gear', suspect: 'eye', maintenance: 'wrench', stack: 'grid', spool: 'disc',
 }
 
 /** What a person in this mode sees: technical items only in Expert mode. */
@@ -81,6 +82,10 @@ export const CATEGORY: Record<string, { label: string; filter: Exclude<TaskFilte
   stuck: { label: 'Order', filter: 'production' },
   qc: { label: 'QC', filter: 'production' },
   dry: { label: 'Filament', filter: 'production' },
+  suspect: { label: 'Camera', filter: 'production' },
+  maintenance: { label: 'Maintenance', filter: 'production' },
+  stack: { label: 'Plate swap', filter: 'production' },
+  spool: { label: 'Filament', filter: 'production' },
   confirm: { label: 'Order', filter: 'sales' },
   ship: { label: 'Shipping', filter: 'sales' },
   leads: { label: 'Social', filter: 'sales' },

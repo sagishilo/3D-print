@@ -181,7 +181,7 @@ def test_settings_show_value_default_phase_and_last_change(client):
     assert settings["safety.auto_pause"]["changed_by"] == "admin" and settings["safety.auto_pause"]["changed_value"] is False
     assert settings["inventory.auto_reorder"]["changed_by"] is None and settings["inventory.auto_reorder"]["changed_value"] is None
     assert settings["inventory.auto_reorder"]["value"] is True and settings["inventory.auto_reorder"]["is_default"]
-    assert settings["fleet.quiet_hours"]["phase"] == 9
+    assert settings["qc.agent_enabled"]["phase"] == 9 and settings["fleet.quiet_hours"]["phase"] is None
 
 
 def test_system_endpoints_need_login():

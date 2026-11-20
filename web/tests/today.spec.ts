@@ -67,6 +67,22 @@ describe('the Today screen', () => {
     window.removeEventListener('pf:open-approvals', opened)
   })
 
+  it('offers a camera suspicion two answers: pause, or "It\'s fine" (W2-C)', async () => {
+    const suspect = item({ id: 'suspect:4', kind: 'suspect', title: 'Check x1: the camera sees a likely failure',
+      action: { type: 'command', name: 'printers.pause', body: { printer_id: 'x1', reason: 'camera suspicion (Today)' }, label: 'Pause', confirm: 'Pause x1?' },
+      meta: { alt: { type: 'command', name: 'printers.dismiss_suspicion', body: { failure_id: 4 }, label: "It's fine", confirm: 'Dismiss?' } } })
+    const calls = serve(on('GET', /\/api\/v1\/today/, () => json(200, { ...LIST, now: [suspect], today: [] })),
+      on('POST', /\/api\/v1\/commands\//, () => json(202, { command_id: 'c' })))
+    vi.spyOn(useConfirm(), 'ask').mockResolvedValue(true)
+    const w = mount(TodayView, { global: { plugins: [anyRoute()] } })
+    await flushPromises()
+    expect(w.get('[data-testid="today-item-suspect:4"]').text()).toContain('Camera')
+    await w.get('[data-testid="today-alt-suspect:4"]').trigger('click')
+    await flushPromises()
+    const post = calls.find((c) => c.method === 'POST')
+    expect([post?.url.split('/').at(-1), post?.body]).toEqual(['printers.dismiss_suspicion', { failure_id: 4 }])
+  })
+
   it('says all clear when nothing waits', async () => {
     serve(on('GET', /\/api\/v1\/today/, () => json(200, { now: [], today: [], week: [], count: 0, generated_at: '' })))
     const w = mount(TodayView, { global: { plugins: [anyRoute()] } })

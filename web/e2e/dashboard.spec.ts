@@ -122,7 +122,8 @@ test('automation setting is changed through an audited command', async ({ page }
   await expect(dialog).toContainText('Turn off auto-pause?')
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(autoPause).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByRole('switch', { name: 'Quiet hours 23:00–07:00' })).toBeDisabled()
+  await expect(page.getByRole('switch', { name: 'QC agent module' })).toBeDisabled()          // a later phase
+  await expect(page.getByRole('switch', { name: 'Quiet hours', exact: true })).toBeEnabled()  // live since W2-C
 })
 
 test('a dead letter is inspected and replayed', async ({ page }) => {

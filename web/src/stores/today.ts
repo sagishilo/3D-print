@@ -5,7 +5,7 @@ import { computed, ref, watch } from 'vue'
 
 import { api, command, errorText } from '@/lib/api'
 import { withNiche } from '@/lib/niches'
-import { type TodayItem, type TodayList, type TodaySummary, visible } from '@/lib/today'
+import { type TodayAction, type TodayItem, type TodayList, type TodaySummary, visible } from '@/lib/today'
 import { useNiche } from '@/stores/niche'
 import { usePrefs } from '@/stores/prefs'
 
@@ -54,9 +54,10 @@ export const useToday = defineStore('today', () => {
   const urgent = computed(() => groups.value.now.length)
 
   /** Run an item's command; the item hides at once and the list reloads when the agent has answered. */
-  async function act(item: TodayItem) {
-    if (item.action.type !== 'command') return
-    await command(item.action.name, item.action.body)
+  // `action`: the item's own, or its second choice (meta.alt, e.g. "It's fine" on a camera suspicion)
+  async function act(item: TodayItem, action: TodayAction = item.action) {
+    if (action.type !== 'command') return
+    await command(action.name, action.body)
     done.value = new Set([...done.value, item.id])
     reloadSoon(1500)
   }

@@ -14,7 +14,7 @@ import { vCan } from '@/directives/can'
 import { errorText } from '@/lib/api'
 import { shekels } from '@/lib/format'
 import { nicheColor } from '@/lib/niches'
-import { CATEGORY, FILTERS, KIND_ICON, matches, STAGE_SHORT, type TaskFilter, type TodayItem, waited } from '@/lib/today'
+import { CATEGORY, FILTERS, KIND_ICON, matches, STAGE_SHORT, type TaskFilter, type TodayAction, type TodayItem, waited } from '@/lib/today'
 import { useAuth } from '@/stores/auth'
 import { useConfirm } from '@/stores/confirm'
 import { useNiche } from '@/stores/niche'
@@ -53,19 +53,19 @@ const nicheRows = computed(() => (s.value?.niches ?? []).filter((x) => x.revenue
 const count = (v: number) => String(v)
 const money = (v: number) => shekels(v).replace(/\.00$/, '')
 
-async function run(item: TodayItem) {
-  if (item.action.type === 'approvals') {
+async function run(item: TodayItem, action: TodayAction = item.action) {
+  if (action.type === 'approvals') {
     window.dispatchEvent(new CustomEvent('pf:open-approvals'))
     return
   }
-  if (item.action.type !== 'command') return
-  const ok = await confirm.ask({ title: item.title, text: item.action.confirm, confirmLabel: item.action.label })
+  if (action.type !== 'command') return
+  const ok = await confirm.ask({ title: item.title, text: action.confirm, confirmLabel: action.label })
   if (!ok) return
   try {
-    await today.act(item)
-    toasts.info(`${item.action.label}: sent`, 'Today updates when the agent confirms.')
+    await today.act(item, action)
+    toasts.info(`${action.label}: sent`, 'Today updates when the agent confirms.')
   } catch (err) {
-    toasts.error(`${item.action.label} failed`, errorText(err))
+    toasts.error(`${action.label} failed`, errorText(err))
   }
 }
 </script>
@@ -160,6 +160,7 @@ async function run(item: TodayItem) {
         <span role="cell" class="act">
           <RouterLink v-if="i.action.type === 'link'" class="btn btn-sm" :to="i.action.to" :data-testid="`today-go-${i.id}`">{{ i.action.label }}</RouterLink>
           <button v-else v-can="i.min_role" type="button" class="btn btn-sm" :class="{ 'btn-primary': i.priority !== 'week' }" :data-testid="`today-act-${i.id}`" @click="run(i)">{{ i.action.label }}</button>
+          <button v-if="i.meta?.alt" v-can="i.min_role" type="button" class="btn btn-sm" :data-testid="`today-alt-${i.id}`" @click="run(i, i.meta.alt)">{{ i.meta.alt.label }}</button>
         </span>
       </div>
     </div>
@@ -375,6 +376,10 @@ async function run(item: TodayItem) {
 }
 .act {
   justify-self: end;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .link {
   background: none;

@@ -10,12 +10,14 @@ import StatusPill from '@/components/ui/StatusPill.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import { errorText } from '@/lib/api'
 import { dateTime, duration, title } from '@/lib/format'
+import { en } from '@/i18n/en'
 import type { PrinterDetail } from '@/lib/types'
 import { useLive } from '@/stores/live'
 import { displayStatus, STATUS_TONE, usePrinters } from '@/stores/printers'
 
 import CalibrationPanel from './CalibrationPanel.vue'
 import HardwarePanel from './HardwarePanel.vue'
+import MaintenancePanel from './MaintenancePanel.vue'
 
 const props = defineProps<{ printerId: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -29,6 +31,7 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'hardware', label: 'Hardware' },
   { id: 'calibration', label: 'Calibration' },
+  { id: 'maintenance', label: en.maintenance.tab },
   { id: 'history', label: 'History' },
 ]
 
@@ -124,6 +127,7 @@ function took(start: string, end: string | null): string {
         <p v-else class="empty">Loading…</p>
       </template>
 
+      <MaintenancePanel v-else-if="tab === 'maintenance'" :printer-id="printerId" />
       <template v-else-if="tab === 'history' && detail">
         <h3>Prints</h3>
         <div class="table-wrap">

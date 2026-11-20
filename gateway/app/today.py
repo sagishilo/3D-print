@@ -179,6 +179,58 @@ def drying(spools: list[dict], now: datetime) -> list[Item]:
             for s in due]
 
 
+def suspicions(rows: list[dict], now: datetime) -> list[Item]:
+    """The camera thinks a print is failing (W2-C). A person decides: pause it, or dismiss after a look."""
+    out = []
+    for r in rows:
+        pid, paused = r["printer_id"], r["action_taken"] == "pause_sent"
+        out.append(Item(id=f"suspect:{r['id']}", kind="suspect", priority="now", age_s=_age(r.get("detected_at"), now),
+                        title=(f"{pid} was paused: the camera saw a likely failure" if paused
+                               else f"Check {pid}: the camera sees a likely failure"),
+                        why=f"{round(float(r.get('score') or 0) * 100)}% likely · {r['message']}",
+                        action=(link(f"/fleet?printer={pid}", "Open") if paused else
+                                command("printers.pause", {"printer_id": pid, "reason": "camera suspicion (Today)"},
+                                        "Pause", f"Pause {pid}? Look at its camera first if you can.")),
+                        meta={"alt": command("printers.dismiss_suspicion", {"failure_id": r["id"]}, "It's fine",
+                                             f"The print on {pid} looks fine: dismiss this?"), "printer_id": pid}))
+    return out
+
+
+def maintenance(tasks: list[dict]) -> list[Item]:
+    out = []
+    for t in tasks:
+        if t["state"] == "ok":
+            continue
+        pid = t["printer_id"]
+        pr = "now" if t["blocks"] else "today" if t["state"] == "overdue" else "week"
+        why = (f"Overdue by {t['left']}: {pid} gets no new plates until it is done." if t["blocks"] else
+               f"Overdue by {t['left']}." if t["state"] == "overdue" else f"Due soon: {t['left']} left.")
+        out.append(Item(id=f"maint:{pid}:{t['task_id']}", kind="maintenance", priority=pr,
+                        title=f"{t['label']} on {pid}", why=why,
+                        action=command("maintenance.done", {"printer_id": pid, "task_id": t["task_id"]}, "Done",
+                                       f"Mark “{t['label']}” on {pid} as done?")))
+    return out
+
+
+def plate_stacks(printers: list[dict]) -> list[Item]:
+    return [Item(id=f"stack:{p['printer_id']}", kind="stack", priority="now",
+                 title=f"Refill the plate stack of {p['printer_id']}",
+                 why="Auto plate-swap used its last plate: refill the stack, then clear the bed.",
+                 action=command("printers.policy", {"printer_id": p["printer_id"], "refill": True}, "Refilled",
+                                f"Is the plate stack of {p['printer_id']} refilled ({p.get('plate_stack')} plates)?"))
+            for p in printers if p.get("auto_eject") and p.get("plate_stack") and not p.get("plates_left")]
+
+
+def spool_changes(unplaced: list[dict]) -> list[Item]:
+    """Jobs wait for a filament no printer has loaded (W2-C schedule forecast)."""
+    return [Item(id=f"spool:{u['material']}:{u['color']}", kind="spool", priority="today", count=len(u["jobs"]),
+                 title=f"Load {u['material']} {u['color']} on a printer",
+                 why=f"{len(u['jobs'])} job{'s' if len(u['jobs']) != 1 else ''} ({u['minutes'] / 60:.1f} h of printing) "
+                     "wait for it: no printer has it loaded.",
+                 action=link("/schedule", "Schedule"))
+            for u in unplaced]
+
+
 def receivables(rows: list[dict], now: datetime) -> list[Item]:
     late = [r for r in rows if _age(r.get("shipped_at"), now) > RECEIVABLE_DAYS * 86400]
     if not late:
@@ -244,8 +296,17 @@ async def today(request: Request, niche: str | None = None, claims: dict = Depen
     scope = niche_scope(niche)
     items: list[Item] = []
 
-    printers = await _safe(lambda: db.fetchall("SELECT printer_id, online, busy, bed_clear FROM fleet.printers"), [])
+    printers = await _safe(lambda: db.fetchall(
+        "SELECT printer_id, online, busy, bed_clear, auto_eject, plate_stack, plates_left FROM fleet.printers"), [])
     items += beds(printers)
+    items += plate_stacks(printers)
+    items += suspicions(await _safe(lambda: db.fetchall(
+        "SELECT id, printer_id, message, action_taken, score, detected_at FROM telemetry.failures "
+        "WHERE detector = 'camera' AND resolved_at IS NULL AND detected_at > now() - interval '6 hours' "
+        "ORDER BY detected_at DESC LIMIT 20"), []), now)
+    from . import schedule as schedule_mod
+    items += maintenance(await _safe(lambda: schedule_mod.maintenance_rows(db, now), []))
+    items += spool_changes((await _safe(lambda: schedule_mod.snapshot(request), {})).get("unplaced", []))
 
     from . import orders as orders_mod  # the board's cards: one place decides "stuck" and the status line
     cards = await _safe(lambda: orders_mod._cards(

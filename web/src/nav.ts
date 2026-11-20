@@ -30,6 +30,7 @@ export const NAV: NavItem[] = [
   item('live', '/live', 'live', 'Make'),
   item('orders', '/orders', 'columns', 'Make'),
   item('fleet', '/fleet', 'monitor', 'Make'),
+  item('schedule', '/schedule', 'clock', 'Make'),
   item('inventory', '/filament', 'disc', 'Make'),
   item('finance', '/finance', 'bars', 'Business', 'operator'),
   item('scorecard', '/scorecard', 'activity', 'Business', 'operator'),

@@ -139,6 +139,23 @@ export function describe(env: Envelope): Described {
       return out(`Model for ${d.order_id} ready · ~${round(d.est_grams)} g, ~${round(d.est_minutes)} min${d.sliced ? '' : ' (estimate)'}`, 'ok', 'order')
     case 'personalization.model.failed':
       return out(`Model for ${d.order_id} failed: ${d.reason}`, 'danger', 'order')
+    case 'fleet.queue.controlled': {
+      const what: Record<string, string> = { hold: 'held', release: 'released', pin: `pinned to ${d.printer_id}`, unpin: 'unpinned',
+        top: 'moved to the top', up: 'moved up', down: 'moved down', auto: 'back in the automatic order' }
+      return out(`Job ${d.job_id} ${what[String(d.action)] ?? d.action} (${d.by})`, 'idle', 'order')
+    }
+    case 'fleet.printer.policy_changed':
+      return out(`${d.printer_id}: plate swap ${d.auto_eject ? `on · ${d.plates_left}/${d.plate_stack} plates` : 'off'} (${d.by})`, 'idle', 'printer')
+    case 'fleet.plate_stack.empty':
+      return out(`${d.printer_id} used its last plate: refill the stack and clear the bed`, 'warn', 'printer')
+    case 'fleet.maintenance.due':
+      return out(`${d.printer_id}: ${d.label} ${d.overdue ? 'overdue' : 'due soon'}${d.blocks ? ' · no new plates until done' : ''}`,
+        d.overdue ? 'warn' : 'idle', 'printer')
+    case 'fleet.maintenance.done':
+      return out(`${d.printer_id}: ${d.label} done (${d.by})`, 'ok', 'printer')
+    case 'printer.failure.suspected':
+      return out(`${d.printer_id}: the camera sees a likely failure (${Math.round(Number(d.score) * 100)}%)${d.action_taken === 'pause_sent' ? ' · paused' : ' · check it'}`,
+        'danger', 'printer', { safety: true })
     case 'fleet.job.queued':
       return out(`Job ${d.job_id} queued`, 'idle', 'order')
     case 'fleet.job.started':

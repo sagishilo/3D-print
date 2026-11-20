@@ -187,7 +187,7 @@ def test_commands_by_role(c, role, name, body, allowed):
 def test_owner_only_commands_are_the_sensitive_ones():
     owner_only = {n for n, s in commands.COMMANDS.items() if s.min_role == "owner"}
     assert owner_only == {"config.set", "finance.settings", "payments.refund", "catalog.niche.upsert", "catalog.niche.archive",
-                          "analytics.backfill", "integrations.configure", "integrations.run"}
+                          "analytics.backfill", "integrations.configure", "integrations.run", "maintenance.task"}
     assert all(s.min_role in auth.ROLE_RANK for s in commands.COMMANDS.values())
 
 

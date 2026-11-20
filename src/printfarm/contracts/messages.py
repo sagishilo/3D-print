@@ -1471,3 +1471,134 @@ class NotificationQueued(Event):
     severity: str
     title: str
     link: str = ""
+
+
+# ---------------------------------------------------------------- production intelligence (Wave 2 / W2-C)
+
+TASK_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+PRINTER_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,40}$"
+JobAction = Literal["hold", "release", "pin", "unpin", "top", "up", "down", "auto"]
+
+
+class ControlJob(Command):
+    """Operator control of one queued job (Schedule screen): hold / release it, pin it to a printer (or unpin), put
+    it in a manual order (top, up, down) or give it back to the automatic order (auto)."""
+
+    subject: ClassVar[str] = "cmd.fleet.control_job"
+    job_id: str = Field(min_length=1, max_length=80)
+    action: JobAction
+    printer_id: str | None = Field(default=None, pattern=PRINTER_ID_PATTERN)   # for "pin"
+    changed_by: str = ""
+
+    @model_validator(mode="after")
+    def _pin_needs_printer(self) -> ControlJob:
+        if self.action == "pin" and not self.printer_id:
+            raise ValueError("pin needs a printer_id")
+        return self
+
+
+class JobControlled(Event):
+    # Not under evt.fleet.job.>: the coordinator reads those as steps of an order.
+    subject: ClassVar[str] = "evt.fleet.queue.controlled"
+    job_id: str
+    action: str
+    printer_id: str | None = None
+    by: str
+
+
+class SetPrinterPolicy(Command):
+    """Per-printer plate swap (auto-eject): a printer with a plate changer clears its own bed after a good print
+    while plates are left in its stack. ``refill``: the stack was refilled (plates_left = plate_stack)."""
+
+    subject: ClassVar[str] = "cmd.fleet.printer_policy"
+    printer_id: str = Field(pattern=PRINTER_ID_PATTERN)
+    auto_eject: bool | None = None
+    plate_stack: int | None = Field(default=None, ge=0, le=100)
+    refill: bool = False
+    changed_by: str = ""
+
+
+class PrinterPolicyChanged(Event):
+    subject: ClassVar[str] = "evt.fleet.printer.policy_changed"
+    printer_id: str
+    auto_eject: bool
+    plate_stack: int
+    plates_left: int
+    by: str
+
+
+class PlateStackEmpty(Event):
+    """An auto-eject printer used its last plate: it waits for a person to refill the stack and clear the bed."""
+
+    subject: ClassVar[str] = "evt.fleet.plate_stack.empty"
+    printer_id: str
+
+
+class UpsertMaintenanceTask(Command):
+    """Add or change a maintenance task of a printer (owner). At least one interval: print hours, plates or days."""
+
+    subject: ClassVar[str] = "cmd.fleet.maintenance_task"
+    printer_id: str = Field(pattern=PRINTER_ID_PATTERN)
+    task_id: str = Field(pattern=TASK_ID_PATTERN)
+    label: str = Field(min_length=1, max_length=80)
+    every_hours: float | None = Field(default=None, gt=0, le=100000)
+    every_plates: int | None = Field(default=None, gt=0, le=100000)
+    every_days: int | None = Field(default=None, gt=0, le=3650)
+    block_when_overdue: bool = False
+    archived: bool = False
+    changed_by: str = ""
+
+    @model_validator(mode="after")
+    def _one_interval(self) -> UpsertMaintenanceTask:
+        if self.every_hours is None and self.every_plates is None and self.every_days is None:
+            raise ValueError("set at least one interval: every_hours, every_plates or every_days")
+        return self
+
+
+class MarkMaintenanceDone(Command):
+    subject: ClassVar[str] = "cmd.fleet.maintenance_done"
+    printer_id: str = Field(pattern=PRINTER_ID_PATTERN)
+    task_id: str = Field(pattern=TASK_ID_PATTERN)
+    note: str = Field(default="", max_length=500)
+    done_by: str = ""
+
+
+class MaintenanceDone(Event):
+    subject: ClassVar[str] = "evt.fleet.maintenance.done"
+    printer_id: str
+    task_id: str
+    label: str
+    by: str
+
+
+class MaintenanceDue(Event):
+    """A maintenance task became due (``overdue`` False) or overdue. Emitted once per crossing."""
+
+    subject: ClassVar[str] = "evt.fleet.maintenance.due"
+    printer_id: str
+    task_id: str
+    label: str
+    overdue: bool
+    blocks: bool = False      # the printer gets no new plates until it is done
+
+
+class FailureSuspected(Event):
+    """The camera model saw a likely failure (spaghetti, detached part) on several frames in a row. By default this
+    only suggests a pause to a person; with ``vision.auto_pause`` on, telemetry also pauses (verified)."""
+
+    subject: ClassVar[str] = "evt.printer.failure.suspected"
+    printer_id: str
+    plate_id: str | None = None
+    failure_id: int
+    score: float = Field(ge=0, le=1)
+    model: str
+    frames: int
+    action_taken: str            # "suggested" | "pause_sent"
+
+
+class DismissSuspicion(Command):
+    """A person looked at the camera and the print is fine (or it was handled): close the suspicion."""
+
+    subject: ClassVar[str] = "cmd.telemetry.dismiss_suspicion"
+    failure_id: int
+    dismissed_by: str = ""

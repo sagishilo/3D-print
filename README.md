@@ -310,6 +310,14 @@ The `integrations` agent runs every connection to an outside service (stores, in
 - **Mapped once.** Every outside record is mapped to ours (`integrations.mappings`), so a repeated sync updates and never duplicates.
 - **Secrets only in `integrations.env`.** Copy `integrations.env.example` to `integrations.env` (gitignored) and fill in what you use. Check it with `python scripts/check_integrations_env.py` (prints SET / MISSING, never values), then `docker compose up -d integrations`. The dashboard shows only set or missing; live mode refuses to run while a required key is missing.
 
+## Production scheduling, maintenance and camera checks (Wave 2)
+
+- **Schedule** (Make ▸ Schedule) forecasts the next 24 h per printer with the fleet agent's own policy (`src/printfarm/agents/fleet/policy.py`): your manual order first, then late or nearly-due jobs, priority, the overnight window (long jobs first from `fleet.overnight_from`), due date, first come. A printer only takes jobs of the filament loaded on it; jobs nobody can take show as a spool-change suggestion (also on Today). Operators hold, pin and reorder jobs there (`jobs.control`).
+- **Quiet hours** (`fleet.quiet_hours`, with `fleet.quiet_from` / `fleet.quiet_until`): no new print starts; running prints finish. Off by default.
+- **Maintenance** (Printer Fleet ▸ printer ▸ Maintenance): counters (print hours, plates, grams) and interval tasks per printer, seeded with three defaults. Due and overdue tasks show on Today; a task marked "keep the printer idle while overdue" keeps it out of the schedule until it is done.
+- **Auto plate-swap** (same tab): for a printer with a plate changer, a good print clears the bed by itself while plates are left in its stack; a failed print always waits for a person; an empty stack is a Today item.
+- **Camera failure detection** is off by default. Pick a model with `VISION_MODEL` for the telemetry service: `off`, `fake` (tests and demos, scores from `VISION_FAKE_SCORES="bambu-01=0.9"`), or `http` (a model on your LAN at `VISION_MODEL_URL` that takes a JPEG and answers `{"score": 0..1}`). Then switch on `vision.enabled` in System ▸ Automation. A suspicion needs `vision.frames` frames in a row above `vision.threshold`; by default it only asks a person (Today: Pause / It's fine). `vision.auto_pause` also pauses the printer (verified).
+
 ## Trend Analyst and analytics
 
 The `trend` agent counts every business day once an hour into `reporting.daily_sku` and `reporting.daily_niche` (sales, net revenue, job costs, print hours, QC, social activity), then marks the niches and products that are rising or cooling (`trend.signals`). The **Niche scorecard** (Business) and the Social page's Trends panel read them. On its first start it backfills the last 120 days; **Rebuild** on the scorecard (owner) recounts them on demand.

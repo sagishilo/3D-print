@@ -126,11 +126,13 @@ def build_plate(
     margin: float = 5,
     spacing: float = 4,
     max_minutes: float = 480,
+    ordered: bool = False,
 ) -> PlatePlan | None:
-    """Pack as many compatible jobs as fit onto one plate. None if nothing fits."""
+    """Pack as many compatible jobs as fit onto one plate. None if nothing fits. ``ordered``: the jobs are already in
+    the order to take them (the scheduling policy's); otherwise they are sorted by ``job_order_key``."""
     bin_ = MaxRectsBin(bed[0], bed[1], margin, spacing)
     minutes = grams = 0.0
-    for j in sorted(jobs, key=job_order_key):
+    for j in (jobs if ordered else sorted(jobs, key=job_order_key)):
         # A plate's print time ~ sum of its parts (minus shared heat-up; ignored here).
         if bin_.placements and minutes + j.est_minutes > max_minutes:
             continue

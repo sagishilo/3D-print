@@ -247,6 +247,14 @@ services:
   telemetry:
     <<: *agent
     command: ["agent", "telemetry"]
+    environment:
+      <<: *agent-env
+      # Camera failure detection (W2-C): off | fake (demo and tests, scores from VISION_FAKE_SCORES) | http (a model
+      # on this network at VISION_MODEL_URL). It also needs the vision.enabled setting (System > Automation).
+      VISION_MODEL: ${VISION_MODEL:-off}
+      VISION_MODEL_URL: ${VISION_MODEL_URL:-}
+      VISION_FAKE_SCORES: ${VISION_FAKE_SCORES:-}
+      GO2RTC_URL: http://go2rtc:1984
     # The only service that talks to printers: it needs the LAN access codes (fleet.toml access_code_env).
     env_file:
       - path: cameras.env

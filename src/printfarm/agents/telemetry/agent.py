@@ -23,9 +23,11 @@ one at a time and never while a plate is being started. Each request ends in evt
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 
+import httpx
 from psycopg.types.json import Jsonb
 
 from printfarm.agents.base import Agent, on
@@ -35,6 +37,7 @@ from printfarm.agents.telemetry.lost import LostPrintWatch
 from printfarm.agents.telemetry.platefiles import PlateFileError, resolve_plate_file
 from printfarm.agents.telemetry.safety import PauseOutcome, pause_and_verify
 from printfarm.agents.telemetry.transfer import PlateFile, UploadError
+from printfarm.agents.telemetry.vision import FRAME_EVERY_S, FakeScorer, HttpScorer, Scorer, Watch, model_name
 from printfarm.contracts import Envelope, deterministic_id, new_message
 from printfarm.contracts.calibration import BY_KEY as ROUTINES
 from printfarm.contracts.calibration import target_temperature
@@ -43,7 +46,9 @@ from printfarm.contracts.messages import (
     CalibrationFinished,
     CalibrationStarted,
     CancelPrint,
+    DismissSuspicion,
     FailureDetected,
+    FailureSuspected,
     PauseAll,
     PauseConfirmed,
     PausePrint,
@@ -125,6 +130,10 @@ class TelemetryAgent(Agent):
             self.spawn(self.adapters[pid].run())
         await self._resume_open_starts()
         await self._close_interrupted_calibrations()
+        self.watch = Watch()
+        self.scorer = self._make_scorer()
+        if self.scorer is not None:
+            self.spawn(self._vision_loop())
 
     # ------------------------------------------------------------ device callbacks
 
@@ -197,6 +206,74 @@ class TelemetryAgent(Agent):
                 correlationid=s.plate_id or pid,
             )
         self.relay.wakeup.set()
+
+    # ------------------------------------------------------------ camera failure detection (W2-C, vision.py)
+
+    def _make_scorer(self) -> Scorer | None:
+        name = model_name()
+        if name == "fake":
+            return FakeScorer.from_env()
+        if name == "http":
+            url = os.getenv("VISION_MODEL_URL", "")
+            if not url:
+                self.log.warning("VISION_MODEL=http needs VISION_MODEL_URL; camera detection stays off")
+                return None
+            return HttpScorer(url, httpx.AsyncClient())
+        return None
+
+    async def _frame(self, client: httpx.AsyncClient, pid: str) -> bytes | None:
+        try:
+            r = await client.get(f"{os.getenv('GO2RTC_URL', 'http://go2rtc:1984')}/api/frame.jpeg",
+                                 params={"src": pid}, timeout=10)
+            return r.content if r.status_code == 200 and r.content else None
+        except httpx.HTTPError:
+            return None
+
+    async def _vision_loop(self) -> None:
+        """One frame per printing printer every FRAME_EVERY_S while ``vision.enabled`` is on."""
+        async with httpx.AsyncClient() as client:
+            while True:
+                await asyncio.sleep(FRAME_EVERY_S)
+                if not self.setting("vision.enabled"):
+                    continue
+                self.watch.threshold = float(self.setting("vision.threshold"))
+                self.watch.frames = int(self.setting("vision.frames"))
+                for pid, s in list(self.last.items()):
+                    if s.status != PrinterStatus.PRINTING:
+                        self.watch.reset(pid)
+                        continue
+                    try:
+                        jpeg = await self._frame(client, pid) if self.scorer.needs_frame else None
+                        score = await self.scorer.score(pid, jpeg)
+                        if score is not None and self.watch.feed(pid, score, time.monotonic()):
+                            await self._suspect(pid, s, score)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - one camera's trouble never stops the others
+                        self.log.warning("camera check of %s failed: %r", pid, exc)
+
+    async def _suspect(self, pid: str, s: PrinterState, score: float) -> None:
+        action = "suggested"
+        if self.setting("vision.auto_pause") and self.pause_verified(
+                pid, reason=f"camera: failure likely ({score:.0%})", requested_by="telemetry"):
+            action = "pause_sent"
+        self.log.warning("printer %s camera: failure likely (%.2f) -> %s", pid, score, action)
+        async with self.db.tx() as conn:
+            row = await (await conn.execute(
+                "INSERT INTO telemetry.failures (printer_id, plate_id, detector, severity, message, action_taken, score) "
+                "VALUES (%s, %s, 'camera', 'warning', %s, %s, %s) RETURNING id",
+                (pid, s.plate_id, f"camera: failure likely ({score:.0%} on {self.watch.frames} frames in a row)",
+                 action, score))).fetchone()
+            await self.emit(conn, FailureSuspected(printer_id=pid, plate_id=s.plate_id, failure_id=row["id"],
+                                                   score=round(score, 3), model=self.scorer.name,
+                                                   frames=self.watch.frames, action_taken=action),
+                            correlationid=s.plate_id or pid)
+        self.relay.wakeup.set()
+
+    @on("cmd.telemetry.dismiss_suspicion")
+    async def dismiss_suspicion(self, env, cmd: DismissSuspicion, conn):
+        await conn.execute("UPDATE telemetry.failures SET resolved_at = now(), resolved_by = %s "
+                           "WHERE id = %s AND resolved_at IS NULL", (cmd.dismissed_by or "operator", cmd.failure_id))
 
     async def _lifecycle_started(self, pid: str, plate_id: str) -> None:
         async with self.db.tx() as conn:

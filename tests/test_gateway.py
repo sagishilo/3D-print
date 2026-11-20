@@ -62,7 +62,7 @@ def test_only_live_known_settings_can_be_set():
     with pytest.raises(ValueError, match="unknown setting"):
         build_command("config.set", {"key": "made.up", "value": True}, "admin", KEY)
     with pytest.raises(ValueError, match="arrives in phase 9"):
-        build_command("config.set", {"key": "fleet.quiet_hours", "value": True}, "admin", KEY)
+        build_command("config.set", {"key": "qc.agent_enabled", "value": True}, "admin", KEY)
     with pytest.raises(ValueError, match="takes a bool value"):
         build_command("config.set", {"key": "safety.auto_pause", "value": "off"}, "admin", KEY)
     with pytest.raises(ValueError, match="unknown setting"):
