@@ -4,7 +4,7 @@ Run it in a container so it sees the network exactly as the stack does:
   docker run --rm -v "${PWD}:/work" -w /work python:3.12-slim python scripts/preflight.py
 
 printers.txt, one printer per line:  <id>,<type>,<ip>
-  type = x1 | p1 | a1 | klipper        e.g.  x1c-02,x1,192.168.50.21
+  type = x1 | p1 | a1 | a1-mini | klipper        e.g.  bambu-a1,a1,192.168.1.41
 Port numbers are the commonly documented defaults; confirm them for your firmware.
 Exit code 0 only when every check passes.
 """
@@ -20,6 +20,7 @@ CHECKS = {
            (322, "tls", "RTSPS camera")],
     "p1": [(8883, "tls", "MQTT over TLS"), (990, "tcp", "FTPS"), (6000, "tls", "camera frames")],
     "a1": [(8883, "tls", "MQTT over TLS"), (990, "tcp", "FTPS"), (6000, "tls", "camera frames")],
+    "a1-mini": [(8883, "tls", "MQTT over TLS"), (990, "tcp", "FTPS"), (6000, "tls", "camera frames")],
     "klipper": [(7125, "moonraker", "Moonraker API"), (80, "webcam", "Crowsnest MJPEG")],
 }
 TIMEOUT = 4
@@ -57,7 +58,7 @@ def main() -> None:
         pid, ptype, ip = (x.strip() for x in line.split(","))
         print(f"\n{pid}  ({ptype} @ {ip})")
         if ptype not in CHECKS:
-            print(f"  FAIL  unknown type '{ptype}' (use x1, p1, a1, klipper)")
+            print(f"  FAIL  unknown type '{ptype}' (use x1, p1, a1, a1-mini, klipper)")
             failed += 1
             continue
         for port, kind, purpose in CHECKS[ptype]:

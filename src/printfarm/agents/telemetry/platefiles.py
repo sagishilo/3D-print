@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from printfarm.agents.telemetry.transfer import PlateFile, md5_of
+from printfarm.hardware import model, model_of_slicer_id, sliced_for
 
 SLICED_SUFFIXES = {"bambu": (".gcode.3mf", ".3mf"), "moonraker": (".gcode",)}
 _PLATE_GCODE = re.compile(r"^Metadata/plate_\d+\.gcode$")
@@ -56,6 +57,42 @@ def _bambu_plate_gcode(path: Path) -> str:
     return plates[0]
 
 
+def _bambu_slice(path: Path, plate_gcode: str) -> tuple[tuple[tuple[int, str, str], ...], str | None, float | None]:
+    """(filaments, printer model id, height) the slicer wrote into a sliced 3MF; empty when it did not say."""
+    from printfarm.agents.personalization.catalog import InvalidThreeMf, gcode_max_z, slice_filaments
+
+    filaments: tuple[tuple[int, str, str], ...] = ()
+    model_id = None
+    with zipfile.ZipFile(path) as z:
+        names = set(z.namelist())
+        if "Metadata/slice_info.config" in names:
+            data = z.read("Metadata/slice_info.config")
+            try:
+                filaments = slice_filaments(data)
+                m = re.search(rb'key="printer_model_id"\s+value="([^"]*)"', data)
+                model_id = m.group(1).decode() if m and m.group(1) else None
+            except InvalidThreeMf as exc:
+                raise PlateFileError(f"{path.name}: {exc}") from exc
+        with z.open(plate_gcode) as g:
+            max_z = gcode_max_z(g.read(64 * 1024))
+    return filaments, model_id, max_z
+
+
+def check_fits(plate: PlateFile, *, printer_model: str = "", max_z: float = 0, ams_slots: int = 0) -> None:
+    """The last check before a file goes to a printer, whatever the scheduler decided: the model it was sliced for,
+    the colours it needs and its height. Raises PlateFileError with what to do."""
+    if sliced_for(printer_model, plate.printer_model) is False:
+        want = model_of_slicer_id(plate.printer_model)
+        have = model(printer_model)
+        raise PlateFileError(f"the file was sliced for {want.label if want else plate.printer_model}, this printer is "
+                             f"{have.label if have else printer_model}: slice it for this printer")
+    if len(plate.filaments) > 1 and len(plate.filaments) > ams_slots:
+        raise PlateFileError(f"the file uses {len(plate.filaments)} filaments and this printer has "
+                             + (f"{ams_slots} AMS slots" if ams_slots else "no AMS") + ": print it on a printer with an AMS")
+    if plate.max_z_mm and max_z and plate.max_z_mm > max_z:
+        raise PlateFileError(f"the plate is {plate.max_z_mm:.0f} mm tall; this printer prints up to {max_z:.0f} mm")
+
+
 def _placeholder(plate_id: str, parts: list[Path], vendor: str, out_dir: Path) -> Path:
     lines = [f"; PrintFarm SIMULATOR placeholder for plate {plate_id} - NOT printable",
              *(f"; part {i}: {p.name}" for i, p in enumerate(parts, 1)), "M117 simulated plate", ""]
@@ -87,7 +124,9 @@ def resolve_plate_file(plate_id: str, artifact_uris: list[str], *, vendor: str, 
             raise PlateFileError(f"sliced file {path} does not exist on this host")
         if vendor == "bambu":
             plate_gcode = _bambu_plate_gcode(path)
-            return PlateFile(plate_id, path, f"{plate_id}.gcode.3mf", md5_of(path), path.stat().st_size, plate_gcode)
+            filaments, model_id, max_z = _bambu_slice(path, plate_gcode)
+            return PlateFile(plate_id, path, f"{plate_id}.gcode.3mf", md5_of(path), path.stat().st_size, plate_gcode,
+                             filaments, model_id, max_z)
         return PlateFile(plate_id, path, f"{plate_id}{suffix}", md5_of(path), path.stat().st_size)
 
     if not simulated:

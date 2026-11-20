@@ -19,6 +19,19 @@ DEFAULT_TASKS: tuple[dict, ...] = (
     {"task_id": "lube-rods", "label": "Lubricate rods / rails, check belts", "every_hours": 300, "every_days": 90},
 )
 
+# Added for Bambu Lab A1 / A1 mini (bed-slinger, quick-swap hotend, filament cutter in the toolhead).
+A1_TASKS: tuple[dict, ...] = (
+    {"task_id": "hotend-wear", "label": "Inspect the nozzle for wear; swap the hotend if worn", "every_hours": 500},
+    {"task_id": "cutter-ptfe", "label": "Check the filament cutter and the PTFE tube", "every_hours": 300},
+    {"task_id": "bed-cable", "label": "Check the heatbed cable and its strain relief", "every_days": 90},
+)
+MODEL_TASKS: dict[str, tuple[dict, ...]] = {"a1": A1_TASKS, "a1-mini": A1_TASKS}
+
+
+def tasks_for(model: str) -> tuple[dict, ...]:
+    """The tasks a new printer of this model starts with (fleet.toml ``model``)."""
+    return DEFAULT_TASKS + MODEL_TASKS.get((model or "").strip().lower(), ())
+
 
 @dataclass(frozen=True)
 class Counters:

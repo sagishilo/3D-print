@@ -12,9 +12,11 @@ import uuid
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+from psycopg.types.json import Jsonb
+
 from printfarm.agents.base import Agent, on
 from printfarm.agents.fleet import maintenance as mt
-from printfarm.agents.fleet.policy import QPrinter, order_for, pick_plate, qjob, quiet_now, window_from
+from printfarm.agents.fleet.policy import order_for, pick_plate, qjob, qprinter, quiet_now, window_from
 from printfarm.contracts.messages import (
     CalibrationFinished,
     CalibrationStarted,
@@ -61,29 +63,51 @@ class FleetAgent(Agent):
         self._mstate: dict[tuple[str, str], str] = {}
         async with self.db.tx() as conn:
             for p in self.fleet.printers:
+                loaded = [list(f) for f in p.loaded()] if p.ams_slots else []
                 await conn.execute(
-                    "INSERT INTO fleet.printers (printer_id, vendor, bed_w, bed_d, nozzle_mm, material, color, model, simulated) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (printer_id) DO UPDATE SET "
+                    "INSERT INTO fleet.printers (printer_id, vendor, bed_w, bed_d, nozzle_mm, material, color, model, "
+                    "simulated, max_z, ams_slots, loaded) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (printer_id) DO UPDATE SET "
                     "vendor = EXCLUDED.vendor, bed_w = EXCLUDED.bed_w, bed_d = EXCLUDED.bed_d, "
                     "nozzle_mm = EXCLUDED.nozzle_mm, material = EXCLUDED.material, color = EXCLUDED.color, "
-                    "model = EXCLUDED.model, simulated = EXCLUDED.simulated",
-                    (p.id, p.vendor, p.bed_mm[0], p.bed_mm[1], p.nozzle_mm, p.material, p.color, p.model, p.simulated),
+                    "model = EXCLUDED.model, simulated = EXCLUDED.simulated, max_z = EXCLUDED.max_z, "
+                    "ams_slots = EXCLUDED.ams_slots, loaded = EXCLUDED.loaded",
+                    (p.id, p.vendor, p.bed_mm[0], p.bed_mm[1], p.nozzle_mm, p.material, p.color, p.model, p.simulated,
+                     p.max_z_mm, p.ams_slots, Jsonb(loaded)),
                 )
+                await self._seed_hours(conn, p.id, p.initial_print_hours)
                 # Default maintenance tasks, once per printer (the owner may change or archive them later).
                 if not await (await conn.execute("SELECT 1 FROM fleet.maintenance_tasks WHERE printer_id = %s",
                                                  (p.id,))).fetchone():
-                    for t in mt.DEFAULT_TASKS:
+                    done = dict(p.maintenance_done_hours)
+                    for t in mt.tasks_for(p.model):
+                        # last done: when fleet.toml says (in the printer's print hours), else now (from onboarding)
+                        at = done.get(t["task_id"])
                         await conn.execute(
                             "INSERT INTO fleet.maintenance_tasks (printer_id, task_id, label, every_hours, every_plates, "
                             "every_days, last_done_at, last_done_seconds, last_done_plates) "
-                            "SELECT %s, %s, %s, %s, %s, %s, now(), print_seconds_total, plates_total "
+                            "SELECT %s, %s, %s, %s, %s, %s, now(), coalesce(%s, print_seconds_total), plates_total "
                             "FROM fleet.printers WHERE printer_id = %s ON CONFLICT DO NOTHING",
                             (p.id, t["task_id"], t["label"], t.get("every_hours"), t.get("every_plates"),
-                             t.get("every_days"), p.id))
+                             t.get("every_days"), round(at * 3600) if at is not None else None, p.id))
             # Start from today's states: only changes from here on are announced.
             await self._check_maintenance(conn, announce=False)
         self._kick = asyncio.Event()
         self.spawn(self._scheduler_loop())
+
+    async def _seed_hours(self, conn, printer_id: str, hours: float) -> None:
+        """Count a printer's print hours from before this platform (fleet.toml initial_print_hours) into its counter,
+        once; a corrected number moves the counter (and the tasks' last-done points with it) by the difference."""
+        row = await (await conn.execute("SELECT seed_hours FROM fleet.printers WHERE printer_id = %s FOR UPDATE",
+                                        (printer_id,))).fetchone()
+        delta = round((hours - float(row["seed_hours"])) * 3600)
+        if not delta:
+            return
+        await conn.execute("UPDATE fleet.printers SET print_seconds_total = greatest(print_seconds_total + %s, 0), "
+                           "seed_hours = %s WHERE printer_id = %s", (delta, hours, printer_id))
+        await conn.execute("UPDATE fleet.maintenance_tasks SET last_done_seconds = greatest(last_done_seconds + %s, 0) "
+                           "WHERE printer_id = %s", (delta, printer_id))
+        self.log.info("printer %s: %.0f print hours from before this platform counted in", printer_id, hours)
 
     # ------------------------------------------------------------ commands
 
@@ -91,11 +115,12 @@ class FleetAgent(Agent):
     async def enqueue(self, env, cmd: EnqueueJob, conn):
         cur = await conn.execute(
             "INSERT INTO fleet.jobs (job_id, order_id, correlationid, artifact_uri, material, color, footprint_w, "
-            "footprint_d, est_grams, est_minutes, due_by, priority, product_type, whole_plate, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued') ON CONFLICT DO NOTHING",
+            "footprint_d, est_grams, est_minutes, due_by, priority, product_type, whole_plate, printer_model, "
+            "filament_count, max_z_mm, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued') ON CONFLICT DO NOTHING",
             (cmd.job_id, cmd.order_id, env.correlationid, cmd.artifact_uri, cmd.material, cmd.color,
              cmd.footprint_mm[0], cmd.footprint_mm[1], cmd.est_grams, cmd.est_minutes, cmd.due_by, cmd.priority,
-             cmd.product_type, cmd.whole_plate),
+             cmd.product_type, cmd.whole_plate, cmd.printer_model, cmd.filament_count, cmd.max_z_mm),
         )
         if cur.rowcount:
             await self.emit(conn, JobQueued(job_id=cmd.job_id, order_id=cmd.order_id), cause=env)
@@ -388,19 +413,21 @@ class FleetAgent(Agent):
                     continue
                 rows = await (
                     await conn.execute(
-                        "SELECT * FROM fleet.jobs WHERE status = 'queued' AND NOT hold AND material = %s AND color = %s "
+                        "SELECT * FROM fleet.jobs WHERE status = 'queued' AND NOT hold "
                         "AND (pinned_printer IS NULL OR pinned_printer = %s) "
                         "ORDER BY rank NULLS LAST, priority DESC, due_by NULLS LAST, created_at LIMIT 300 "
                         "FOR UPDATE SKIP LOCKED",
-                        (p["material"], p["color"], p["printer_id"]),
+                        (p["printer_id"],),
                     )
                 ).fetchall()
                 if not rows:
                     continue
                 by_id = {r["job_id"]: r for r in rows}
-                printer = QPrinter(p["printer_id"], p["material"], p["color"], (p["bed_w"], p["bed_d"]), now)
-                pick = pick_plate(printer, order_for(printer, [qjob(r) for r in rows], now, window, self._tz),
-                                  margin=self.fleet.edge_margin_mm, spacing=self.fleet.part_spacing_mm,
+                printer = qprinter(p, now)
+                ranked = order_for(printer, [qjob(r) for r in rows], now, window, self._tz)
+                if not ranked:
+                    continue
+                pick = pick_plate(printer, ranked, margin=self.fleet.edge_margin_mm, spacing=self.fleet.part_spacing_mm,
                                   max_minutes=self.fleet.max_plate_minutes)
                 if pick is None:
                     self.log.warning("queued jobs for %s/%s do not fit printer %s", p["material"], p["color"], p["printer_id"])
@@ -409,7 +436,7 @@ class FleetAgent(Agent):
                 await conn.execute(
                     "INSERT INTO fleet.plates (plate_id, printer_id, material, color, status, est_grams, est_minutes) "
                     "VALUES (%s, %s, %s, %s, 'scheduled', %s, %s)",
-                    (plate_id, p["printer_id"], p["material"], p["color"], pick.est_grams, pick.est_minutes),
+                    (plate_id, p["printer_id"], pick.material, pick.color, pick.est_grams, pick.est_minutes),
                 )
                 for pl in pick.placements:
                     await conn.execute(
@@ -426,8 +453,8 @@ class FleetAgent(Agent):
                 await self.emit(
                     conn,
                     PlateScheduled(
-                        plate_id=plate_id, printer_id=p["printer_id"], job_ids=job_ids, material=p["material"],
-                        color=p["color"], est_grams=pick.est_grams, est_minutes=pick.est_minutes,
+                        plate_id=plate_id, printer_id=p["printer_id"], job_ids=job_ids, material=pick.material,
+                        color=pick.color, est_grams=pick.est_grams, est_minutes=pick.est_minutes,
                     ),
                     correlationid=plate_id,
                 )

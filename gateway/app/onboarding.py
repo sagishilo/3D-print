@@ -42,7 +42,7 @@ class ConnectionTest(BaseModel):
     vendor: Literal["bambu", "moonraker", "generic"]
     host: str = Field(pattern=HOST, max_length=253)
     # Bambu Lab
-    model: Literal["x1", "p1", "a1"] | None = None
+    model: Literal["x1", "p1", "a1", "a1-mini"] | None = None
     serial: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{8,20}$")
     access_code: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{8}$")
     mqtt_port: int = Field(default=8883, ge=1, le=65535)

@@ -138,7 +138,8 @@ class PersonalizationAgent(Agent):
             file = {"file_uri": path.resolve().as_uri(), "file_sha256": cmd.upload,
                     "file_name": cmd.upload_name or path.name, "sliced": info.sliced,
                     "printer_model": info.printer_model, "footprint_w": info.footprint_mm[0],
-                    "footprint_d": info.footprint_mm[1]}
+                    "footprint_d": info.footprint_mm[1], "filament_count": max(len(info.filaments), 1),
+                    "max_z_mm": info.max_z_mm}
         elif row is None:
             return await self._reject(conn, env, cmd.sku, "upsert", "a new SKU needs its 3MF template", by)
 
@@ -280,9 +281,10 @@ class PersonalizationAgent(Agent):
         minutes = info.est_minutes or row["est_minutes"]
         await conn.execute(
             "UPDATE catalog.products SET file_uri = %s, sliced = true, printer_model = %s, est_grams = %s, "
-            "est_minutes = %s, estimated = %s, updated_by = %s, updated_at = now() WHERE sku = %s",
-            (out.resolve().as_uri(), info.printer_model, grams, minutes, not (info.est_grams and info.est_minutes), by,
-             cmd.sku))
+            "est_minutes = %s, estimated = %s, filament_count = %s, max_z_mm = %s, updated_by = %s, updated_at = now() "
+            "WHERE sku = %s",
+            (out.resolve().as_uri(), info.printer_model, grams, minutes, not (info.est_grams and info.est_minutes),
+             max(len(info.filaments), 1), info.max_z_mm, by, cmd.sku))
         await self.emit(conn, CatalogProductUpdated(sku=cmd.sku, name=row["name"], active=row["active"], sliced=True,
                                                     by=by), cause=env)
 
@@ -302,5 +304,6 @@ class PersonalizationAgent(Agent):
         await self.emit(conn, ModelReady(
             order_id=cmd.order_id, item_id=cmd.item_id, artifact_uri=row["file_uri"], source_uri=row["file_uri"],
             footprint_mm=(row["footprint_w"], row["footprint_d"]), est_grams=row["est_grams"],
-            est_minutes=row["est_minutes"], sliced=row["sliced"],
+            est_minutes=row["est_minutes"], sliced=row["sliced"], printer_model=row["printer_model"],
+            filament_count=row["filament_count"], max_z_mm=row["max_z_mm"],
         ), cause=env)

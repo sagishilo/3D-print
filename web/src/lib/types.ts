@@ -80,6 +80,9 @@ export interface Printer {
   model: string
   simulated: boolean
   bed_mm: [number, number]
+  max_z_mm?: number | null        // build height (fleet.toml / the printer model)
+  ams_slots?: number              // 0: one external spool
+  ams_filaments?: string[]        // what is in the AMS slots, in order ("PLA black")
   nozzle_mm: number
   material: string
   color: string

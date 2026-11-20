@@ -45,12 +45,16 @@ class ThreeMfInfo:
     printer_model: str | None                 # the slicer's printer model id, when it says
     filament: str | None                      # filament type of the slice, e.g. "PLA"
     warnings: tuple[str, ...] = ()
+    # every filament the sliced plate uses, (slicer filament id, type, "#RRGGBB"): more than one = an AMS print
+    filaments: tuple[tuple[int, str, str], ...] = ()
+    max_z_mm: float | None = None             # height of the sliced plate (G-code header), when the slicer says
 
     def as_dict(self) -> dict:
         return {"sliced": self.sliced, "plates": self.plates, "objects": self.objects,
                 "footprint_mm": list(self.footprint_mm) if self.footprint_mm else None, "est_grams": self.est_grams,
                 "est_minutes": self.est_minutes, "printer_model": self.printer_model, "filament": self.filament,
-                "warnings": list(self.warnings)}
+                "warnings": list(self.warnings), "filaments": [list(f) for f in self.filaments],
+                "max_z_mm": self.max_z_mm}
 
 
 def _xml(data: bytes, name: str) -> ET.Element:
@@ -164,6 +168,32 @@ def _slice_info(data: bytes) -> tuple[float | None, float | None, str | None, st
             meta.get("printer_model_id") or None, fil.get("type") if fil is not None else None)
 
 
+def slice_filaments(data: bytes) -> tuple[tuple[int, str, str], ...]:
+    """The filaments plate 1 of ``Metadata/slice_info.config`` uses: (slicer filament id, type, "#RRGGBB")."""
+    plate = _xml(data, "slice_info.config").find("plate")
+    out = []
+    for f in plate.iter("filament") if plate is not None else ():
+        try:
+            fid = int(f.get("id") or 0)
+        except ValueError:
+            continue
+        color = (f.get("color") or "").strip().upper()
+        out.append((fid, (f.get("type") or "").strip(), color[:7] if color.startswith("#") else ""))
+    return tuple(sorted(out))
+
+
+_MAX_Z = re.compile(rb"^;\s*max_z_height:\s*([0-9.]+)", re.M)
+
+
+def gcode_max_z(head: bytes) -> float | None:
+    """The plate's height from the slicer's G-code header (``; max_z_height: 12.40``), when it is there."""
+    m = _MAX_Z.search(head)
+    try:
+        return round(float(m.group(1)), 2) if m else None
+    except ValueError:
+        return None
+
+
 def inspect_3mf(data: bytes) -> ThreeMfInfo:
     """What an uploaded 3MF holds. Raises InvalidThreeMf for anything that is not a usable template."""
     try:
@@ -206,15 +236,22 @@ def inspect_3mf(data: bytes) -> ThreeMfInfo:
         if footprint is not None and (footprint[0] <= 0 or footprint[1] <= 0 or not all(map(math.isfinite, footprint))):
             footprint = None
         grams = minutes = printer_model = filament = None
+        filaments: tuple[tuple[int, str, str], ...] = ()
+        max_z = None
         if plates and "Metadata/slice_info.config" in names:
-            grams, minutes, printer_model, filament = _slice_info(z.read("Metadata/slice_info.config"))
+            info = z.read("Metadata/slice_info.config")
+            grams, minutes, printer_model, filament = _slice_info(info)
+            filaments = slice_filaments(info)
+        if plates:
+            with z.open(f"Metadata/plate_{plates[0]}.gcode") as g:
+                max_z = gcode_max_z(g.read(64 * 1024))
         if plates and (grams is None or minutes is None):
             warnings.append("sliced, but the slicer's time and weight were not found")
         if len(plates) > 1:
             warnings.append(f"{len(plates)} sliced plates: only one plate per file can be sent to a printer")
         return ThreeMfInfo(sliced=bool(plates), plates=len(plates), objects=len(root.build), footprint_mm=footprint,
                            est_grams=grams, est_minutes=minutes, printer_model=printer_model, filament=filament,
-                           warnings=tuple(warnings))
+                           warnings=tuple(warnings), filaments=filaments, max_z_mm=max_z)
 
 
 # ---------------------------------------------------------------- batches

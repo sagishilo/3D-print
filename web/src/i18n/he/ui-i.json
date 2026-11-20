@@ -1,0 +1,11 @@
+{
+ "Check the filament cutter and the PTFE tube": "בדיקת סכין הפילמנט וצינור ה-PTFE",
+ "Check the heatbed cable and its strain relief": "בדיקת כבל המיטה המחוממת ותפס המתיחה שלו",
+ "Inspect the nozzle for wear; swap the hotend if worn": "בדיקת שחיקת הנחיר; החלפת ההוטאנד אם שחוק",
+ "needs {0} {1} loaded": "צריך {0} {1} טעון",
+ "sliced for {0}, not for this printer": "נפרס עבור {0}, לא עבור המדפסת הזו",
+ "{0} colours: needs a printer with an AMS": "{0} צבעים: צריך מדפסת עם AMS",
+ "{0} mm tall: this printer prints up to {1} mm": "גובה {0} מ\"מ: המדפסת הזו מדפיסה עד {1} מ\"מ",
+ "{0} × {1}{2} mm": "{0} × {1}{2} מ\"מ",
+ "AMS": "AMS"
+}

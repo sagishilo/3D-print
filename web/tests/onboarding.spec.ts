@@ -94,6 +94,30 @@ describe('the lines to paste', () => {
     expect(applyCommands(bambu({ model: 'x1' }))).toEqual(['docker compose up -d', 'docker compose restart telemetry fleet go2rtc'])
   })
 
+  it('Bambu A1 + AMS Lite: the model gives the bed, files go to the SD card, the AMS and past hours are written', () => {
+    const [toml, env] = snippets(bambu({ id: 'bambu-a1', model: 'a1', amsSlots: '4', printHours: '1116' }))
+    expect(toml.text).toContain('model = "a1"')
+    expect(toml.text).toContain('print_url = "file:///sdcard/{file}"')
+    expect(toml.text).not.toContain('bed_mm')
+    expect(toml.text).toContain('ams_slots = 4')
+    expect(toml.text).toContain('ams_filaments = ["PLA/black"]')
+    expect(toml.text).toContain('initial_print_hours = 1116')
+    expect(toml.text).not.toContain('material = ')
+    expect(env.text).toContain('BAMBU_CAMS=bambu-a1=')
+  })
+
+  it('Bambu A1 mini: one spool, its own model, hours checked', () => {
+    const f = bambu({ id: 'bambu-a1-mini', model: 'a1-mini', printHours: '497' })
+    const [toml] = snippets(f)
+    expect(toml.text).toContain('model = "a1-mini"')
+    expect(toml.text).toContain('material = "PLA"')
+    expect(toml.text).not.toContain('ams_slots')
+    expect(toml.text).toContain('initial_print_hours = 497')
+    expect(validate({ ...f, printHours: '12.5' }).printHours).toBeTruthy()
+    expect(validate(f).printHours).toBeUndefined()
+    expect(testRequest(f)).toHaveProperty('model', 'a1-mini')
+  })
+
   it('Klipper: the Moonraker websocket URL, and an API key variable only when needed', () => {
     const f = { ...emptyForm('moonraker'), id: 'voron-01', host: '192.168.50.31' }
     const files = snippets(f)

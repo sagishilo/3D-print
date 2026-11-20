@@ -212,6 +212,8 @@ def _enqueue(ctx: dict, unit_key: str) -> EnqueueJob:
         material=item["material"], color=item["color"], footprint_mm=tuple(model["footprint_mm"]),
         est_grams=model["est_grams"], est_minutes=model["est_minutes"], due_by=ctx["order"].get("due_by"),
         product_type=product_type(item["product"], item.get("sku", "")), whole_plate=bool(model.get("sliced")),
+        printer_model=model.get("printer_model"), filament_count=model.get("filament_count") or 1,
+        max_z_mm=model.get("max_z_mm"),
     )
 
 

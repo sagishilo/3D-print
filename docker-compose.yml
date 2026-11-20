@@ -303,7 +303,7 @@ services:
     restart: *restart
     logging: *logging
 
-  # Operator CLI: docker compose run --rm cli <order|approvals|approve|clear-bed|status|watch>
+  # Operator CLI: docker compose run --rm cli <order|approvals|approve|clear-bed|status|watch|reset-data>
   # It sends operator commands (approve, clear bed, orders), so it connects as "services", not "agents".
   cli:
     <<: *agent

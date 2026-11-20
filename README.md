@@ -151,7 +151,7 @@ New-NetFirewallRule -DisplayName "PrintFarm HTTPS" -Direction Inbound -Protocol 
 ## Step 10: Add printers (static IP + pre-flight port check)
 
 1. Give each printer a DHCP reservation on the router (step 2). Restart the printer so it picks up the reserved address.
-2. Create `printers.txt` in the stack folder, one line per printer (`id,type,ip`, with type `x1`, `p1`, `a1` or `klipper`):
+2. Create `printers.txt` in the stack folder, one line per printer (`id,type,ip`, with type `x1`, `p1`, `a1`, `a1-mini` or `klipper`):
 
 ```text
 x1c-02,x1,192.168.50.21
@@ -227,6 +227,103 @@ $env:SIM_FAULTS = "bambu-01=ignore_pause,voron-01=thermal_runaway"; docker compo
 | `ignore_pause`, `ignore_commands` | drops pause (or every command), like firmware that refuses third-party control: you get a **pause unconfirmed** alert |
 | `upload_fail`, `upload_flaky` | refuses uploads (no space) / fails the first upload of each file (the agent retries) |
 | `camera_off`, `camera_auth_fail`, `camera_drop`, `camera_stall` | camera port closed / login refused / connection drops / frames stop |
+
+## Connecting the real printers: Bambu Lab A1 + AMS Lite and A1 mini
+
+What the platform knows about each model (`src/printfarm/hardware.py`), so `fleet.toml` stays short:
+
+| | Bambu Lab A1 (`model = "a1"`) | Bambu Lab A1 mini (`model = "a1-mini"`) |
+| --- | --- | --- |
+| Build volume | 256 × 256 × 256 mm | 180 × 180 × 180 mm |
+| Average power (electricity per plate) | ~95 W (typical PLA average) | ~80 W (Bambu's figure for PLA) |
+| Slicer id in a sliced 3MF | `N2S` | `N1` |
+| Filament | `ams_slots = 4` (one AMS Lite) + `ams_filaments` | one external spool (`material`, `color`) |
+| Camera | port-6000 JPEG frames (`bambu-cam`, `--profile p1a1`) | same |
+
+The scheduler and the printer both check every plate (`fleet/policy.py` `unfit`, `telemetry/platefiles.py` `check_fits`):
+- **Sliced for this model only.** A file sliced for the A1 mini never goes to the A1, and the other way round: a sliced file carries the model's start G-code and bed size.
+- **Multi-colour only to the AMS.** A file that uses more than one filament goes only to a printer whose AMS has enough slots: with your farm, the A1. When it starts, each filament is mapped to the AMS slot holding the same material in the closest colour, as the AMS Lite reports it at that moment. With no such slot, or only a clearly different colour, the plate fails with what to load, and nothing prints.
+- **Colours.** The A1 takes jobs in any colour loaded in its 4 slots (`ams_filaments`, in slot order: edit it when you swap spools, then `docker compose restart fleet`). The A1 mini takes only jobs in its one spool's colour. One plate is still one filament.
+- **Size.** Parts larger than 180 mm on the bed, or plates taller than 180 mm, wait for the A1.
+- **Wear.** `initial_print_hours` counts the hours already on each printer into its counter, once. The Maintenance tab then shows 1,116 h and 497 h. A1 printers also get these maintenance tasks: nozzle wear / hotend swap every 500 h, cutter and PTFE tube every 300 h, heatbed cable every 90 days. A task counts from the day you connect the printer, unless you give its last service in `maintenance_done_hours` (print hours).
+- **Not yet checked on your hardware:** the start command (`project_file` with `file:///sdcard/<file>`, `use_ams`, `ams_mapping`) follows the community documentation (OpenBambuAPI / ha-bambulab). Run the first prints below while watching the printer.
+
+### Checklist: from power-on to the first print
+
+1. **Before LAN Only Mode** (while the printer still uses the cloud): update each printer's firmware in Bambu Handy. Developer Mode (third-party control) needs recent firmware.
+2. **Router:** give each printer a DHCP reservation (a fixed IP). Restart the printer.
+3. **On each printer:** Settings › **LAN Only Mode** ON, then **Developer Mode** ON. Write down the 8-character **access code** (same screen) and the **serial number** (Settings › Device).
+4. **Network check:** `printers.txt` (copy `printers.txt.example`):
+
+   ```text
+   bambu-a1,a1,<A1 IP>
+   bambu-a1-mini,a1-mini,<A1 mini IP>
+   ```
+
+   ```powershell
+   docker run --rm -v "${PWD}:/work" -w /work python:3.12-slim python scripts/preflight.py
+   ```
+
+   **Expected:** `ALL CHECKS PASSED` (MQTT 8883, FTPS 990, camera 6000 on both).
+5. **Back up, then a clean start:** see "Clean start" below.
+6. **`config/fleet.toml`:** in the blocks `>>> bambu-a1` and `>>> bambu-a1-mini`, remove the leading `# ` from each line. Fill in the IP and serial, and set `ams_filaments` to what is in slots 1–4. Add a `[[materials]]` block for every material and colour you stock (red, blue, …), so reorder rules and alerts know them. A placeholder left in `<...>` stops the agents with `fill in host`.
+7. **`cameras.env`:** uncomment the `BAMBU_CAMS` line and the two `BAMBU_CODE_BAMBU_A1…` lines, and fill in the IPs and access codes.
+8. **`infra/go2rtc/go2rtc.yaml`:** uncomment `bambu-a1:` and `bambu-a1-mini:`. Delete the `demo` line and the `SIMULATED printers` block.
+9. **`.env`:** add `FLEET_FILE=fleet.toml` (without it the stack runs the simulated fleet).
+10. **Start without the simulators, with the P1/A1 camera reader:**
+
+    ```powershell
+    docker compose --profile sim down
+    docker compose --profile p1a1 up -d --build
+    ```
+
+11. **Check on the dashboard:**
+    - Fleet: both printers **online**. The AMS row shows your four slots; the A1 mini shows its spool.
+    - Maintenance shows 1116 h and 497 h.
+    - Both camera tiles show video.
+    - Today has no "agents down".
+12. **Finance › Settings:** check electricity tariff, VAT and business type, then **Confirm**. The reset cleared the old confirmation.
+13. **Filament:** register your ~30 spools (**Register spool**; mark opened ones with their remaining grams) and set each rack as their location. Mark the A1's four spools and the A1 mini's spool as loaded.
+14. **First prints, watching the printers:**
+    1. A small single-colour plate sliced for the **A1 mini**. It must go to the A1 mini, upload, start and finish. Press **Pause** once during the print: the dashboard must show it paused, which shows third-party control works. Then resume.
+    2. A single-colour plate sliced for the **A1**.
+    3. A **two-colour** plate sliced for the A1 with the AMS colours. Check on the printer screen that it feeds the right slots.
+
+    If a start fails, the plate's reason says why: the printer's reply, an AMS mismatch, the wrong model, or too tall. Send me that line.
+15. **Optional:** measure each printer with a smart plug over a long print and put the average in `watts` (fleet.toml) for exact electricity costs.
+
+## Clean start: remove demo and test data
+
+Before the first real order, remove the simulator's and the tests' data with `printfarm reset-data`. It keeps:
+- your `admin` owner account (and `e2e-owner`, the account the browser tests use);
+- every setting;
+- the finance settings (only their confirmation is cleared);
+- filament materials and reorder rules;
+- connector settings.
+
+It removes:
+- orders, payments, jobs and plates;
+- printers and their counters (they are written again from `fleet.toml`);
+- spools, purchase orders, alerts and ledgers;
+- income and expenses, maintenance, store orders, documents and parcels, notifications, social captures, reports;
+- test users, test products and niches (except the five built-in niches);
+- the event history on NATS.
+
+```powershell
+docker compose exec backup /bin/sh /backup.sh now                # a fresh backup first
+docker compose --profile tools run --rm cli reset-data           # dry run: lists what would go, changes nothing
+docker compose stop coordinator personalization fleet telemetry inventory finance social trend integrations
+# wait 30 s (the agents' heartbeats expire), then:
+docker compose --profile tools run --rm cli reset-data --yes
+docker compose --profile p1a1 up -d
+```
+
+Options:
+- `--keep-user <name>` (repeat it) chooses who stays. The default is `admin` and `e2e-owner`. The command refuses unless an active owner stays.
+- `--keep-catalog` keeps products, niches, parts and packaging.
+- `--keep-history` leaves NATS alone.
+
+The command refuses while any agent is running.
 
 ## The dashboard
 

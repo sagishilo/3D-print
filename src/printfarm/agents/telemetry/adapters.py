@@ -36,6 +36,7 @@ from typing import Any
 import aiomqtt
 import websockets
 
+from printfarm.agents.telemetry.ams import ams_mapping, trays_from_report
 from printfarm.agents.telemetry.transfer import PlateFile, upload_ftps, upload_moonraker
 from printfarm.config import PrinterCfg
 from printfarm.contracts.calibration import Routine
@@ -316,7 +317,15 @@ class BambuMqttAdapter(PrinterAdapter):
         return await upload_ftps(plate, host=self.cfg.ftp_host or self.cfg.host, port=self.cfg.ftp_port,
                                  access_code=self.cfg.access_code(), timeout=timeout)
 
+    def ams_mapping(self, plate: PlateFile) -> list[int] | str:
+        """Which AMS slot feeds each filament of the plate, from what the AMS reports now (ams.py); "" without an
+        AMS, or when the file does not list its filaments (the printer then uses its own default)."""
+        if not self.cfg.use_ams or not plate.filaments:
+            return ""
+        return ams_mapping(plate.filaments, trays_from_report(self.raw))
+
     async def start_plate(self, plate: PlateFile) -> None:
+        mapping = self.ams_mapping(plate)     # raises AmsError (the plate fails with its reason) before anything moves
         # Field set as documented by the community (OpenBambuAPI, "project_file"); ids are "0" for LAN prints.
         await self._request({
             "print": {
@@ -325,7 +334,7 @@ class BambuMqttAdapter(PrinterAdapter):
                 "subtask_name": plate.plate_id, "url": self.cfg.print_url.format(file=plate.remote_name),
                 "md5": plate.md5, "timelapse": False, "bed_type": "auto", "bed_levelling": True,
                 "flow_cali": False, "vibration_cali": False, "layer_inspect": False,
-                "use_ams": self.cfg.use_ams, "ams_mapping": "",
+                "use_ams": self.cfg.use_ams, "ams_mapping": mapping,
             }
         })
 

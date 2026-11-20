@@ -11,6 +11,7 @@
     printfarm clear-bed <printer>           operator confirms a bed is cleared
     printfarm status                        printers, open orders
     printfarm watch                         tail all events and commands
+    printfarm reset-data [--yes]            remove demo / test data before real printers (dry run without --yes)
 """
 
 from __future__ import annotations
@@ -214,6 +215,39 @@ async def cmd_migrate(args, settings: Settings) -> None:
         await db.close()
 
 
+async def cmd_reset(args, settings: Settings) -> None:
+    from printfarm.bus.nats_bus import NatsBus
+    from printfarm.store import Database, reset
+
+    p = reset.plan(tuple(args.keep_user) if args.keep_user else reset.KEEP_USERS, args.keep_catalog,
+                   not args.keep_history)
+    bus = await NatsBus.connect(settings.nats_url, name="printfarm-reset")
+    db = Database(settings.database_url)
+    await db.open()
+    try:
+        # A running agent would write into the tables while they are emptied (and the fleet agent re-adds printers
+        # only on start): the agents must be stopped. Their heartbeats expire 30 s after they stop.
+        running = sorted(await bus.kv_keys("heartbeats"))
+        async with db.tx() as conn:
+            await reset.survey(conn, p)
+        print("PrintFarm reset-data " + ("(removing now)" if args.yes else "(dry run: nothing changes; add --yes)"))
+        print("\n".join(p.lines()))
+        if running:
+            print(f"  agents running now: {', '.join(running)}")
+        if not args.yes:
+            return
+        if running:
+            raise SystemExit("refusing: stop the agents first (README \"Clean start\"), wait 30 s, then run this again")
+        async with db.tx() as conn:
+            await reset.apply(conn, p)
+        purged = await reset.purge(bus.js, p.streams) if p.streams else []
+        print(f"NATS history purged: {', '.join(purged) or '-'}")
+    finally:
+        await db.close()
+        await bus.close()
+    print("done. Start the agents again: docker compose up -d")
+
+
 async def cmd_sim(args, settings: Settings) -> None:
     from printfarm.simulator.printers import run_simulator
 
@@ -254,6 +288,12 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("status")
     w = sub.add_parser("watch")
     w.add_argument("--telemetry", action="store_true")
+    rs = sub.add_parser("reset-data", help="remove demo / test data before real printers (stop the agents first)")
+    rs.add_argument("--yes", action="store_true", help="really remove it (without: a dry run that changes nothing)")
+    rs.add_argument("--keep-user", action="append", metavar="USERNAME",
+                    help="a user to keep (repeat it); default: admin and e2e-owner")
+    rs.add_argument("--keep-catalog", action="store_true", help="keep products, niches, parts and packaging")
+    rs.add_argument("--keep-history", action="store_true", help="do not purge the event history on NATS")
     args = ap.parse_args(argv)
 
     handlers = {
@@ -267,6 +307,7 @@ def main(argv: list[str] | None = None) -> None:
         "clear-bed": cmd_clear_bed,
         "status": cmd_status,
         "watch": cmd_watch,
+        "reset-data": cmd_reset,
     }
     try:
         asyncio.run(handlers[args.cmd](args, settings))

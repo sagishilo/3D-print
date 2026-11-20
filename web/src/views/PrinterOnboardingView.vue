@@ -225,8 +225,25 @@ const go = (n: number) => {
           <select v-model="form.model" class="select" dir="ltr" data-testid="f-model">
             <option value="x1">X1 series (X1C, X1E)</option>
             <option value="p1">P1 series (P1S, P1P)</option>
-            <option value="a1">A1 series (A1, A1 mini)</option>
+            <option value="a1">A1</option>
+            <option value="a1-mini">A1 mini</option>
           </select>
+        </label>
+
+        <label v-if="vendor === 'bambu'">
+          <span>AMS</span>
+          <select v-model="form.amsSlots" class="select" data-testid="f-ams">
+            <option value="0">בלי AMS (גליל חיצוני אחד)</option>
+            <option value="4">AMS אחד / AMS Lite (4 גלילים)</option>
+          </select>
+          <small class="hint">קובץ רב-צבעי נשלח רק למדפסת עם AMS.</small>
+        </label>
+
+        <label v-if="vendor === 'bambu'">
+          <span>שעות הדפסה עד היום</span>
+          <input v-model.trim="form.printHours" class="input mono" dir="ltr" inputmode="numeric" placeholder="0" data-testid="f-hours" @blur="touched.printHours = true" />
+          <small v-if="shown('printHours')" class="err" role="alert">{{ shown('printHours') }}</small>
+          <small v-else class="hint">מהמסך של המדפסת (Settings ➔ Device). כך התחזוקה מתחילה מהבלאי האמיתי.</small>
         </label>
 
         <label>

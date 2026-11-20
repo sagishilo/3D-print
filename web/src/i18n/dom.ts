@@ -15,6 +15,7 @@ import e from './he/ui-e.json'
 import f from './he/ui-f.json'
 import g from './he/ui-g.json'
 import h from './he/ui-h.json'
+import i from './he/ui-i.json'
 import { en } from './en'
 import { he } from './he'
 
@@ -29,7 +30,7 @@ function pairs(enPart: object, hePart: object, out: Record<string, string> = {})
   return out
 }
 
-export const HE_UI: Record<string, string> = { ...pairs(en, he), ...a, ...b, ...c, ...d, ...e, ...f, ...g, ...h }
+export const HE_UI: Record<string, string> = { ...pairs(en, he), ...a, ...b, ...c, ...d, ...e, ...f, ...g, ...h, ...i }
 
 const ATTRS = ['placeholder', 'title', 'aria-label', 'alt'] as const
 const HEBREW = /[֐-׿]/

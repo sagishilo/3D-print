@@ -34,7 +34,7 @@ from printfarm.agents.base import Agent, on
 from printfarm.agents.telemetry.adapters import CalibrationError, PrinterAdapter, make_adapter
 from printfarm.agents.telemetry.detectors import DetectorSet, Finding
 from printfarm.agents.telemetry.lost import LostPrintWatch
-from printfarm.agents.telemetry.platefiles import PlateFileError, resolve_plate_file
+from printfarm.agents.telemetry.platefiles import PlateFileError, check_fits, resolve_plate_file
 from printfarm.agents.telemetry.safety import PauseOutcome, pause_and_verify
 from printfarm.agents.telemetry.transfer import PlateFile, UploadError
 from printfarm.agents.telemetry.vision import FRAME_EVERY_S, FakeScorer, HttpScorer, Scorer, Watch, model_name
@@ -415,6 +415,7 @@ class TelemetryAgent(Agent):
                 raise StartFailed("unknown printer")
             plate = await asyncio.to_thread(resolve_plate_file, plate_id, artifact_uris, vendor=adapter.vendor,
                                             simulated=cfg.simulated, out_dir=Path(self.settings.artifact_dir))
+            check_fits(plate, printer_model=cfg.model, max_z=cfg.max_z_mm, ams_slots=cfg.ams_slots)
             if not await self._wait_for(lambda: adapter.online, ONLINE_WAIT_S):
                 raise StartFailed(f"printer offline for {ONLINE_WAIT_S:.0f} s")
             if self._is_running(pid, plate_id):  # e.g. resumed after a restart and the printer already has it

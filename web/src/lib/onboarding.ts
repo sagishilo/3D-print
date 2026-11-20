@@ -3,7 +3,7 @@
 // printers are configured in files (config/fleet.toml + cameras.env), as README steps 10-12 describe.
 
 export type Vendor = 'bambu' | 'moonraker' | 'generic'
-export type BambuModel = 'x1' | 'p1' | 'a1'
+export type BambuModel = 'x1' | 'p1' | 'a1' | 'a1-mini'
 
 export interface PrinterForm {
   vendor: Vendor
@@ -26,6 +26,9 @@ export interface PrinterForm {
   // the printer's defaults in the farm
   material: string
   color: string
+  // Bambu: AMS slots attached (0 = one external spool; 4 = one AMS / AMS Lite) and print hours already on it
+  amsSlots: string
+  printHours: string
 }
 
 export const emptyForm = (vendor: Vendor): PrinterForm => ({
@@ -45,6 +48,8 @@ export const emptyForm = (vendor: Vendor): PrinterForm => ({
   cameraPort: '',
   material: 'PLA',
   color: 'black',
+  amsSlots: '0',
+  printHours: '',
 })
 
 /** The built-in simulated printers (docker compose --profile sim), to practise the whole flow without hardware. */
@@ -67,7 +72,7 @@ export function simulatorForm(vendor: Vendor): PrinterForm {
 }
 
 export const VENDORS: { id: Vendor; name: string; models: string; text: string }[] = [
-  { id: 'bambu', name: 'Bambu Lab', models: 'X1 · P1 · A1', text: 'מדפסות Bambu Lab, בחיבור מקומי (LAN Only Mode).' },
+  { id: 'bambu', name: 'Bambu Lab', models: 'X1 · P1 · A1 · A1 mini', text: 'מדפסות Bambu Lab, בחיבור מקומי (LAN Only Mode).' },
   { id: 'moonraker', name: 'Klipper / Voron', models: 'Moonraker', text: 'מדפסות עם Klipper: Voron, RatRig, Sovol ועוד, דרך Moonraker.' },
   { id: 'generic', name: 'Generic / Other', models: 'Network printer', text: 'מדפסת אחרת ברשת: בודקים רק שהיא עונה.' },
 ]
@@ -96,6 +101,7 @@ export function validate(f: PrinterForm): Errors {
     if (!isPort(f.ftpPort)) e.ftpPort = 'מספר בין 1 ל-65535'
     if (f.cameraHost && !isHost(f.cameraHost)) e.cameraHost = 'כתובת לא תקינה'
     if (f.cameraPort && !isPort(f.cameraPort)) e.cameraPort = 'מספר בין 1 ל-65535'
+    if (f.printHours.trim() && !/^\d{1,6}$/.test(f.printHours.trim())) e.printHours = 'מספר שלם של שעות (או ריק)'
   } else if (!isPort(f.port)) e.port = 'מספר בין 1 ל-65535'
   return e
 }
@@ -161,6 +167,23 @@ export interface Snippet {
   text: string
 }
 
+/** fleet.toml lines that depend on the model: A1-series files sit on the SD card and the model gives the bed, height
+ *  and watts (fleet.toml `model`); an AMS takes the colours, a counter of past print hours seeds maintenance. */
+function bambuModelLines(f: PrinterForm): string[] {
+  const a1 = f.model === 'a1' || f.model === 'a1-mini'
+  const slots = Number(f.amsSlots) || 0
+  const hours = Number(f.printHours.trim()) || 0
+  return [
+    a1 ? 'print_url = "file:///sdcard/{file}"' : 'print_url = "ftp:///{file}"',
+    ...(a1 ? [] : ['bed_mm = [256, 256, 256]']),
+    'nozzle_mm = 0.4',
+    ...(slots
+      ? [`ams_slots = ${slots}`, `ams_filaments = ["${f.material}/${f.color}"]   # slot 1; add the other slots: "PLA/white", ...`]
+      : [`material = "${f.material}"`, `color = "${f.color}"`]),
+    ...(hours ? [`initial_print_hours = ${hours}`] : []),
+  ]
+}
+
 /** The lines to paste, file by file, for a printer that passed the test. */
 export function snippets(f: PrinterForm): Snippet[] {
   const id = f.id
@@ -182,12 +205,7 @@ export function snippets(f: PrinterForm): Snippet[] {
           `serial = "${f.serial.trim()}"`,
           `access_code_env = "${code}"`,
           'ftp_port = 990',
-          'print_url = "ftp:///{file}"',
-          'use_ams = false',
-          'bed_mm = [256, 256]',
-          'nozzle_mm = 0.4',
-          `material = "${f.material}"`,
-          `color = "${f.color}"`,
+          ...bambuModelLines(f),
         ].join('\n'),
       },
       {

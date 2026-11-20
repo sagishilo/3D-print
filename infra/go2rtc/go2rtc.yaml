@@ -34,7 +34,12 @@ streams:
   #   - rtspx://bblp:${BAMBU_CODE_X1C_02}@192.168.50.21:322/streaming/live/1
   #   - ffmpeg:x1c-02#video=mjpeg#width=960
 
-  # --- Bambu P1 / A1: no RTSP; frames come from the bambu-cam service (custom frame-reader) ---
+  # --- Your farm: Bambu Lab A1 and A1 mini. Frames come from the bambu-cam service (--profile p1a1), which reads
+  # BAMBU_CAMS and the access codes from cameras.env; nothing secret is written here. Uncomment both lines:
+  # bambu-a1: http://bambu-cam:8090/bambu-a1.mjpeg
+  # bambu-a1-mini: http://bambu-cam:8090/bambu-a1-mini.mjpeg
+
+  # --- Other Bambu P1 / A1 printers: no RTSP; frames come from the bambu-cam service (custom frame-reader) ---
   # p1s-01: http://bambu-cam:8090/p1s-01.mjpeg
 
   # --- Klipper + Crowsnest: native MJPEG over HTTP ---

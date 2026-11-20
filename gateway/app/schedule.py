@@ -17,7 +17,18 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from printfarm.agents.fleet import maintenance as mt
-from printfarm.agents.fleet.policy import Block, QPrinter, Window, forecast, order_for, qjob, quiet_now, window_from
+from printfarm.agents.fleet.policy import (
+    Block,
+    Window,
+    forecast,
+    no_printer,
+    order_for,
+    qjob,
+    qprinter,
+    quiet_now,
+    unfit,
+    window_from,
+)
 from printfarm.contracts.config_keys import CONFIG_DEFAULTS
 
 from . import auth
@@ -98,8 +109,7 @@ def build(printers: list[dict], jobs: list[dict], running: list[dict], blocked: 
     for p in printers:
         reason = why_not(p, blocked)
         # A busy printer is free after its plate; one waiting for a person is planned as if they come now.
-        qprinters.append(QPrinter(p["printer_id"], p["material"], p["color"], (p["bed_w"], p["bed_d"]),
-                                  free_at.get(p["printer_id"], now), available=reason in ("", "bed"),
+        qprinters.append(qprinter(p, free_at.get(p["printer_id"], now), available=reason in ("", "bed"),
                                   why_not=reason))
     queued = [qjob(j) for j in jobs]
     fc = forecast(qprinters, queued, now, w, tz, running=blocks, horizon_h=horizon_h)
@@ -111,7 +121,6 @@ def build(printers: list[dict], jobs: list[dict], running: list[dict], blocked: 
                 continue
             for jid in b.jobs:
                 planned[jid] = {"printer_id": pid, "start": b.start.isoformat(), "reason": b.reasons.get(jid, "")}
-    loaded = {(p.material, p.color) for p in qprinters}
     queue = []
     for j in sorted(queued, key=lambda q: (q.hold, q.rank is None, q.rank or 0, -q.priority,
                                            q.due_by or datetime.max.replace(tzinfo=UTC), q.created_at or now)):
@@ -120,12 +129,12 @@ def build(printers: list[dict], jobs: list[dict], running: list[dict], blocked: 
             reason = "held"
         elif plan:
             reason = plan["reason"]
-        elif (j.material, j.color) not in loaded:
-            reason = f"no printer has {j.material} {j.color} loaded"
+        elif cant := no_printer(qprinters, j):
+            reason = cant
         elif j.pinned_printer and j.pinned_printer not in {p.printer_id for p in qprinters}:
             reason = f"pinned to {j.pinned_printer}, which is gone"
         else:
-            p = next((p for p in qprinters if (p.material, p.color) == (j.material, j.color)), None)
+            p = next((p for p in qprinters if unfit(p, j) is None), None)
             ranked = order_for(p, [j], now, w, tz) if p else []
             reason = (ranked[0].reason + " · later") if ranked else "waits"
         row = jobs_by_id[j.job_id]
@@ -156,7 +165,7 @@ async def snapshot(request: Request) -> dict:
     db, bus, now = request.app.state.db, request.app.state.bus, datetime.now(UTC)
     printers = await db.fetchall(
         "SELECT printer_id, material, color, bed_w, bed_d, online, busy, bed_clear, calibrating, auto_eject, "
-        "plate_stack, plates_left FROM fleet.printers ORDER BY printer_id")
+        "plate_stack, plates_left, model, max_z, ams_slots, loaded FROM fleet.printers ORDER BY printer_id")
     jobs = await db.fetchall("SELECT * FROM fleet.jobs WHERE status = 'queued' ORDER BY created_at LIMIT 500")
     running = await db.fetchall(
         "SELECT p.plate_id, p.printer_id, p.status, p.started_at, p.est_minutes, j.job_id FROM fleet.plates p "

@@ -110,8 +110,9 @@ function took(start: string, end: string | null): string {
       <template v-if="printer && tab === 'overview'">
         <CameraView :printer-id="printer.id" :available="printer.camera" :protocol="printer.protocol" :simulated="printer.simulated" :height="300" />
         <div class="facts">
-          <div><span>Bed</span><b class="mono">{{ printer.bed_mm[0] }} × {{ printer.bed_mm[1] }} mm</b></div>
-          <div><span>Filament</span><b>{{ printer.material }} {{ printer.color }}</b></div>
+          <div><span>Bed</span><b class="mono">{{ printer.bed_mm[0] }} × {{ printer.bed_mm[1] }}{{ printer.max_z_mm ? ` × ${printer.max_z_mm}` : '' }} mm</b></div>
+          <div v-if="printer.ams_slots" data-testid="printer-ams"><span>AMS</span><b>{{ (printer.ams_filaments ?? []).join(' · ') || printer.ams_slots }}</b></div>
+          <div v-else><span>Filament</span><b>{{ printer.material }} {{ printer.color }}</b></div>
           <div><span>Prints (7 days)</span><b class="mono">{{ detail?.stats.prints_7d ?? '—' }}</b></div>
           <div><span>Success</span><b class="mono">{{ successRate }}</b></div>
           <div><span>Print time (7 days)</span><b class="mono">{{ detail ? `${detail.stats.print_hours_7d} h` : '—' }}</b></div>

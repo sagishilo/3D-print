@@ -43,6 +43,11 @@ class PlateFile:
     md5: str
     size: int
     plate_gcode: str = "Metadata/plate_1.gcode"  # Bambu: the sliced plate inside the 3MF
+    # from the slicer (Bambu sliced files): (slicer filament id, type, "#RRGGBB") per filament the plate uses,
+    # the printer model it was sliced for and its height
+    filaments: tuple[tuple[int, str, str], ...] = ()
+    printer_model: str | None = None
+    max_z_mm: float | None = None
 
 
 def md5_of(path: Path) -> str:

@@ -444,6 +444,9 @@ class ModelReady(Event):
     est_grams: float
     est_minutes: float
     sliced: bool                 # False => estimates only, slicer CLI not installed
+    printer_model: str | None = None   # sliced files: the slicer's printer_model_id (only that model may print it)
+    filament_count: int = Field(default=1, ge=1, le=16)   # > 1: a multi-colour print, AMS printers only
+    max_z_mm: float | None = None      # height of the sliced plate, when the slicer says
 
 
 class ModelFailed(Event):
@@ -600,6 +603,9 @@ class EnqueueJob(Command):
     priority: int = 0
     product_type: str = "nameplate"
     whole_plate: bool = False    # a sliced file: printed alone, as the slicer arranged its plate
+    printer_model: str | None = None   # sliced for this printer model only (slicer printer_model_id)
+    filament_count: int = Field(default=1, ge=1, le=16)   # > 1: needs a printer with an AMS
+    max_z_mm: float | None = None      # needs a printer at least this tall
 
 
 class CancelOrderJobs(Command):

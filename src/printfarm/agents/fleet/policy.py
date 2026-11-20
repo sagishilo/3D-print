@@ -12,9 +12,12 @@ Order of the queue for one printer (each job gets the reason it is where it is):
    the night; during the day a long job without urgency waits for the evening if shorter work is queued.
 6. **Due date**, then first come, first served.
 
-Filament grouping: a printer only takes jobs of the filament loaded on it (no swap mid-queue); jobs no printer can
-take show as unplaced with the filament they need (a spool-change suggestion). Quiet hours: no new print starts
-between quiet_from and quiet_until (running prints continue).
+Filament grouping: a printer only takes jobs of a filament loaded on it (its one spool, or any of its AMS slots; no
+swap mid-queue); jobs no printer can take show as unplaced with the filament they need (a spool-change suggestion).
+Quiet hours: no new print starts between quiet_from and quiet_until (running prints continue).
+
+Hardware fit (``unfit``): a file sliced for one printer model goes only to that model; a multi-colour file only to a
+printer whose AMS has enough slots; a plate taller than a printer's build height never goes to it.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from datetime import datetime, timedelta, tzinfo
 from typing import Any
 
 from printfarm.agents.fleet.packing import JobSpec, build_plate
+from printfarm.hardware import model_of_slicer_id, sliced_for
 
 URGENT_SLACK_H = 6.0
 
@@ -59,6 +63,9 @@ class QJob:
     hold: bool = False
     pinned_printer: str | None = None
     rank: int | None = None
+    printer_model: str | None = None   # sliced for this printer model (slicer printer_model_id)
+    filament_count: int = 1            # > 1: a multi-colour file (AMS)
+    max_z_mm: float | None = None      # plate height, when known
 
     def spec(self) -> JobSpec:
         return JobSpec(self.job_id, self.w, self.d, self.est_minutes, self.est_grams, self.priority, self.due_by,
@@ -74,6 +81,44 @@ class QPrinter:
     free_at: datetime              # now when idle; the running plate's expected end otherwise
     available: bool = True         # online, bed clear (or auto-eject), not calibrating, no blocking maintenance
     why_not: str = ""
+    loaded: tuple[tuple[str, str], ...] = ()   # AMS slots, in order (empty: the one spool, material/color)
+    ams_slots: int = 0
+    max_z: float = 0               # build height in mm; 0 = not checked
+    model: str = ""                # fleet.toml model ("a1", "a1-mini", ...)
+
+    def filaments(self) -> tuple[tuple[str, str], ...]:
+        return self.loaded or ((self.material, self.color),)
+
+
+def unfit(p: QPrinter, j: QJob) -> str | None:
+    """Why printer ``p`` can never print job ``j`` as it is set up now, or None when it can."""
+    if sliced_for(p.model, j.printer_model) is False:
+        m = model_of_slicer_id(j.printer_model)
+        return f"sliced for {m.label if m else j.printer_model}, not for this printer"
+    if j.filament_count > 1 and j.filament_count > p.ams_slots:
+        return f"{j.filament_count} colours: needs a printer with an AMS"
+    if j.max_z_mm and p.max_z and j.max_z_mm > p.max_z:
+        return f"{j.max_z_mm:.0f} mm tall: this printer prints up to {p.max_z:.0f} mm"
+    if (j.material, j.color) not in p.filaments():
+        return f"needs {j.material} {j.color} loaded"
+    return None
+
+
+def no_printer(printers: Sequence[QPrinter], j: QJob) -> str | None:
+    """Why no printer of the fleet can take ``j`` (the reason of the closest one), or None when one can."""
+    reasons = [unfit(p, j) for p in printers]
+    if not printers or any(r is None for r in reasons):
+        return None
+    if not any((j.material, j.color) in p.filaments() for p in printers):
+        return f"no printer has {j.material} {j.color} loaded"
+    return next(r for p, r in zip(printers, reasons, strict=True) if (j.material, j.color) in p.filaments())
+
+
+def qprinter(r: Mapping[str, Any], free_at: datetime, *, available: bool = True, why_not: str = "") -> QPrinter:
+    """A fleet.printers row as the policy sees it."""
+    loaded = tuple(tuple(f) for f in (r.get("loaded") or ()))
+    return QPrinter(r["printer_id"], r["material"], r["color"], (r["bed_w"], r["bed_d"]), free_at, available, why_not,
+                    loaded, int(r.get("ams_slots") or 0), float(r.get("max_z") or 0), r.get("model") or "")
 
 
 def window_from(get: Callable[[str], Any]) -> Window:
@@ -130,7 +175,7 @@ def order_for(printer: QPrinter, jobs: Iterable[QJob], now: datetime, w: Window,
     late = evening(now, w, tz)
     keyed = []
     for j in jobs:
-        if j.hold or (j.material, j.color) != (printer.material, printer.color):
+        if j.hold or unfit(printer, j) is not None:
             continue
         if j.pinned_printer and j.pinned_printer != printer.printer_id:
             continue
@@ -162,6 +207,8 @@ class Pick:
     est_grams: float
     reasons: dict[str, str]
     placements: tuple = ()
+    material: str = ""
+    color: str = ""
 
 
 def pick_plate(printer: QPrinter, ranked: Sequence[Ranked], *, margin: float, spacing: float, max_minutes: float) -> Pick | None:
@@ -174,8 +221,11 @@ def pick_plate(printer: QPrinter, ranked: Sequence[Ranked], *, margin: float, sp
         plan = build_plate([j.spec()], printer.bed, margin=margin, spacing=spacing, max_minutes=max(max_minutes, j.est_minutes))
         if plan is None:
             return None
-        return Pick((j.job_id,), j.est_minutes, j.est_grams, {j.job_id: ranked[0].reason}, tuple(plan.placements))
-    pool = [r for r in ranked if not r.job.whole_plate]
+        return Pick((j.job_id,), j.est_minutes, j.est_grams, {j.job_id: ranked[0].reason}, tuple(plan.placements),
+                    j.material, j.color)
+    # one filament per plate: the leader's (an AMS printer may hold several)
+    lead = next((r.job for r in ranked if not r.job.whole_plate), None)
+    pool = [r for r in ranked if not r.job.whole_plate and lead and (r.job.material, r.job.color) == (lead.material, lead.color)]
     # A leader too big for this bed is skipped (another printer may take it); the rest keep the queue order.
     while pool:
         plan = build_plate([r.job.spec() for r in pool], printer.bed, margin=margin, spacing=spacing,
@@ -185,7 +235,9 @@ def pick_plate(printer: QPrinter, ranked: Sequence[Ranked], *, margin: float, sp
         ids = tuple(p.item_id for p in plan.placements)
         if pool[0].job.job_id in ids:
             reasons = {r.job.job_id: r.reason for r in pool if r.job.job_id in ids}
-            return Pick(ids, plan.est_minutes, plan.est_grams, reasons, tuple(plan.placements))
+            first = pool[0].job
+            return Pick(ids, plan.est_minutes, plan.est_grams, reasons, tuple(plan.placements), first.material,
+                        first.color)
         pool = pool[1:]
     return None
 
@@ -194,7 +246,8 @@ def qjob(r: Mapping[str, Any]) -> QJob:
     """A fleet.jobs row as the policy sees it."""
     return QJob(r["job_id"], r["order_id"], r["material"], r["color"], r["footprint_w"], r["footprint_d"],
                 r["est_minutes"], r["est_grams"], r["priority"], r["due_by"], r["created_at"], r["whole_plate"],
-                bool(r.get("hold")), r.get("pinned_printer"), r.get("rank"))
+                bool(r.get("hold")), r.get("pinned_printer"), r.get("rank"), r.get("printer_model"),
+                int(r.get("filament_count") or 1), r.get("max_z_mm"))
 
 
 @dataclass
@@ -245,7 +298,7 @@ def forecast(printers: Sequence[QPrinter], jobs: Sequence[QJob], now: datetime, 
         free[pid] = end
     groups: dict[tuple[str, str], list[QJob]] = {}
     for j in left.values():
-        if not any((p.material, p.color) == (j.material, j.color) for p in printers):
+        if not any((j.material, j.color) in p.filaments() for p in printers):
             groups.setdefault((j.material, j.color), []).append(j)
     out.unplaced = [{"material": m, "color": c, "jobs": [j.job_id for j in js], "minutes": round(sum(j.est_minutes for j in js))}
                     for (m, c), js in sorted(groups.items(), key=lambda kv: -sum(j.est_minutes for j in kv[1]))]

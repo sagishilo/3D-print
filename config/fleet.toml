@@ -25,11 +25,48 @@ font = "Noto Sans Hebrew:style=Bold"
 # sliced plate; Klipper: .gcode). Unsliced parts are refused with a clear reason until the plate compositor exists.
 # Never set `simulated = true` here.
 
-# Bambu Lab (LAN mode: MQTT over TLS on 8883, implicit FTPS on 990 for uploads). Uncomment and fill in:
+# ---- Your farm: Bambu Lab A1 + AMS Lite, and Bambu Lab A1 mini (README "Connecting the real printers") ----------
+# To use: remove the leading "# " of every line between the >>> and <<< markers (lines starting "##" stay comments),
+# then replace each <...> placeholder. Bed size, build height and average watts come from `model`.
+# On each printer: Settings > LAN Only Mode ON, then Developer Mode ON (third-party control), note the 8-character
+# access code (same screen) and the serial number (Settings > Device). Reserve each IP on your router (DHCP).
+
+# >>> bambu-a1
+# [[printers]]
+# id = "bambu-a1"                     ## also its camera stream name (go2rtc.yaml) and BAMBU_CAMS entry (cameras.env)
+# vendor = "bambu"
+# model = "a1"                        ## 256 x 256 x 256 mm, ~95 W; only files sliced for the A1 go to it
+# host = "<A1 LAN IP, e.g. 192.168.1.41>"
+# serial = "<A1 serial, 15 characters, Settings > Device>"
+# access_code_env = "BAMBU_CODE_BAMBU_A1"   ## the code itself goes in cameras.env, never here
+# print_url = "file:///sdcard/{file}" ## A1 series: the uploaded file on the SD card (community-documented)
+# nozzle_mm = 0.4
+# ams_slots = 4                       ## one AMS Lite: multi-colour files only ever go to this printer
+# ams_filaments = ["PLA/black", "PLA/white", "PLA/red", "PLA/blue"]   ## what is in slots 1-4 now; edit when you swap
+# initial_print_hours = 1116          ## the printer's own counter (Settings > Device > print hours)
+# # maintenance_done_hours = { lube-rods = 1100, nozzle-check = 1100 }  ## optional: print hours at the last service
+# <<< bambu-a1
+
+# >>> bambu-a1-mini
+# [[printers]]
+# id = "bambu-a1-mini"
+# vendor = "bambu"
+# model = "a1-mini"                   ## 180 x 180 x 180 mm, ~80 W; larger or taller parts never go to it
+# host = "<A1 mini LAN IP, e.g. 192.168.1.42>"
+# serial = "<A1 mini serial, 15 characters>"
+# access_code_env = "BAMBU_CODE_BAMBU_A1_MINI"
+# print_url = "file:///sdcard/{file}"
+# nozzle_mm = 0.4
+# material = "PLA"                    ## the one external spool on it now
+# color = "black"
+# initial_print_hours = 497
+# <<< bambu-a1-mini
+
+# Any other Bambu Lab printer (LAN mode: MQTT over TLS on 8883, implicit FTPS on 990 for uploads):
 # [[printers]]
 # id = "x1c-02"
 # vendor = "bambu"
-# model = "x1"                        # x1 | p1 | a1 (informational; cameras are set up in go2rtc.yaml)
+# model = "x1c"                       # a1 | a1-mini | p1p | p1s | x1c | x1e: fills bed, height and watts
 # host = "192.168.50.21"
 # port = 8883
 # tls = true
@@ -39,7 +76,7 @@ font = "Noto Sans Hebrew:style=Bold"
 # print_url = "ftp:///{file}"         # project_file "url"; verify on your firmware before relying on it
 # use_ams = false
 # watts = 110                        # average power while printing (electricity cost per plate); omit = finance default
-# bed_mm = [256, 256]
+# bed_mm = [256, 256, 256]            # width, depth, height; omit to take the model's
 # nozzle_mm = 0.4
 # material = "PLA"
 # color = "black"

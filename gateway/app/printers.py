@@ -18,7 +18,7 @@ PROTOCOL = {"bambu": "Bambu MQTT", "moonraker": "Klipper"}
 SAMPLE_FIELDS = ("observed_at", "status", "plate_id", "progress", "layer", "total_layers", "nozzle_temp",
                  "nozzle_target", "bed_temp", "bed_target", "remaining_s", "error_code")
 PRINTER_COLUMNS = ("printer_id, vendor, model, simulated, bed_w, bed_d, nozzle_mm, material, color, online, busy, "
-                   "bed_clear, calibrating, updated_at")
+                   "bed_clear, calibrating, updated_at, max_z, ams_slots, loaded")
 LOG_SUBJECTS = ("evt.printer.>", "evt.fleet.plate.>")
 SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 
@@ -51,6 +51,8 @@ def _printer(r: dict, state: dict | None, cams: set[str], calibration: dict | No
         "material": r["material"], "color": r["color"], "online": r["online"], "busy": r["busy"],
         "bed_clear": r["bed_clear"], "updated_at": r["updated_at"], "state": state,
         "camera": r["printer_id"] in cams, "calibration": calibration,
+        "max_z_mm": r.get("max_z") or None, "ams_slots": r.get("ams_slots") or 0,
+        "ams_filaments": [f"{m} {c}" for m, c in (r.get("loaded") or [])],
     }
 
 
