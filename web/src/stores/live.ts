@@ -13,6 +13,7 @@ import { useCatalog } from './catalog'
 import { useNiche } from './niche'
 import { useIntegrations } from './integrations'
 import { useSchedule } from './schedule'
+import { useStoreOrders } from './storeOrders'
 import { useStock } from './stock'
 import { useToday } from './today'
 import { useSocial } from './social'
@@ -99,6 +100,10 @@ export const useLive = defineStore('live', () => {
     if (d.kind === 'message.dead_lettered') void useSystem().loadDlq()
     if (d.kind === 'system.config.changed') void useSystem().loadSettings()
     if (d.kind.startsWith('integrations.') || d.kind.startsWith('notify.')) useIntegrations().reloadSoon()
+    if (d.kind.startsWith('integrations.store_order.') || d.kind.startsWith('integrations.sku.') || d.kind.startsWith('integrations.push.') ||
+      d.kind === 'integrations.sync.finished') useStoreOrders().reloadSoon()
+    if (d.kind === 'integrations.store_order.changed' && data.status === 'needs_mapping' && data.previous !== 'needs_mapping')
+      toasts.push({ tone: 'warn', title: 'Store order waits', text: d.text }, 10000)
     if (d.kind.startsWith('fleet.') || d.kind === 'system.config.changed' || d.kind.startsWith('printer.print.')) useSchedule().reloadSoon()
     // Today: almost every event can add or clear a line (a bed, an order, an alert, a lead, an approval)
     if (!d.kind.startsWith('printer.state') && !d.kind.startsWith('inventory.filament.consumed')) useToday().reloadSoon()

@@ -31,6 +31,7 @@ from printfarm.contracts.messages import (
     OrderStageChanged,
     OrderUpdated,
     PaymentLine,
+    PaymentMethod,
     PaymentRecorded,
     PaymentRefunded,
     RecordPayment,
@@ -41,6 +42,7 @@ from printfarm.contracts.messages import (
     ShipOrder,
     StockMoved,
     StockRuleChanged,
+    StoreOrderReady,
 )
 from printfarm.contracts.orders import OrderLine, line_niche, price_order
 from printfarm.contracts.stock import restock_suggestion
@@ -97,6 +99,26 @@ class CoordinatorAgent(Agent):
                                            items=lines, total_agorot=total, units=sum(x.quantity for x in lines),
                                            state=d.state), cause=env, correlationid=cmd.order_id)
         await self._start(conn, env, cmd.order_id, d, cmd.due_by)
+
+    @on("evt.integrations.store_order.ready")
+    async def store_order_ready(self, env, msg: StoreOrderReady, conn):
+        """A store order (Shopify, W2-A) with every line mapped: create it like a manual one (confirmed, not a lead)
+        and, when the store says it is paid, record that payment once (its id is fixed by the order)."""
+        if await self._exists(conn, msg.order_id):
+            self.log.info("store order %s already exists", msg.order_id)
+            return
+        try:
+            cmd = CreateOrder(order_id=msg.order_id, customer_name=msg.customer_name, customer_ref=msg.customer_ref,
+                              channel=msg.channel, items=msg.items, discount_agorot=msg.discount_agorot,
+                              shipping_agorot=msg.shipping_agorot, notes=msg.notes, created_by=msg.connector_id)
+        except ValueError as exc:
+            self.log.error("store order %s refused: %s", msg.order_id, exc)
+            return
+        await self._create(conn, env, cmd)
+        if msg.paid_agorot > 0:
+            pay = RecordPayment(order_id=msg.order_id, amount_agorot=msg.paid_agorot, method=PaymentMethod.CARD,
+                                paid_at=msg.paid_at, receipt_no=msg.external_name or None, recorded_by=msg.connector_id)
+            await self._payment(env, pay, conn, refund=False, payment_id=f"pay-{msg.order_id}")
 
     @on("evt.order.order.received")
     async def order_received(self, env, msg: OrderReceived, conn):
@@ -318,12 +340,14 @@ class CoordinatorAgent(Agent):
     async def refund_payment(self, env, cmd: RefundPayment, conn):
         await self._payment(env, cmd, conn, refund=True)
 
-    async def _payment(self, env, cmd: RecordPayment | RefundPayment, conn, *, refund: bool) -> None:
+    async def _payment(self, env, cmd: RecordPayment | RefundPayment, conn, *, refund: bool,
+                       payment_id: str | None = None) -> None:
+        payment_id = payment_id or env.id
         at = (cmd.refunded_at if refund else cmd.paid_at) or env.time
         cur = await conn.execute(
             "INSERT INTO coordinator.payments (payment_id, order_id, kind, amount_agorot, method, at, receipt_no, recorded_by) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (env.id, cmd.order_id, "refund" if refund else "payment", cmd.amount_agorot, cmd.method.value, at,
+            (payment_id, cmd.order_id, "refund" if refund else "payment", cmd.amount_agorot, cmd.method.value, at,
              cmd.receipt_no, cmd.recorded_by or "unknown"),
         )
         if not cur.rowcount:
@@ -345,11 +369,11 @@ class CoordinatorAgent(Agent):
                 self.log.warning("payment for unknown order %s recorded anyway", cmd.order_id)
             elif product_type is None:
                 product_type = products[0] if len(products) == 1 else "mixed"
-        common = {"payment_id": env.id, "order_id": cmd.order_id, "amount_agorot": cmd.amount_agorot,
+        common = {"payment_id": payment_id, "order_id": cmd.order_id, "amount_agorot": cmd.amount_agorot,
                   "method": cmd.method, "receipt_no": cmd.receipt_no, "product_type": product_type, "lines": lines}
         event = PaymentRefunded(**common, refunded_at=at) if refund else PaymentRecorded(**common, paid_at=at)
         await self.emit(conn, event, cause=env, correlationid=cmd.order_id or env.correlationid,
-                        id=deterministic_id("refund" if refund else "payment", env.id))
+                        id=deterministic_id("refund" if refund else "payment", payment_id))
 
     # ------------------------------------------------------------ automation settings (NATS KV "config", audited)
 

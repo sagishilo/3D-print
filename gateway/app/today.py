@@ -231,6 +231,23 @@ def spool_changes(unplaced: list[dict]) -> list[Item]:
             for u in unplaced]
 
 
+def store_orders(counts: dict, now: datetime) -> list[Item]:
+    """W2-A: store orders that wait for a product mapping, and tracking a store would not take."""
+    out = []
+    n = int(counts.get("waiting") or 0)
+    if n:
+        out.append(Item(id="store:map", kind="store", priority="today", count=n, age_s=_age(counts.get("since"), now),
+                        title=f"{n} store order{'s' if n != 1 else ''} wait{'s' if n == 1 else ''} for you",
+                        why="A line is not one of our products yet (map it once), or something is missing.",
+                        action=link("/store", "Store orders")))
+    failed = int(counts.get("failed_pushes") or 0)
+    if failed:
+        out.append(Item(id="store:push", kind="store", priority="today", count=failed, visible_to="operator",
+                        title=f"{failed} tracking update{'s' if failed != 1 else ''} did not reach the store",
+                        why="Mark those orders fulfilled in the store by hand.", action=link("/store", "Store orders")))
+    return out
+
+
 def receivables(rows: list[dict], now: datetime) -> list[Item]:
     late = [r for r in rows if _age(r.get("shipped_at"), now) > RECEIVABLE_DAYS * 86400]
     if not late:
@@ -307,6 +324,8 @@ async def today(request: Request, niche: str | None = None, claims: dict = Depen
     from . import schedule as schedule_mod
     items += maintenance(await _safe(lambda: schedule_mod.maintenance_rows(db, now), []))
     items += spool_changes((await _safe(lambda: schedule_mod.snapshot(request), {})).get("unplaced", []))
+    from . import stores as stores_mod
+    items += store_orders(await _safe(lambda: stores_mod.waiting_counts(db), {}), now)
 
     from . import orders as orders_mod  # the board's cards: one place decides "stuck" and the status line
     cards = await _safe(lambda: orders_mod._cards(

@@ -27,6 +27,7 @@ export const NAV: NavItem[] = [
   item('catalog', '/catalog', 'grid', 'Sell'),
   item('niches', '/niches', 'tag', 'Sell', 'owner'),
   item('pricing', '/pricing', 'calc', 'Sell', 'operator'),
+  item('store', '/store', 'cart', 'Sell', 'operator'),
   item('live', '/live', 'live', 'Make'),
   item('orders', '/orders', 'columns', 'Make'),
   item('fleet', '/fleet', 'monitor', 'Make'),

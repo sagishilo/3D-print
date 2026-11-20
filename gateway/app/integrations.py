@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from printfarm.agents.integrations.connectors import REGISTRY
 from printfarm.agents.integrations.framework import health
 
 from . import auth
@@ -17,7 +18,8 @@ router = APIRouter()
 OWNER = [Depends(auth.OWNER)]
 
 CONNECTORS_SQL = """
-  SELECT c.connector_id, c.kind, c.label, c.enabled, c.mode, c.interval_s, c.secrets_status, c.updated_by, c.updated_at,
+  SELECT c.connector_id, c.kind, c.label, c.enabled, c.mode, c.interval_s, c.secrets_status, c.settings, c.updated_by,
+         c.updated_at,
          s.last_run_at, s.last_ok_at, s.last_error, s.last_error_at, s.consecutive_failures, s.next_run_at, s.runs, s.items,
          (SELECT count(*) FROM integrations.mappings m WHERE m.connector_id = c.connector_id) AS mapped
   FROM integrations.connectors c LEFT JOIN integrations.sync_state s USING (connector_id)
@@ -25,8 +27,14 @@ CONNECTORS_SQL = """
 
 
 def _connector(r: dict) -> dict:
+    """A connector for the owner's screen: its settings with defaults and what each one is (W2-A), never a secret."""
+    c = REGISTRY.get(r["connector_id"])
+    specs = c.settings if c else ()
+    stored = r.get("settings") or {}
     return {**r, "health": health(r["enabled"], int(r["consecutive_failures"] or 0), r["last_ok_at"], r["last_run_at"]),
-            "secrets_missing": sorted(k for k, v in (r["secrets_status"] or {}).items() if not v)}
+            "secrets_missing": sorted(k for k, v in (r["secrets_status"] or {}).items() if not v),
+            "settings": {s.key: stored.get(s.key, s.default) for s in specs},
+            "settings_schema": [{"key": s.key, "label": s.label, "type": type(s.default).__name__} for s in specs]}
 
 
 @router.get("/api/v1/integrations", dependencies=OWNER)

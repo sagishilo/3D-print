@@ -39,6 +39,7 @@ from printfarm.contracts.messages import (
     DismissSuspicion,
     LabelCapture,
     LoadSpool,
+    MapStoreSku,
     MarkBedCleared,
     MarkLeadPosted,
     MarkMaintenanceDone,
@@ -62,6 +63,7 @@ from printfarm.contracts.messages import (
     SetStockRule,
     ShipOrder,
     SliceCatalogProduct,
+    StoreOrderAction,
     UpdateFinanceSettings,
     UpdatePo,
     UpsertCatalogProduct,
@@ -112,6 +114,23 @@ def _new_capture(data: dict, command_id: str) -> None:
     data.setdefault("captured_at", datetime.now(UTC).isoformat())
     data.setdefault("group_name", "")
     data.setdefault("post_url", "")
+
+
+def _connector_settings(data: dict, command_id: str) -> None:
+    # A connector's own settings (W2-A: the Shopify shop address, …): only keys it declares, of the right type and
+    # shape, so a typo is refused here with a message instead of being dropped by the agent.
+    change = data.get("settings")
+    if change is None:
+        return
+    from printfarm.agents.integrations.connectors import REGISTRY
+    from printfarm.agents.integrations.framework import clean_settings
+
+    c = REGISTRY.get(str(data.get("connector_id")))
+    if c is None:
+        raise ValueError(f"unknown connector {data.get('connector_id')!r}")
+    if not isinstance(change, dict):
+        raise ValueError("settings must be an object")
+    data["settings"] = clean_settings(c.settings, change)
 
 
 _SETTINGS = {k.key: k for k in CONFIG_KEYS}
@@ -185,8 +204,11 @@ COMMANDS: dict[str, CommandSpec] = {
     # Wave 1 / M6: rebuild the daily analytics (Trend Analyst)
     "analytics.backfill": CommandSpec(BackfillAnalytics, "requested_by", min_role="owner"),
     # Wave 2 / W2-0: connectors (outside services) are an owner's decision
-    "integrations.configure": CommandSpec(ConfigureConnector, "changed_by", min_role="owner"),
+    "integrations.configure": CommandSpec(ConfigureConnector, "changed_by", fill=_connector_settings, min_role="owner"),
     "integrations.run": CommandSpec(RunConnector, "requested_by", min_role="owner"),
+    # Wave 2 / W2-A: store orders: which product a store SKU is, and an order that waits (operators run the shop)
+    "integrations.map_sku": CommandSpec(MapStoreSku, "mapped_by"),
+    "integrations.store_order": CommandSpec(StoreOrderAction, "requested_by"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting, min_role="owner"),
     # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
     "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),

@@ -131,6 +131,19 @@ export function describe(env: Envelope): Described {
         : out(`${d.connector_id} sync failed (${d.failures} in a row): ${d.error}`, d.failures >= 3 ? 'danger' : 'warn', 'system')
     case 'integrations.connector.changed':
       return out(`${d.connector_id} ${d.enabled ? 'on' : 'off'} · ${d.mode === 'live' ? 'live service' : 'test data'} (${d.by})`, 'idle', 'system')
+    case 'integrations.store_order.changed': {
+      const what: Record<string, string> = { needs_mapping: 'waits for you (map its products)', waiting_payment: 'not paid yet',
+        imported: `imported as ${d.order_id}`, cancelled: 'cancelled at the store', skipped: 'skipped' }
+      return out(`Store order ${d.name} ${what[String(d.status)] ?? d.status}`, d.status === 'needs_mapping' ? 'warn' : d.status === 'imported' ? 'ok' : 'idle', 'order')
+    }
+    case 'integrations.store_order.ready':
+      return out(`${d.connector_id} order ${d.external_name} → ${d.order_id} (${d.customer_name})`, 'ok', 'order')
+    case 'integrations.sku.mapped':
+      return out(d.removed ? `Store product ${d.external_key} forgotten (${d.by})`
+        : `Store product ${d.external_key} → ${d.product === 'catalog' ? d.sku : d.product} (${d.by})`, 'idle', 'order')
+    case 'integrations.push.finished':
+      return d.ok ? out(`${d.connector_id} has the tracking of ${d.order_id}`, 'ok', 'order')
+        : out(`${d.connector_id} did not take the tracking of ${d.order_id} (try ${d.attempts}): ${d.error}`, 'warn', 'order')
     case 'notify.queued':
       return out(`Notification: ${d.title}`, d.severity === 'critical' ? 'danger' : d.severity === 'warning' ? 'warn' : 'idle', 'system')
     case 'catalog.niche.rejected':

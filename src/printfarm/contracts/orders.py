@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from printfarm.contracts.catalog import NAMEPLATE_NICHE, NICHE_RE, SKU_RE, STOCK_CHANNEL, UNASSIGNED
 
 MAX_ITEMS = 20
-CHANNELS = ("manual", "whatsapp", "facebook", "instagram", "etsy", "market", "website", "api", STOCK_CHANNEL)
+CHANNELS = ("manual", "whatsapp", "facebook", "instagram", "etsy", "shopify", "market", "website", "api", STOCK_CHANNEL)
 
 
 @dataclass(frozen=True)

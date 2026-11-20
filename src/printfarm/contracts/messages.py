@@ -1414,6 +1414,7 @@ class ConfigureConnector(Command):
     enabled: bool | None = None
     mode: Literal["fake", "live"] | None = None
     interval_s: int | None = Field(default=None, ge=30, le=86400)
+    settings: dict[str, str | int | bool] | None = None      # the connector's own settings (shop, …), merged
     changed_by: str = ""
 
 
@@ -1602,3 +1603,95 @@ class DismissSuspicion(Command):
     subject: ClassVar[str] = "cmd.telemetry.dismiss_suspicion"
     failure_id: int
     dismissed_by: str = ""
+
+
+# ---------------------------------------------------------------- store connectors (Wave 2 / W2-A)
+
+StoreProduct = Literal["catalog", "nameplate", "ignore"]
+
+
+class MapStoreSku(Command):
+    """Which of our products a store's SKU is (Store orders > Map this): a catalog SKU, a nameplate in a filament
+    (its text from a line property, e.g. "Name"), or a line to ignore (gift wrap). ``remove`` forgets the mapping.
+    Orders that waited for it are tried again."""
+
+    subject: ClassVar[str] = "cmd.integrations.map_sku"
+    connector_id: str = Field(pattern=CONNECTOR_ID_PATTERN)
+    external_key: str = Field(min_length=1, max_length=120)
+    product: StoreProduct = "catalog"
+    sku: str = Field(default="", max_length=32)
+    material: str = Field(default="PLA", max_length=20)
+    color: str = Field(default="black", max_length=20)
+    text_property: str = Field(default="Name", max_length=60)
+    remove: bool = False
+    mapped_by: str = ""
+
+    @model_validator(mode="after")
+    def _catalog_needs_sku(self) -> MapStoreSku:
+        if not self.remove and self.product == "catalog" and not self.sku:
+            raise ValueError("a catalog mapping needs a SKU")
+        return self
+
+
+class StoreOrderAction(Command):
+    """A store order that waits: try it again now (retry), or leave it out (skip: handled by hand) / take it back."""
+
+    subject: ClassVar[str] = "cmd.integrations.store_order"
+    connector_id: str = Field(pattern=CONNECTOR_ID_PATTERN)
+    external_id: str = Field(min_length=1, max_length=120)
+    action: Literal["retry", "skip", "unskip"]
+    requested_by: str = ""
+
+
+class StoreSkuMapped(Event):
+    subject: ClassVar[str] = "evt.integrations.sku.mapped"
+    connector_id: str
+    external_key: str
+    product: str
+    sku: str = ""
+    removed: bool = False
+    by: str = ""
+
+
+class StoreOrderChanged(Event):
+    """A store order was seen or changed state: needs_mapping | waiting_payment | imported | cancelled | skipped."""
+
+    subject: ClassVar[str] = "evt.integrations.store_order.changed"
+    connector_id: str
+    external_id: str
+    name: str
+    status: str
+    previous: str | None = None              # the status before (None: first seen)
+    order_id: str | None = None
+    problems: list[str] = []
+
+
+class StoreOrderReady(Event):
+    """A store order with every line mapped (and paid, unless the connector imports unpaid ones): the coordinator
+    creates it as an order of ``channel`` and, when paid, records its payment. Same order id twice: created once."""
+
+    subject: ClassVar[str] = "evt.integrations.store_order.ready"
+    order_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,40}$")
+    connector_id: str
+    channel: str
+    external_name: str = Field(default="", max_length=60)
+    customer_name: str = Field(min_length=1, max_length=80)
+    customer_ref: str = Field(default="", max_length=80)
+    items: list[OrderLine] = Field(min_length=1, max_length=20)
+    discount_agorot: int = Field(default=0, ge=0)
+    shipping_agorot: int = Field(default=0, ge=0)
+    notes: str = Field(default="", max_length=500)
+    paid_agorot: int = Field(default=0, ge=0)
+    paid_at: datetime | None = None
+
+
+class StorePushFinished(Event):
+    """Something sent back to a store (the tracking of a shipped order) went through, or failed again."""
+
+    subject: ClassVar[str] = "evt.integrations.push.finished"
+    connector_id: str
+    push_kind: str
+    order_id: str
+    ok: bool
+    attempts: int = 1
+    error: str = ""

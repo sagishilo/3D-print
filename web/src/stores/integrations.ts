@@ -26,7 +26,11 @@ export interface Connector {
   items: number
   mapped: number
   updated_by: string
+  settings: Record<string, SettingValue>
+  settings_schema: { key: string; label: string; type: 'str' | 'int' | 'bool' }[]
 }
+
+export type SettingValue = string | number | boolean
 
 export interface SyncRun {
   id: number
@@ -97,7 +101,7 @@ export const useIntegrations = defineStore('integrations', () => {
 
   return {
     connectors, runs, notifications, error, loaded, load, reloadSoon,
-    configure: (id: string, change: { enabled?: boolean; mode?: 'fake' | 'live'; interval_s?: number }) =>
+    configure: (id: string, change: { enabled?: boolean; mode?: 'fake' | 'live'; interval_s?: number; settings?: Record<string, SettingValue> }) =>
       command('integrations.configure', { connector_id: id, ...change }),
     runNow: (id: string) => command('integrations.run', { connector_id: id }),
   }

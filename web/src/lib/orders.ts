@@ -20,7 +20,7 @@ export const COLUMNS: Column[] = [
   { stage: 'SHIPPED', label: 'Shipped', hint: 'Drop: ship a passed order' },
 ]
 
-export const CHANNELS = ['manual', 'whatsapp', 'facebook', 'instagram', 'etsy', 'market', 'website', 'api', 'stock'] as const
+export const CHANNELS = ['manual', 'whatsapp', 'facebook', 'instagram', 'etsy', 'shopify', 'market', 'website', 'api', 'stock'] as const
 export const PAYMENT_METHODS = ['bit', 'paybox', 'bank_transfer', 'cash', 'card'] as const
 
 export interface Product {

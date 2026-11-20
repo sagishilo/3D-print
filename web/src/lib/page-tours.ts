@@ -1,10 +1,10 @@
 // הדרכות עמוד (page tours): a deep dive into one screen, started from the "מדריך לעמוד" button on that screen. They use
 // the same overlay as the general tour (components/tour/TourOverlay.vue); this file holds their steps and the registry
 // of every tour.
-import { CATALOG, FILAMENT, FINANCE, HELP, INTEGRATIONS, NICHES, ONBOARDING, PRICING, SCHEDULE, SCORECARD, SOCIAL, SYSTEM, TODAY, USERS } from './page-tours-more'
+import { CATALOG, FILAMENT, FINANCE, HELP, INTEGRATIONS, NICHES, ONBOARDING, PRICING, SCHEDULE, SCORECARD, SOCIAL, STORE, SYSTEM, TODAY, USERS } from './page-tours-more'
 import { TOUR_STEPS, type TourAction, type TourStep } from './tour'
 
-export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding' | 'users' | 'niches' | 'pricing' | 'scorecard' | 'today' | 'integrations' | 'schedule'
+export type TourId = 'general' | 'live' | 'orders' | 'fleet' | 'social' | 'catalog' | 'filament' | 'finance' | 'system' | 'help' | 'onboarding' | 'users' | 'niches' | 'pricing' | 'scorecard' | 'today' | 'integrations' | 'schedule' | 'store'
 
 export interface Tour {
   id: TourId
@@ -492,7 +492,8 @@ export const TOURS: Record<TourId, Tour> = {
   today: { id: 'today', title: 'מדריך לעמוד · Today', steps: TODAY },
   integrations: { id: 'integrations', title: 'מדריך לעמוד · Integrations', steps: INTEGRATIONS },
   schedule: { id: 'schedule', title: 'מדריך לעמוד · Schedule', steps: SCHEDULE },
+  store: { id: 'store', title: 'מדריך לעמוד · Store orders', steps: STORE },
 }
 
 /** One deep-dive tour per screen of the dashboard (route meta `tour` names it; the top bar shows its button). */
-export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding', 'users', 'niches', 'pricing', 'scorecard', 'today', 'integrations', 'schedule']
+export const PAGE_TOURS: TourId[] = ['live', 'orders', 'fleet', 'social', 'catalog', 'filament', 'finance', 'system', 'help', 'onboarding', 'users', 'niches', 'pricing', 'scorecard', 'today', 'integrations', 'schedule', 'store']

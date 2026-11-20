@@ -2,7 +2,7 @@
 // Integrations (Wave 2 / W2-0, owner): every outside service as a card: on/off, test data or the live service, how
 // often it syncs, whether its secrets are set (never their values), its health and last syncs, Run now. Below, the
 // notifications outbox. All words come from the i18n catalogue (src/i18n/en.ts), ready for Hebrew in W2-D.
-import { onMounted } from 'vue'
+import { onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -11,7 +11,7 @@ import Icon from '@/components/ui/Icon.vue'
 import { errorText } from '@/lib/api'
 import { ago, dateTime } from '@/lib/format'
 import { useConfirm } from '@/stores/confirm'
-import { type Connector, useIntegrations } from '@/stores/integrations'
+import { type Connector, type SettingValue, useIntegrations } from '@/stores/integrations'
 import { useToasts } from '@/stores/toasts'
 
 const { t } = useI18n()
@@ -40,6 +40,35 @@ async function runNow(c: Connector) {
   try {
     await integrations.runNow(c.connector_id)
     toasts.info(t('integrations.running'), c.label)
+    integrations.reloadSoon(1500)
+  } catch (err) {
+    toasts.error(c.label, errorText(err))
+  }
+}
+
+// W2-A: a connector's own settings (the Shopify shop address, …): edited in a draft, saved together
+const drafts = reactive<Record<string, Record<string, SettingValue>>>({})
+const draft = (c: Connector) => (drafts[c.connector_id] ??= { ...c.settings })
+const dirty = (c: Connector) => Object.entries(draft(c)).some(([k, v]) => v !== c.settings[k])
+
+async function saveSettings(c: Connector) {
+  const changed = Object.fromEntries(Object.entries(draft(c)).filter(([k, v]) => v !== c.settings[k]))
+  try {
+    await integrations.configure(c.connector_id, { settings: changed })
+    toasts.ok(t('storeSettings.saved'), c.label)
+    delete drafts[c.connector_id]
+    integrations.reloadSoon(800)
+  } catch (err) {
+    toasts.error(c.label, errorText(err))
+  }
+}
+
+async function newTestOrders(c: Connector) {
+  try {
+    await integrations.configure(c.connector_id, { settings: { fake_batch: Number(c.settings.fake_batch ?? 1) + 1 } })
+    await integrations.runNow(c.connector_id)
+    toasts.info(t('integrations.running'), c.label)
+    delete drafts[c.connector_id]
     integrations.reloadSoon(1500)
   } catch (err) {
     toasts.error(c.label, errorText(err))
@@ -93,6 +122,21 @@ const since = (iso: string | null) => (iso ? t('common.ago', { t: ago(new Date(i
         <div><dt>{{ t('integrations.mapped') }}</dt><dd :data-testid="`mapped-${c.connector_id}`">{{ c.mapped }}</dd></div>
       </dl>
       <p v-if="c.consecutive_failures" class="warn small" role="status">{{ t('integrations.failedTimes', { n: c.consecutive_failures }) }}<template v-if="c.last_error"> · {{ c.last_error }}</template></p>
+
+      <form v-if="c.settings_schema?.length" class="settings" :data-testid="`settings-${c.connector_id}`" @submit.prevent="saveSettings(c)">
+        <b class="small">{{ t('storeSettings.title') }}</b>
+        <template v-for="f in c.settings_schema" :key="f.key">
+          <label v-if="f.type === 'bool'" class="check"><input v-model="draft(c)[f.key]" type="checkbox" :data-testid="`setting-${c.connector_id}-${f.key}`" />{{ f.label }}</label>
+          <label v-else-if="f.key !== 'fake_batch'">{{ f.label }}
+            <input v-if="f.type === 'int'" v-model.number="draft(c)[f.key]" type="number" class="input" :data-testid="`setting-${c.connector_id}-${f.key}`" />
+            <input v-else v-model.trim="draft(c)[f.key]" class="input" :data-testid="`setting-${c.connector_id}-${f.key}`" />
+          </label>
+        </template>
+        <div class="row">
+          <button type="submit" class="btn btn-sm" :disabled="!dirty(c)" :data-testid="`settings-save-${c.connector_id}`">{{ t('storeSettings.save') }}</button>
+          <button v-if="c.kind === 'store' && c.mode === 'fake' && 'fake_batch' in c.settings" type="button" class="btn btn-sm" :disabled="!c.enabled" :title="t('storeSettings.newTestOrdersHelp')" :data-testid="`test-orders-${c.connector_id}`" @click="newTestOrders(c)">{{ t('storeSettings.newTestOrders') }}</button>
+        </div>
+      </form>
 
       <div class="secrets">
         <b class="small">{{ t('integrations.secrets') }}</b>
@@ -228,6 +272,29 @@ dt {
 dd {
   margin: 0;
   font-size: 13px;
+}
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.settings .row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .secrets ul,
 .runs ul {

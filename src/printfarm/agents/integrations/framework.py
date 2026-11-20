@@ -34,6 +34,18 @@ class SecretSpec:
 
 
 @dataclass(frozen=True)
+class SettingSpec:
+    """One setting an owner may change on the Integrations screen (not a secret: a shop name, a switch)."""
+
+    key: str
+    label: str
+    default: str | int | bool
+    pattern: str | None = None   # strings: a full-match regex ("" is always allowed: not set yet)
+    minimum: int | None = None
+    maximum: int | None = None
+
+
+@dataclass(frozen=True)
 class Record:
     """One outside record a sync saw, mapped to our id (``internal_id``)."""
 
@@ -68,10 +80,43 @@ class Connector:
     kind: str = ""               # store | invoicing | courier | alerts | demo
     label: str = ""
     secrets: tuple[SecretSpec, ...] = ()
+    settings: tuple[SettingSpec, ...] = ()
     default_interval_s: int = 300
 
     async def sync(self, ctx: SyncContext) -> SyncResult:     # pragma: no cover - each connector implements it
         raise NotImplementedError
+
+    def live_missing(self, values: Mapping[str, str], settings: Mapping) -> list[str]:
+        """What live mode still needs (secret keys or settings); empty: live may run."""
+        return live_blocked(self.secrets, values)
+
+    def settings_with_defaults(self, stored: Mapping) -> dict:
+        return {s.key: stored.get(s.key, s.default) for s in self.settings} | {
+            k: v for k, v in stored.items() if k not in {s.key for s in self.settings}}
+
+
+def clean_settings(specs: Iterable[SettingSpec], change: Mapping) -> dict:
+    """An owner's settings change, checked against the connector's specs: known keys, the default's type, the
+    pattern or range. Raises ValueError with a message for the dashboard."""
+    import re
+
+    by_key = {s.key: s for s in specs}
+    out = {}
+    for key, value in change.items():
+        spec = by_key.get(key)
+        if spec is None:
+            raise ValueError(f"unknown setting {key!r}")
+        if type(value) is not type(spec.default):
+            raise ValueError(f"{key} takes a {type(spec.default).__name__} value")
+        if isinstance(value, str):
+            value = value.strip()
+            if value and spec.pattern and not re.fullmatch(spec.pattern, value):
+                raise ValueError(f"{spec.label}: {value!r} is not valid")
+        if isinstance(value, int) and not isinstance(value, bool) and (
+                spec.minimum is not None and value < spec.minimum or spec.maximum is not None and value > spec.maximum):
+            raise ValueError(f"{spec.label} must be between {spec.minimum} and {spec.maximum}")
+        out[key] = value
+    return out
 
 
 class SyncError(Exception):

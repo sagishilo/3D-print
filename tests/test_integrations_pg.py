@@ -23,7 +23,8 @@ async def agent():
     await db.open()
     await db.migrate()
     async with db.tx() as conn:
-        for t in ("integrations.runs", "integrations.mappings", "integrations.sync_state", "integrations.connectors",
+        for t in ("integrations.pushes", "integrations.store_orders", "integrations.sku_map", "integrations.runs",
+                  "integrations.mappings", "integrations.sync_state", "integrations.connectors",
                   "notify.outbox"):
             await conn.execute(f"DELETE FROM {t}")
     a = IntegrationsAgent(None, db, Settings(database_url=DB_URL), None)
