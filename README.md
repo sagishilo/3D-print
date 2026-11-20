@@ -301,6 +301,15 @@ To switch it on, put a Claude API key in `.env` (`ANTHROPIC_API_KEY=sk-ant-...`,
 
 **Accuracy.** Mark captures **Buyer** or **Not buyer**. Each label also teaches the local prefilter, and the screen shows how many leads were real buyers and how many buyers became leads. Label a few dozen real posts before you trust or move the threshold.
 
+## Integrations (Wave 2)
+
+The `integrations` agent runs every connection to an outside service (stores, invoicing, couriers, alert channels) and keeps the notifications outbox (`notify.outbox`).
+
+- **Off and in test mode by default.** Each connector starts switched off and in **fake** mode (deterministic test data, no outside call). An owner switches it on, and chooses the live service, on the **Integrations** screen.
+- **Outbound only.** The agent polls each service on a schedule (backoff after failures, doubling up to 6 h; an owner is told after 3 failures in a row). Nothing on the internet calls this stack, so no port forwarding is needed.
+- **Mapped once.** Every outside record is mapped to ours (`integrations.mappings`), so a repeated sync updates and never duplicates.
+- **Secrets only in `integrations.env`.** Copy `integrations.env.example` to `integrations.env` (gitignored) and fill in what you use. Check it with `python scripts/check_integrations_env.py` (prints SET / MISSING, never values), then `docker compose up -d integrations`. The dashboard shows only set or missing; live mode refuses to run while a required key is missing.
+
 ## Trend Analyst and analytics
 
 The `trend` agent counts every business day once an hour into `reporting.daily_sku` and `reporting.daily_niche` (sales, net revenue, job costs, print hours, QC, social activity), then marks the niches and products that are rising or cooling (`trend.signals`). The **Niche scorecard** (Business) and the Social page's Trends panel read them. On its first start it backfills the last 120 days; **Rebuild** on the scorecard (owner) recounts them on demand.

@@ -1398,3 +1398,76 @@ class DeadLettered(Event):
     error: str
     deliveries: int
     original: dict
+
+
+# ---------------------------------------------------------------- integrations and notifications (Wave 2 / W2-0)
+
+CONNECTOR_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+
+
+class ConfigureConnector(Command):
+    """Switch a connector on or off, choose fake (test data) or live (the real service), and how often it polls.
+    Owner only. Its credentials are never sent here: they live in integrations.env on the PC."""
+
+    subject: ClassVar[str] = "cmd.integrations.configure"
+    connector_id: str = Field(pattern=CONNECTOR_ID_PATTERN)
+    enabled: bool | None = None
+    mode: Literal["fake", "live"] | None = None
+    interval_s: int | None = Field(default=None, ge=30, le=86400)
+    changed_by: str = ""
+
+
+class RunConnector(Command):
+    """Sync a connector now (owner: Integrations > Run now), whatever its schedule says."""
+
+    subject: ClassVar[str] = "cmd.integrations.run_now"
+    connector_id: str = Field(pattern=CONNECTOR_ID_PATTERN)
+    requested_by: str = ""
+
+
+class ConnectorChanged(Event):
+    subject: ClassVar[str] = "evt.integrations.connector.changed"
+    connector_id: str
+    enabled: bool
+    mode: str
+    interval_s: int
+    by: str
+
+
+class ConnectorSynced(Event):
+    """One sync of a connector finished (ok or not). ``created`` / ``updated``: outside records mapped for the
+    first time / changed since the last sync."""
+
+    subject: ClassVar[str] = "evt.integrations.sync.finished"
+    connector_id: str
+    ok: bool
+    trigger: str = "schedule"
+    items: int = 0
+    created: int = 0
+    updated: int = 0
+    error: str = ""
+    failures: int = 0
+    next_run_s: float | None = None
+
+
+class NotificationRequested(Event):
+    """Any agent may ask for a person to be told something; the integrations agent queues it in notify.outbox
+    (once per ``dedupe_key``) and W2-D delivers it to the person's channels."""
+
+    subject: ClassVar[str] = "evt.notify.requested"
+    topic: str = Field(max_length=40)
+    severity: Literal["info", "warning", "critical"]
+    title: str = Field(max_length=200)
+    body: str = Field(default="", max_length=2000)
+    link: str = Field(default="", max_length=300)
+    dedupe_key: str | None = Field(default=None, max_length=200)
+    min_role: Literal["viewer", "operator", "owner"] = "operator"
+
+
+class NotificationQueued(Event):
+    subject: ClassVar[str] = "evt.notify.queued"
+    notification_id: int
+    topic: str
+    severity: str
+    title: str
+    link: str = ""

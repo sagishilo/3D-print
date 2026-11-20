@@ -20,5 +20,5 @@ export default defineConfig({
   },
   build: { sourcemap: true, chunkSizeWarningLimit: 600 },
   // css.include: the design test reads the theme tokens as text (tokens.css?raw); other CSS stays unprocessed
-  test: { environment: 'jsdom', include: ['tests/**/*.spec.ts'], css: { include: [/tokens.css/] } },
+  test: { environment: 'jsdom', include: ['tests/**/*.spec.ts'], setupFiles: ['tests/setup.ts'], css: { include: [/tokens.css/] } },
 })

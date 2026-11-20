@@ -33,6 +33,7 @@ AGENTS = (
     {"name": "finance", "label": "Finance", "detail": "ledger · VAT", "tier": "core"},
     {"name": "social", "label": "Social Listening", "detail": "captured posts · intent · reply drafts", "tier": "optional"},
     {"name": "trend", "label": "Trend Analyst", "detail": "daily analytics · rising / falling niches and SKUs", "tier": "optional"},
+    {"name": "integrations", "label": "Integrations", "detail": "connectors (outbound) · notifications outbox", "tier": "core"},
 )
 HEALTHY_WITHIN_S = 25   # heartbeats come every 10 s and expire from the KV bucket after 30 s
 DLQ_SCAN_MAX = 1000

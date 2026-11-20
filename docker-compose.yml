@@ -235,6 +235,15 @@ services:
       TREND_LLM: ${TREND_LLM:-}           # "fake" = test mode: the insight from the numbers, no Claude calls
       TREND_INTERVAL_S: ${TREND_INTERVAL_S:-3600}
 
+  # Wave 2: every outside service (stores, invoicing, couriers, alert channels). Outbound polling only; its secrets
+  # come from integrations.env (gitignored; see integrations.env.example and scripts/check_integrations_env.py).
+  integrations:
+    <<: *agent
+    command: ["agent", "integrations"]
+    env_file:
+      - path: integrations.env
+        required: false
+
   telemetry:
     <<: *agent
     command: ["agent", "telemetry"]

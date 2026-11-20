@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AgentsTable from '@/components/system/AgentsTable.vue'
 import AuditPanel from '@/components/system/AuditPanel.vue'
 import BackupsPanel from '@/components/system/BackupsPanel.vue'
+import IntegrationsHealth from '@/components/system/IntegrationsHealth.vue'
 import SimpleHealth from '@/components/system/SimpleHealth.vue'
 import DlqPanel from '@/components/system/DlqPanel.vue'
 import NatsPanel from '@/components/system/NatsPanel.vue'
@@ -126,6 +127,7 @@ const kpis = computed(() => {
     <div class="grid-2">
       <PrintersPanel />
       <BackupsPanel />
+      <IntegrationsHealth />
     </div>
   </template>
 
@@ -147,7 +149,10 @@ const kpis = computed(() => {
       <ServersPanel :overview="system.overview" />
       <PrintersPanel />
     </div>
-    <BackupsPanel />
+    <div class="grid-2">
+      <BackupsPanel />
+      <IntegrationsHealth />
+    </div>
     <DlqPanel :limit="5" />
   </template>
 

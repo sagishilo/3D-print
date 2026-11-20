@@ -36,6 +36,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'scorecard', name: 'scorecard', component: () => import('@/views/ScorecardView.vue'), meta: { title: 'Niche scorecard', tour: 'scorecard', minRole: 'operator' } },
       { path: 'help', name: 'help', component: () => import('@/views/HelpView.vue'), meta: { title: 'מדריך למשתמש', tour: 'help' } },
       { path: 'system', name: 'system', component: () => import('@/views/SystemView.vue'), meta: { title: 'System & Agents', tour: 'system', minRole: 'operator' } },
+      { path: 'integrations', name: 'integrations', component: () => import('@/views/IntegrationsView.vue'), meta: { title: 'Integrations', tour: 'integrations', minRole: 'owner' } },
       { path: 'users', name: 'users', component: () => import('@/views/UsersView.vue'), meta: { title: 'Users', tour: 'users', minRole: 'owner' } },
       ...later,
     ],

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import PageTourButton from '@/components/tour/PageTourButton.vue'
@@ -18,6 +19,7 @@ import { useToasts } from '@/stores/toasts'
 
 defineEmits<{ menu: []; approvals: [] }>()
 
+const { t } = useI18n()
 const route = useRoute()
 // Every screen's page tour starts from the same place: the far right of the top bar (nothing beside it changes width).
 const pageTour = computed(() => route.meta.tour)
@@ -67,9 +69,9 @@ async function pauseAll() {
     <button type="button" class="icon-btn menu" aria-label="Open navigation" @click="$emit('menu')"><Icon name="menu" :size="18" /></button>
 
     <div class="search">
-      <button type="button" class="search-box" aria-haspopup="dialog" aria-label="Command palette (Ctrl+K)" data-testid="palette-open" data-tour="palette" @click="paletteOpen = true">
+      <button type="button" class="search-box" aria-haspopup="dialog" :aria-label="t('topbar.palette')" data-testid="palette-open" data-tour="palette" @click="paletteOpen = true">
         <Icon name="search" />
-        <span class="placeholder" aria-hidden="true">Go to, do or search…</span>
+        <span class="placeholder" aria-hidden="true">{{ t('topbar.search') }}</span>
         <kbd>⌘K</kbd>
       </button>
     </div>
@@ -89,8 +91,8 @@ async function pauseAll() {
         <Icon name="inbox" :size="18" />
         <span v-if="approvals.count" class="count">{{ approvals.count }}</span>
       </button>
-      <button type="button" class="btn btn-danger" :disabled="pausing" aria-label="Pause all printers" data-testid="pause-all" v-can="'operator'" @click="pauseAll">
-        <Icon name="pause" :size="14" /><span class="wide">Pause all printers</span><span class="narrow">Pause all</span>
+      <button type="button" class="btn btn-danger" :disabled="pausing" :aria-label="t('topbar.pauseAll')" data-testid="pause-all" v-can="'operator'" @click="pauseAll">
+        <Icon name="pause" :size="14" /><span class="wide">{{ t('topbar.pauseAll') }}</span><span class="narrow">{{ t('topbar.pauseAllShort') }}</span>
       </button>
       <UserMenu />
       <PageTourButton v-if="pageTour" :key="pageTour" :tour="pageTour" />

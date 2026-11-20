@@ -33,7 +33,7 @@ MQTT_URL = os.getenv("TEST_MQTT_URL")
 pytestmark = pytest.mark.skipif(not (NATS_URL and DB_URL), reason="needs TEST_NATS_URL and TEST_DATABASE_URL")
 
 SCHEMAS = ("messaging", "coordinator", "personalization", "fleet", "telemetry", "inventory", "social", "trend",
-           "finance", "gateway", "catalog", "reporting")
+           "finance", "gateway", "catalog", "reporting", "integrations", "notify")
 STREAMS = ("EVENTS", "COMMANDS", "TELEMETRY", "DLQ", "KV_printer_status", "KV_heartbeats", "KV_leases", "KV_config",
            "OBJ_uploads")
 

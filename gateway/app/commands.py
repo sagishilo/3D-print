@@ -27,6 +27,7 @@ from printfarm.contracts.messages import (
     CancelOrder,
     CancelPrint,
     CaptureSubmitted,
+    ConfigureConnector,
     ConfirmPoOrdered,
     CountItem,
     CountStock,
@@ -50,6 +51,7 @@ from printfarm.contracts.messages import (
     RequestReorder,
     RescoreCapture,
     ResumePrint,
+    RunConnector,
     SetBom,
     SetConfig,
     SetReorderRule,
@@ -171,6 +173,9 @@ COMMANDS: dict[str, CommandSpec] = {
     "spools.dried": CommandSpec(MarkSpoolDried, "dried_by"),
     # Wave 1 / M6: rebuild the daily analytics (Trend Analyst)
     "analytics.backfill": CommandSpec(BackfillAnalytics, "requested_by", min_role="owner"),
+    # Wave 2 / W2-0: connectors (outside services) are an owner's decision
+    "integrations.configure": CommandSpec(ConfigureConnector, "changed_by", min_role="owner"),
+    "integrations.run": CommandSpec(RunConnector, "requested_by", min_role="owner"),
     "config.set": CommandSpec(SetConfig, "changed_by", fill=_known_setting, min_role="owner"),
     # Social Listening (ADR-0007): a person captures, approves and posts; nothing here posts anything.
     "social.capture": CommandSpec(CaptureSubmitted, "captured_by", fill=_new_capture),

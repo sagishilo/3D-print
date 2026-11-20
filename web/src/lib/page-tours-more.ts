@@ -843,6 +843,49 @@ export const TODAY: TourStep[] = [
   done('/today', 'today', 'פתחו את Today בתחילת כל משמרת: מבט על הכרטיסים, ואז **Urgent (Now)**.'),
 ]
 
+// ------------------------------------------------------------------------------------------------ integrations
+export const INTEGRATIONS: TourStep[] = [
+  intro('/integrations', 'integrations', 'Integrations: שירותים חיצוניים', [
+    'כאן מחברים את החווה לשירותים בחוץ: חנויות, חשבוניות, שליחויות וערוצי התראות. רק בעלים (**Owner**) רואים את המסך.',
+    'כל חיבור (**connector**) מתחיל כבוי, עם נתוני בדיקה בלבד, עד שמפעילים אותו.',
+  ], 'אף אחד מהאינטרנט לא יכול לפנות למערכת: היא זו שפונה לשירות, לפי לוח זמנים.'),
+  {
+    id: 'integrations-cards',
+    route: '/integrations',
+    targets: ['[data-tour="integrations-cards"]'],
+    title: 'כרטיס לכל חיבור',
+    body: [
+      '**Switched on** מפעיל. **Mode**: **Test data (fake)** לנתוני בדיקה, או **Live service** לשירות האמיתי. **Sync** קובע כל כמה זמן לבדוק. **Run now** מסנכרן מיד.',
+      'למטה: מתי היה הסנכרון האחרון, כמה רשומות קושרו, הסנכרונים האחרונים, ואילו סודות מוגדרים (**set**) או חסרים (**missing**).',
+    ],
+    why: 'כשסנכרון נכשל, המערכת מנסה שוב בהמתנה ארוכה יותר בכל פעם. אחרי שלושה כישלונות ברצף, הבעלים מקבלים התראה.',
+    missing: 'עוד אין חיבורים בגרסה הזאת.',
+  },
+  {
+    id: 'integrations-secrets',
+    route: '/integrations',
+    targets: ['[data-tour="integrations-lan"]'],
+    title: 'סודות: רק בקובץ במחשב',
+    body: [
+      'סיסמאות ומפתחות API נשמרים רק בקובץ **integrations.env** על המחשב של החווה, לא בדשבורד. המסך מראה רק אם כל מפתח מוגדר או חסר.',
+      'אחרי עדכון הקובץ: `docker compose up -d integrations`. כדי לבדוק את הקובץ: `python scripts/check_integrations_env.py`.',
+    ],
+    why: 'כך מפתח לא יכול לדלוף מהדפדפן, וגם לא מופיע ביומן.',
+  },
+  {
+    id: 'integrations-outbox',
+    route: '/integrations',
+    targets: ['[data-tour="integrations-outbox"]'],
+    title: 'Notifications: ההתראות',
+    body: [
+      'כל ההתראות החשובות במקום אחד: מדפסת שלא עצרה, הדפסה שנכשלה, הזמנה שצריכה טיפול, פלטה שעומדת להיגמר לה הפילמנט, חיבור שנכשל.',
+      'בהמשך הגל הזה הן יישלחו גם ל-Telegram, למייל ול-WhatsApp, עם שעות שקטות. עד אז הן מופיעות כאן.',
+    ],
+    why: 'כל בעיה פתוחה נרשמת פעם אחת, כדי שלא תקבלו את אותה התראה שוב ושוב.',
+  },
+  done('/integrations', 'integrations', 'רוצים לנסות? הפעילו את חנות הדמו (Demo store) במצב בדיקה, ולחצו **Run now**.'),
+]
+
 // ------------------------------------------------------------------------------------------------ help page
 export const HELP: TourStep[] = [
   intro('/help', 'help', 'דף המדריך', [

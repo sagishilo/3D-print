@@ -125,6 +125,14 @@ export function describe(env: Envelope): Described {
       return out(`${d.sku}: parts per piece saved (${(d.lines as unknown[]).length} item${(d.lines as unknown[]).length === 1 ? '' : 's'}, ${d.by})`, 'idle', 'stock')
     case 'inventory.spool.dried':
       return out(`Spool ${d.spool_id} (${d.material} ${d.color}) dried (${d.by})`, 'ok', 'stock')
+    case 'integrations.sync.finished':
+      return d.ok
+        ? out(`${d.connector_id} synced · ${d.created} new, ${d.updated} changed`, 'idle', 'system')
+        : out(`${d.connector_id} sync failed (${d.failures} in a row): ${d.error}`, d.failures >= 3 ? 'danger' : 'warn', 'system')
+    case 'integrations.connector.changed':
+      return out(`${d.connector_id} ${d.enabled ? 'on' : 'off'} · ${d.mode === 'live' ? 'live service' : 'test data'} (${d.by})`, 'idle', 'system')
+    case 'notify.queued':
+      return out(`Notification: ${d.title}`, d.severity === 'critical' ? 'danger' : d.severity === 'warning' ? 'warn' : 'idle', 'system')
     case 'catalog.niche.rejected':
       return out(`Niche ${d.slug} not changed · ${d.reason}`, 'warn', 'stock')
     case 'personalization.model.ready':

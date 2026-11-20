@@ -33,6 +33,7 @@ from . import (
     cameras,
     catalog,
     finance,
+    integrations,
     inventory,
     live,
     niches,
@@ -113,7 +114,7 @@ async def _unexpected(request: Request, exc: Exception):
 
 for module in (auth, users, live, system, onboarding, printers, cameras, approvals, orders, inventory, finance, catalog,
                analytics,
-               niches, pricing, social, today):
+               niches, pricing, social, today, integrations):
     app.include_router(module.router)
 
 

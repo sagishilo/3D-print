@@ -21,6 +21,8 @@ import { useTour } from '@/stores/tour'
 const files = {
   ...(import.meta.glob('../src/**/*.vue', { query: '?raw', import: 'default', eager: true }) as Record<string, string>),
   ...(import.meta.glob('../src/lib/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>),
+  // screen labels of Wave 2 screens live in the i18n catalogue
+  ...(import.meta.glob('../src/i18n/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>),
 }
 const SOURCE = Object.entries(files)
   .filter(([path]) => !/tour/.test(path))

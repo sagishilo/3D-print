@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
 import Icon from '@/components/ui/Icon.vue'
@@ -12,6 +13,7 @@ import { useSystem } from '@/stores/system'
 
 defineEmits<{ navigate: [] }>()
 
+const { t } = useI18n()
 const route = useRoute()
 const auth = useAuth()
 const prefs = usePrefs()
@@ -49,7 +51,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
 
     <div class="groups">
       <template v-for="g in groups" :key="g">
-        <span class="group">{{ g }}</span>
+        <span class="group">{{ t(`nav.groups.${g}`) }}</span>
         <RouterLink
           v-for="item in visible.filter((n) => n.group === g)"
           :key="item.to"
@@ -60,7 +62,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
           @click="$emit('navigate')"
         >
           <Icon :name="item.icon" />
-          <span>{{ item.label }}</span>
+          <span>{{ t(`nav.${item.id}`) }}</span>
           <span v-if="item.phase" class="soon" :title="`Arrives in phase ${item.phase}`">P{{ item.phase }}</span>
           <span v-else-if="badges[item.to]?.n" class="badge" :class="badges[item.to].tone">{{ badges[item.to].n }}</span>
         </RouterLink>
@@ -68,7 +70,7 @@ const AGENT_TONE: Record<string, string> = { healthy: 'ok', late: 'warn', down: 
     </div>
 
     <div class="agents">
-      <span v-if="prefs.expert" class="group" data-testid="nav-agents">Agents</span>
+      <span v-if="prefs.expert" class="group" data-testid="nav-agents">{{ t('nav.agents') }}</span>
       <component
         :is="auth.can('operator') ? RouterLink : 'span'"
         v-for="a in prefs.expert ? system.coreAgents : []"
