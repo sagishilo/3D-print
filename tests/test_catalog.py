@@ -109,6 +109,55 @@ def test_two_sliced_plates_are_flagged():
     assert info.plates == 2 and any("2 sliced plates" in w for w in info.warnings)
 
 
+def model_settings(*plates: tuple[str, ...]) -> str:
+    """Bambu Studio's per-plate object list: one <plate> per tuple of root object ids."""
+    body = "".join(
+        "<plate>" + "".join(f'<model_instance><metadata key="object_id" value="{o}"/>'
+                            '<metadata key="instance_id" value="0"/></model_instance>' for o in objs) + "</plate>"
+        for objs in plates)
+    return f'<?xml version="1.0" encoding="UTF-8"?><config>{body}</config>'
+
+
+def three_plate_project() -> bytes:
+    """An unsliced project as MakerWorld ships it: 3 plates laid side by side, 300 mm apart, on one build area.
+    Plate 1: a 60x40 part; plate 2: two 30x30 parts 100 mm apart (130x30 together); plate 3: a 150x90 part."""
+    objs = cube("1", 60, 40, 5) + cube("2", 30, 30, 5) + cube("3", 30, 30, 5) + cube("4", 150, 90, 5)
+    items = ('<item objectid="1" transform="1 0 0 0 1 0 0 0 1 10 10 0"/>'
+             '<item objectid="2" transform="1 0 0 0 1 0 0 0 1 310 10 0"/>'
+             '<item objectid="3" transform="1 0 0 0 1 0 0 0 1 410 10 0"/>'
+             '<item objectid="4" transform="1 0 0 0 1 0 0 0 1 610 310 0"/>')
+    return three_mf({"3D/3dmodel.model": f"<model {NS}><resources>{objs}</resources><build>{items}</build></model>",
+                     "Metadata/model_settings.config": model_settings(("1",), ("2", "3"), ("4",)),
+                     "Metadata/plate_1.json": '{"bbox_all": [10, 10, 70, 50]}'})
+
+
+def test_an_unsliced_multi_plate_project_is_as_large_as_its_largest_plate():
+    info = inspect_3mf(three_plate_project())
+    assert not info.sliced and info.objects == 4
+    assert info.footprint_mm == (150, 90)       # plate 3 alone: not the 750x390 of all plates, not plate 1's 60x40
+    assert any("3 plates in the project" in w for w in info.warnings)
+
+
+def test_the_largest_plate_is_the_one_with_the_longest_side():
+    # plate 1: two parts making 130x30 (longest side 130); plate 2: one 100x100 part (larger area, shorter side)
+    objs = cube("1", 30, 30, 5) + cube("2", 30, 30, 5) + cube("3", 100, 100, 5)
+    items = ('<item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '<item objectid="2" transform="1 0 0 0 1 0 0 0 1 100 0 0"/>'
+             '<item objectid="3" transform="1 0 0 0 1 0 0 0 1 400 0 0"/>')
+    data = three_mf({"3D/3dmodel.model": f"<model {NS}><resources>{objs}</resources><build>{items}</build></model>",
+                     "Metadata/model_settings.config": model_settings(("1", "2"), ("3",))})
+    assert inspect_3mf(data).footprint_mm == (130, 30)
+
+
+def test_a_one_plate_project_keeps_its_footprint():
+    data = three_mf({"3D/3dmodel.model": f'<model {NS}><resources>{cube("1", 40, 20, 5)}</resources>'
+                                         '<build><item objectid="1" transform="1 0 0 0 1 0 0 0 1 100 100 0"/></build>'
+                                         "</model>",
+                     "Metadata/model_settings.config": model_settings(("1",))})
+    info = inspect_3mf(data)
+    assert info.footprint_mm == (40, 20) and info.warnings == ()
+
+
 # ---------------------------------------------------------------- batches
 
 

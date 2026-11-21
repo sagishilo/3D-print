@@ -127,7 +127,22 @@ def _corners(box: Box) -> Iterable[tuple[float, float, float]]:
     return ((x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1))
 
 
-def _footprint(models: dict[str, _Model], root_path: str) -> tuple[float, float] | None:
+def _plate_groups(data: bytes) -> list[set[str]]:
+    """The build objects on each plate of a Bambu Studio / OrcaSlicer project (``Metadata/model_settings.config``):
+    one set of root object ids per plate that has any. A project lays its plates side by side on one build area,
+    so the plates must be measured one at a time."""
+    groups: list[set[str]] = []
+    for plate in _xml(data, "model_settings.config").iter("plate"):
+        ids = {m.get("value", "") for inst in plate.iter("model_instance")
+               for m in inst.iter("metadata") if m.get("key") == "object_id"}
+        ids.discard("")
+        if ids:
+            groups.append(ids)
+    return groups
+
+
+def _footprint(models: dict[str, _Model], root_path: str, only: set[str] | None = None) -> tuple[float, float] | None:
+    """The bed area the build items cover; ``only``: just the build items of these root object ids (one plate)."""
     xs: list[float] = []
     ys: list[float] = []
 
@@ -146,7 +161,8 @@ def _footprint(models: dict[str, _Model], root_path: str) -> tuple[float, float]
             walk(sub_path, sub_id, _compose(sm, m), depth + 1)
 
     for oid, m in models[root_path].build:
-        walk(root_path, oid, m, 0)
+        if only is None or oid in only:
+            walk(root_path, oid, m, 0)
     if not xs:
         return None
     return (round(max(xs) - min(xs), 1), round(max(ys) - min(ys), 1))
@@ -224,7 +240,16 @@ def inspect_3mf(data: bytes) -> ThreeMfInfo:
         plates = sorted(int(m.group(1)) for n in names if (m := _PLATE_GCODE.match(n)))
         warnings: list[str] = []
         footprint = None
-        if "Metadata/plate_1.json" in names:
+        groups = (_plate_groups(z.read("Metadata/model_settings.config"))
+                  if not plates and "Metadata/model_settings.config" in names else [])
+        if len(groups) > 1:
+            # an unsliced project with several plates: the largest single plate, never all plates together
+            sizes = [fp for g in groups if (fp := _footprint(models, "/" + root_path, g))]
+            if sizes:
+                footprint = max(sizes, key=lambda s: (max(s), s[0] * s[1]))
+            warnings.append(f"{len(groups)} plates in the project: the size is the largest plate's. "
+                            "Slice one plate per file for the printers")
+        elif "Metadata/plate_1.json" in names:
             try:
                 bbox = json.loads(z.read("Metadata/plate_1.json")).get("bbox_all")
                 if isinstance(bbox, list) and len(bbox) == 4:
