@@ -158,6 +158,8 @@ class FakeBus:
         self.js = FakeJs()
         self.nc = SimpleNamespace(is_connected=True)
         self.kv: dict[str, dict[str, bytes]] = {"heartbeats": {}, "printer_status": {}, "config": {}}
+        self.replies: dict = {}
+        self.asked: list = []
 
     async def kv_keys(self, bucket):
         return list(self.kv[bucket])
@@ -167,6 +169,14 @@ class FakeBus:
 
     async def blob_put(self, bucket, name, data):
         self.kv.setdefault(f"obs:{bucket}", {})[name] = data
+
+    # Queries (core NATS request/reply): a test sets ``replies[subject]`` to the reply's data, or to an exception.
+    async def request(self, env, timeout=2.0):
+        self.asked.append((env.nats_subject(), env.data, timeout))
+        got = self.replies.get(env.nats_subject())
+        if got is None or isinstance(got, Exception):
+            raise got or TimeoutError("no responders")
+        return SimpleNamespace(data=got)
 
 
 class FakeHttp:

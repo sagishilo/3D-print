@@ -7,5 +7,17 @@
  "{0} colours: needs a printer with an AMS": "{0} צבעים: צריך מדפסת עם AMS",
  "{0} mm tall: this printer prints up to {1} mm": "גובה {0} מ\"מ: המדפסת הזו מדפיסה עד {1} מ\"מ",
  "{0} × {1}{2} mm": "{0} × {1}{2} מ\"מ",
- "AMS": "AMS"
+ "AMS": "AMS",
+ "App token (thingiverse.com/apps/create, a Web App; free)": "טוקן אפליקציה (thingiverse.com/apps/create, אפליקציית Web; חינם)",
+ "Creative Commons - Attribution": "Creative Commons - ייחוס (Attribution)",
+ "Fidget spinner (fake)": "ספינר (נתוני בדיקה)",
+ "Thingiverse (model details from a link)": "Thingiverse (פרטי מודל מקישור)",
+ "Thingiverse answered {0}": "Thingiverse השיב {0}",
+ "Thingiverse could not be reached ({0})": "אין חיבור ל-Thingiverse ‏({0})",
+ "Thingiverse has no thing {0}": "אין ב-Thingiverse מודל {0}",
+ "Thingiverse sent something that is not JSON": "Thingiverse שלח תשובה שאינה JSON",
+ "a Thingiverse thing id is a number": "מזהה מודל ב-Thingiverse הוא מספר",
+ "switch on the {0} connector under Integrations to fill the details from the link": "כדי למלא את הפרטים מהקישור, מפעילים את החיבור {0} במסך Integrations",
+ "the lookup failed ({0})": "החיפוש נכשל ({0})",
+ "{0} has no public API: open the page and import its 3MF": "ל-{0} אין API ציבורי: פותחים את הדף ומייבאים את קובץ ה-3MF שלו"
 }

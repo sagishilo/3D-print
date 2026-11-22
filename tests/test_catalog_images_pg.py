@@ -179,3 +179,59 @@ async def test_delete_keeps_a_product_with_orders_and_removes_one_without(agent,
     assert not [p for p in folder.iterdir() if p.name.startswith("PG-IMG-1-")]
     assert (folder / "PG-IMG-10-0123456789ab.3mf").is_file()
     assert (await events(db, "evt.catalog.product.deleted"))[-1] == {"sku": "PG-IMG-1", "name": "Card stand", "by": "admin"}
+
+
+# ---------------------------------------------------------------- where it comes from, and the right to sell it
+
+def maker_template(licence: str = "Standard Digital File License") -> bytes:
+    return three_mf({"3D/3dmodel.model": f'<model {NS}><metadata name="Title">Pokemon card stand</metadata>'
+                                         f'<metadata name="Designer">MaajkiPL</metadata><metadata name="License">{licence}'
+                                         f'</metadata><resources>{cube("1", 40, 20, 5)}</resources>'
+                                         '<build><item objectid="1" transform="1 0 0 0 1 0 0 0 1 50 50 0"/></build></model>',
+                     "Metadata/plate_1.png": PNG})
+
+
+async def test_the_3mf_names_designer_and_licence_and_a_personal_use_file_stays_off(agent, db):
+    from printfarm.contracts.messages import SetCatalogProductActive
+
+    sha = agent.bus.put(maker_template())
+    # on sale at once: refused, a personal-use licence
+    await run(agent, upsert("PG-IMG-1", upload=sha, source_url="https://makerworld.com/en/models/111937-x?y=1"))
+    assert await one(db, "SELECT 1 FROM catalog.products WHERE sku = %s", "PG-IMG-1") is None
+    assert "does not allow selling prints" in (await events(db, "evt.catalog.product.rejected"))[-1]["reason"]
+    # switched off: kept, with the file's designer and licence and the canonical page
+    await run(agent, upsert("PG-IMG-1", upload=sha, active=False, source_url="https://makerworld.com/en/models/111937-x?y=1"))
+    row = await one(db, "SELECT designer, licence, source_url, source_site, source_id, active FROM catalog.products "
+                        "WHERE sku = %s", "PG-IMG-1")
+    assert row == {"designer": "MaajkiPL", "licence": "Standard Digital File License", "active": False,
+                   "source_url": "https://makerworld.com/en/models/111937", "source_site": "makerworld", "source_id": "111937"}
+    # the switch: refused without the confirmation, recorded with it
+    await run(agent, SetCatalogProductActive(sku="PG-IMG-1", active=True, changed_by="noa"))
+    refused = (await events(db, "evt.catalog.product.rejected"))[-1]
+    assert refused["action"] == "active" and "commercial licence" in refused["reason"]
+    assert (await one(db, "SELECT active FROM catalog.products WHERE sku = %s", "PG-IMG-1"))["active"] is False
+    await run(agent, SetCatalogProductActive(sku="PG-IMG-1", active=True, rights_confirmed=True, changed_by="admin"))
+    row = await one(db, "SELECT active, rights_confirmed_by, rights_confirmed_at FROM catalog.products WHERE sku = %s", "PG-IMG-1")
+    assert row["active"] is True and row["rights_confirmed_by"] == "admin" and row["rights_confirmed_at"] is not None
+    # switching off is never stopped; a typed licence wins over the file's; "" clears the page
+    await run(agent, SetCatalogProductActive(sku="PG-IMG-1", active=False, changed_by="noa"))
+    await run(agent, upsert("PG-IMG-1", active=False, licence="Commercial License", designer="", source_url=""))
+    row = await one(db, "SELECT designer, licence, source_url FROM catalog.products WHERE sku = %s", "PG-IMG-1")
+    assert row == {"designer": "", "licence": "Commercial License", "source_url": None}
+    await run(agent, SetCatalogProductActive(sku="PG-IMG-1", active=True, changed_by="noa"))     # now allowed
+    assert (await one(db, "SELECT active FROM catalog.products WHERE sku = %s", "PG-IMG-1"))["active"] is True
+
+
+async def test_an_own_design_without_a_licence_goes_on_sale_as_before(agent, db):
+    await run(agent, upsert("PG-IMG-2", upload=agent.bus.put(template())))
+    row = await one(db, "SELECT active, licence, designer FROM catalog.products WHERE sku = %s", "PG-IMG-2")
+    assert row == {"active": True, "licence": "", "designer": ""}
+
+
+async def test_products_imported_before_get_designer_and_licence_on_the_next_save(agent, db):
+    await run(agent, upsert("PG-IMG-3", upload=agent.bus.put(maker_template("BY")), active=False))
+    async with db.tx() as conn:
+        await conn.execute("UPDATE catalog.products SET designer = '', licence = '' WHERE sku = 'PG-IMG-3'")
+    await run(agent, upsert("PG-IMG-3", active=False))                                  # no file: the stored one
+    row = await one(db, "SELECT designer, licence FROM catalog.products WHERE sku = %s", "PG-IMG-3")
+    assert row == {"designer": "MaajkiPL", "licence": "BY"}

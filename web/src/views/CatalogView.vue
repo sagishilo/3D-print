@@ -3,6 +3,7 @@
 // and a batch for the shelf: plates, print time and filament as the scheduler would pack them, with what is short.
 // Queue batch sends one stock order (catalog.batch) that is prepared and scheduled at once.
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import ProductCard from '@/components/catalog/ProductCard.vue'
@@ -27,6 +28,7 @@ const niche = useNiche()
 const confirm = useConfirm()
 const toasts = useToasts()
 const actions = useProductActions()
+const { t } = useI18n()
 
 onMounted(() => {
   void catalog.load()
@@ -34,7 +36,7 @@ onMounted(() => {
 })
 watch([() => catalog.category, () => catalog.sort, () => catalog.showInactive], () => void catalog.load())
 
-const dialog = ref<{ product: CatalogProduct | null } | null>(null)
+const dialog = ref<{ product: CatalogProduct | null; linkFirst?: boolean } | null>(null)
 const assigning = ref(false)
 const route = useRoute()
 const router = useRouter()
@@ -88,6 +90,7 @@ async function queue() {
     </div>
     <div class="head-actions">
       <button v-can="'operator'" type="button" class="btn" data-testid="assign-niche" data-tour="catalog-assign-niche" :disabled="!catalog.products.length" @click="assigning = true"><Icon name="tag" :size="14" />Assign niche</button>
+      <button v-can="'operator'" type="button" class="btn" data-testid="import-link" @click="dialog = { product: null, linkFirst: true }"><Icon name="external" :size="14" />{{ t('catalog.importLink') }}</button>
       <button v-can="'operator'" type="button" class="btn btn-primary" data-testid="import-3mf" @click="dialog = { product: null }"><Icon name="plus" :size="14" />Import 3MF</button>
     </div>
   </div>
@@ -164,7 +167,7 @@ async function queue() {
     </div>
   </section>
 
-  <ProductDialog v-if="dialog" :product="dialog.product" :categories="catalog.categories" @close="dialog = null" />
+  <ProductDialog v-if="dialog" :product="dialog.product" :categories="catalog.categories" :link-first="dialog.linkFirst" @close="dialog = null" />
   <AssignNicheDialog v-if="assigning" :products="catalog.products" @close="assigning = false" />
 </template>
 

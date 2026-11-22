@@ -41,6 +41,7 @@ from printfarm.agents.integrations.framework import (
     read_env_file,
     secrets_status,
 )
+from printfarm.contracts import new_message
 from printfarm.contracts.messages import (
     ConfigureConnector,
     ConnectorChanged,
@@ -49,6 +50,7 @@ from printfarm.contracts.messages import (
     DocumentIssued,
     IssueDocument,
     MapStoreSku,
+    ModelLookupReply,
     NotificationQueued,
     NotificationRequested,
     OrderShipped,
@@ -69,6 +71,7 @@ from printfarm.contracts.messages import (
 
 TICK_S = 5
 SYNC_TIMEOUT_S = 120
+LOOKUP_TIMEOUT_S = 8                  # Import from link waits for it (the gateway gives up after 10 s)
 RUNS_KEPT = 200                  # per connector
 PUSH_ATTEMPTS = 8                # then a person is told and it stops trying
 ALERT_ATTEMPTS = 5                # a notification no channel could take: given up, shown on the dashboard
@@ -110,6 +113,37 @@ class IntegrationsAgent(Agent):
                 await conn.execute("INSERT INTO integrations.sync_state (connector_id) VALUES (%s) ON CONFLICT DO NOTHING",
                                    (c.id,))
         self.spawn(self._loop())
+        if self.bus is not None:                          # tests start the agent without a bus
+            await self.bus.serve("qry.integrations.model_lookup", self._model_lookup)
+
+    async def _model_lookup(self, env):
+        """Catalog › Import from link asks for a model's details. Only a switched-on connector of that site answers
+        with them; otherwise the reply says what to switch on. Errors are the connector's own words, never a token."""
+        q = env.payload()
+        c = self.registry.get(q.site)
+        reply = None
+        if c is None or not hasattr(c, "lookup"):
+            reply = ModelLookupReply(found=False, reason=f"{q.site} has no public API: open the page and import its 3MF")
+        else:
+            async with self.db.tx() as conn:
+                cfg = await (await conn.execute("SELECT enabled, mode, settings FROM integrations.connectors "
+                                                "WHERE connector_id = %s", (c.id,))).fetchone()
+            if not cfg or not cfg["enabled"]:
+                reply = ModelLookupReply(found=False, reason=f"switch on the {c.label} connector under Integrations "
+                                                             "to fill the details from the link")
+            else:
+                ctx = SyncContext(mode=cfg["mode"], cursor={}, settings=cfg["settings"] or {},
+                                  secrets=self.secret_values(c), now=datetime.now(UTC),
+                                  log=lambda m: self.log.info("%s: %s", c.id, m))
+                try:
+                    got = await asyncio.wait_for(c.lookup(ctx, q.model_id), LOOKUP_TIMEOUT_S)
+                    reply = ModelLookupReply(found=True, mode=cfg["mode"], **got)
+                except SyncError as exc:
+                    reply = ModelLookupReply(found=False, mode=cfg["mode"], reason=str(exc)[:300])
+                except Exception as exc:  # noqa: BLE001 - a lookup must always answer
+                    self.log.warning("%s lookup failed: %s", c.id, type(exc).__name__)
+                    reply = ModelLookupReply(found=False, mode=cfg["mode"], reason=f"the lookup failed ({type(exc).__name__})")
+        return new_message(reply, source=self.source, cause=env)
 
     def heartbeat_info(self) -> dict:
         return {"connectors": len(self.registry), "running": sorted(self._running)}

@@ -11,6 +11,7 @@ import {
   type CatalogProduct,
   estimateUrl,
   type ImageUpload,
+  type LinkInfo,
   type ProductReferences,
   type Sort,
   type Upload,
@@ -170,7 +171,10 @@ export const useCatalog = defineStore('catalog', () => {
     slice: (sku: string) => command('catalog.slice', { sku }),
     uploadImage: (file: File) => postFile<ImageUpload>(file, file.name, true, 'images'),
     /** On sale or switched off: the personalization agent answers on the live feed (catalog.product.updated). */
-    setActive: (sku: string, active: boolean) => command('catalog.active', { sku, active }),
+    setActive: (sku: string, active: boolean, rightsConfirmed = false) =>
+      command('catalog.active', { sku, active, rights_confirmed: rightsConfirmed }),
+    /** Which model page a link is, and the details a site with a public API gave (never MakerWorld / Printables). */
+    link: (url: string) => api<LinkInfo>(`/api/v1/catalog/link?url=${encodeURIComponent(url)}`),
     references: (sku: string) => api<ProductReferences>(`/api/v1/catalog/products/${encodeURIComponent(sku)}/references`),
     remove: (sku: string) => command('catalog.delete', { sku }),
   }

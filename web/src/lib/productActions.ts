@@ -1,4 +1,5 @@
-// Catalog product actions shared by the product card and Catalog › Edit: switch a SKU on or off, and delete it.
+// Catalog product actions shared by the product card and Catalog › Edit: switch a SKU on or off (a personal-use
+// licence needs the owner's word that they hold the commercial rights), and delete it.
 // Delete asks the gateway first what still refers to the SKU: with orders, stock or a store listing it is never
 // deleted (order history, margins and reports keep pointing at it), and the dialog offers to switch it off instead.
 import { t } from '@/i18n'
@@ -23,8 +24,19 @@ export function useProductActions() {
   const toasts = useToasts()
 
   async function setActive(p: CatalogProduct, active: boolean): Promise<boolean> {
+    // A licence that does not allow selling prints: on sale only with the owner's word that they hold the rights.
+    const rights = active && !p.active && p.licence_status === 'non_commercial'
+    if (rights) {
+      const ok = await confirm.ask({
+        title: t('catalog.rightsTitle', { sku: p.sku }),
+        text: t('catalog.rightsText', { licence: p.licence_label || p.licence || '' }),
+        confirmLabel: t('catalog.rightsOn'),
+        requireCheck: t('catalog.rightsConfirm'),
+      })
+      if (!ok) return false
+    }
     try {
-      await catalog.setActive(p.sku, active)
+      await catalog.setActive(p.sku, active, rights)
       toasts.info(t(active ? 'catalog.switchedOn' : 'catalog.switchedOff', { sku: p.sku }),
         t(active ? 'catalog.switchedOnText' : 'catalog.switchedOffText'))
       catalog.reloadSoon()

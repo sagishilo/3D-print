@@ -48,13 +48,14 @@ class ThreeMfInfo:
     # every filament the sliced plate uses, (slicer filament id, type, "#RRGGBB"): more than one = an AMS print
     filaments: tuple[tuple[int, str, str], ...] = ()
     max_z_mm: float | None = None             # height of the sliced plate (G-code header), when the slicer says
+    design: dict | None = None                # title, designer, licence... the file states (design_meta)
 
     def as_dict(self) -> dict:
         return {"sliced": self.sliced, "plates": self.plates, "objects": self.objects,
                 "footprint_mm": list(self.footprint_mm) if self.footprint_mm else None, "est_grams": self.est_grams,
                 "est_minutes": self.est_minutes, "printer_model": self.printer_model, "filament": self.filament,
                 "warnings": list(self.warnings), "filaments": [list(f) for f in self.filaments],
-                "max_z_mm": self.max_z_mm}
+                "max_z_mm": self.max_z_mm, "design": self.design}
 
 
 def _xml(data: bytes, name: str) -> ET.Element:
@@ -210,6 +211,41 @@ def gcode_max_z(head: bytes) -> float | None:
         return None
 
 
+# What MakerWorld / Bambu Studio write about the design into 3D/3dmodel.model (<metadata name="...">), as our keys.
+_DESIGN_KEYS = {"Title": "title", "Designer": "designer", "License": "licence", "Origin": "origin",
+                "DesignModelId": "design_id"}
+
+
+def _design(root: ET.Element) -> dict | None:
+    from printfarm.contracts.sources import licence_check, trademark_terms
+
+    found = {}
+    for m in root.iter(f"{_CORE}metadata"):
+        key = _DESIGN_KEYS.get(m.get("name", ""))
+        value = " ".join((m.text or "").split())[:200]
+        if key and value:
+            found[key] = value
+    if not ({"designer", "licence"} & found.keys()):
+        return None                                   # a plain model: no design details to speak of
+    check = licence_check(found.get("licence"))
+    return {**{k: found.get(k, "") for k in ("title", "designer", "licence", "origin", "design_id")},
+            "licence_status": check.status, "licence_label": check.label,
+            "trademarks": trademark_terms(found.get("title"))}
+
+
+def design_meta(data: bytes) -> dict | None:
+    """Who designed the model and under which licence, as the 3MF states it (MakerWorld and Bambu Studio write the
+    title, designer, licence, origin and design id into the model file); None when the file says nothing."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            info = z.getinfo("3D/3dmodel.model")
+            if info.file_size > MAX_UNCOMPRESSED:
+                return None
+            return _design(_xml(z.read(info), "3dmodel.model"))
+    except (zipfile.BadZipFile, KeyError, InvalidThreeMf):
+        return None
+
+
 _THUMBNAIL_REL = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail"
 # Where slicers put a preview when the package does not name one: the plate render (Bambu Studio, OrcaSlicer), the
 # project thumbnail (PrusaSlicer, OrcaSlicer), Bambu's small cover picture.
@@ -264,8 +300,9 @@ def inspect_3mf(data: bytes) -> ThreeMfInfo:
         root_path = "3D/3dmodel.model"
         if root_path not in names:
             raise InvalidThreeMf("no 3D/3dmodel.model inside: export the project as 3MF")
+        root_xml = _xml(z.read(root_path), root_path)
         models = {
-            n: _parse_model(_xml(z.read(n), n), "/" + n)
+            n: _parse_model(root_xml if n == root_path else _xml(z.read(n), n), "/" + n)
             for n in names if n.startswith("3D/") and n.endswith(".model")
         }
         models = {"/" + n: m for n, m in models.items()}
@@ -311,7 +348,7 @@ def inspect_3mf(data: bytes) -> ThreeMfInfo:
             warnings.append(f"{len(plates)} sliced plates: only one plate per file can be sent to a printer")
         return ThreeMfInfo(sliced=bool(plates), plates=len(plates), objects=len(root.build), footprint_mm=footprint,
                            est_grams=grams, est_minutes=minutes, printer_model=printer_model, filament=filament,
-                           warnings=tuple(warnings), filaments=filaments, max_z_mm=max_z)
+                           warnings=tuple(warnings), filaments=filaments, max_z_mm=max_z, design=_design(root_xml))
 
 
 # ---------------------------------------------------------------- batches

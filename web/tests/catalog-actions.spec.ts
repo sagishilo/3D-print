@@ -107,7 +107,7 @@ describe('the on-sale switch', () => {
   it('sends catalog.active', async () => {
     const calls = serve(on('POST', '/api/v1/commands/catalog.active', () => json(202, { accepted: true })))
     expect(await useProductActions().setActive(product(), false)).toBe(true)
-    expect(calls[0].body).toEqual({ sku: SKU, active: false })
+    expect(calls[0].body).toEqual({ sku: SKU, active: false, rights_confirmed: false })
   })
 })
 
@@ -126,7 +126,7 @@ describe('delete', () => {
     expect(ask.mock.calls[0][0]).toMatchObject({ title: `${SKU} cannot be deleted`, confirmLabel: 'Switch off' })
     expect(ask.mock.calls[0][0].text).toContain('2 order(s) and finished stock still refer to it')
     expect(calls.map((c) => c.url)).not.toContain('/api/v1/commands/catalog.delete')
-    expect(calls.find((c) => c.url === '/api/v1/commands/catalog.active')!.body).toEqual({ sku: SKU, active: false })
+    expect(calls.find((c) => c.url === '/api/v1/commands/catalog.active')!.body).toEqual({ sku: SKU, active: false, rights_confirmed: false })
   })
 
   it('a product nothing refers to is deleted only after the confirmation', async () => {

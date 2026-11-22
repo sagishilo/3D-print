@@ -180,7 +180,8 @@ def test_deleting_is_for_owners_switching_on_and_off_for_operators(client):
     assert commands.COMMANDS["catalog.delete"].min_role == "owner"
     assert commands.COMMANDS["catalog.active"].min_role == "operator"
     env = build_command("catalog.active", {"sku": "HOOK-A", "active": True, "changed_by": "mallory"}, "noa", KEY)
-    assert env.data == {"sku": "HOOK-A", "active": True, "changed_by": "noa"} and "set_product_active" in env.type
+    assert env.data == {"sku": "HOOK-A", "active": True, "rights_confirmed": False, "changed_by": "noa"}
+    assert "set_product_active" in env.type
     asyncio.run(add_user(client.app, "noa", "operator"))
     client.post("/api/v1/auth/login", json={"username": "noa", "password": PASSWORD})
     r = client.post("/api/v1/commands/catalog.delete", headers=csrf(client), json={"sku": "HOOK-A"})
@@ -190,3 +191,52 @@ def test_deleting_is_for_owners_switching_on_and_off_for_operators(client):
     assert r.status_code == 202
     audit = client.app.state.db.audit[KEY]
     assert audit["actor"] == "noa" and audit["subject"] == "cmd.personalization.set_product_active"
+
+
+# ---------------------------------------------------------------- Import from link
+
+def test_a_makerworld_link_is_recognised_and_never_fetched(client):
+    r = client.get("/api/v1/catalog/link", params={"url": "https://makerworld.com/en/models/111937-pokemon-stand?x=1"})
+    body = r.json()
+    assert r.status_code == 200 and body["site"] == "makerworld" and body["model_id"] == "111937"
+    assert body["url"] == "https://makerworld.com/en/models/111937" and body["lookup"] is None
+    assert "no public API" in body["note"] and "3MF" in body["note"]
+    assert client.app.state.bus.asked == []                               # nothing asked, nothing fetched
+    bad = client.get("/api/v1/catalog/link", params={"url": "https://evil.example/models/1"})
+    assert bad.status_code == 400 and "MakerWorld, Printables or Thingiverse" in bad.json()["detail"]
+
+
+def test_a_thingiverse_link_asks_the_integrations_agent(client):
+    bus = client.app.state.bus
+    bus.replies["qry.integrations.model_lookup"] = {
+        "found": True, "mode": "live", "title": "Pikachu card stand", "designer": "maker", "licence": "Creative Commons - Attribution",
+        "image_url": "https://cdn.example/1.jpg", "files": ["stand.3mf"], "has_3mf": True, "reason": ""}
+    body = client.get("/api/v1/catalog/link", params={"url": "thingiverse.com/thing:4321"}).json()
+    assert bus.asked[0][0] == "qry.integrations.model_lookup" and bus.asked[0][1] == {"site": "thingiverse", "model_id": "4321"}
+    assert body["lookup"]["licence_status"] == "commercial" and body["lookup"]["trademarks"] == ["pikachu"]
+    assert body["lookup"]["has_3mf"] is True and body["url"] == "https://www.thingiverse.com/thing:4321"
+    bus.replies["qry.integrations.model_lookup"] = {"found": False, "reason": "switch on the Thingiverse connector"}
+    off = client.get("/api/v1/catalog/link", params={"url": "https://www.thingiverse.com/thing:4321"}).json()
+    assert off["lookup"] is None and "switch on" in off["note"]
+    bus.replies["qry.integrations.model_lookup"] = TimeoutError()
+    gone = client.get("/api/v1/catalog/link", params={"url": "https://www.thingiverse.com/thing:4321"}).json()
+    assert gone["lookup"] is None and "did not answer" in gone["note"]
+
+
+def test_products_say_their_licence_and_brand_words(client):
+    db = client.app.state.db
+    db.rows["FROM catalog.products p"] = [{**PRODUCT, "name": "Charizard slab stand", "sold_7d": 0, "sold_prev_7d": 0,
+                                           "in_production": 0, "licence": "BY-NC", "designer": "MaajkiPL",
+                                           "source_url": "https://makerworld.com/en/models/1", "source_site": "makerworld"}]
+    p = client.get("/api/v1/catalog/products").json()["products"][0]
+    assert p["licence_status"] == "non_commercial" and p["licence_label"].startswith("CC BY-NC")
+    assert p["trademarks"] == ["charizard"] and p["source_site"] == "makerworld"
+
+
+def test_an_upsert_link_is_checked_and_made_canonical():
+    env = build_command("catalog.upsert", {"sku": "HOOK-A", "name": "Hook", "price_agorot": 2500,
+                                           "source_url": "makerworld.com/en/models/42-hook?from=x"}, "admin", KEY)
+    assert env.data["source_url"] == "https://makerworld.com/en/models/42"
+    with pytest.raises(ValueError, match="MakerWorld, Printables or Thingiverse"):
+        build_command("catalog.upsert", {"sku": "HOOK-A", "name": "Hook", "price_agorot": 2500,
+                                         "source_url": "https://evil.example/x"}, "admin", KEY)

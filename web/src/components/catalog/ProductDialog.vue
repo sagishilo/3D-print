@@ -14,6 +14,8 @@ import {
   CATEGORY_LABEL,
   IMAGE_TYPES,
   type ImageUpload,
+  licenceStatus,
+  type LinkInfo,
   MAX_IMAGE_BYTES,
   minutes,
   skuError,
@@ -30,7 +32,7 @@ import { useNiche } from '@/stores/niche'
 import { useStock } from '@/stores/stock'
 import { useToasts } from '@/stores/toasts'
 
-const props = defineProps<{ product: CatalogProduct | null; categories: string[] }>()
+const props = defineProps<{ product: CatalogProduct | null; categories: string[]; linkFirst?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const catalog = useCatalog()
 const toasts = useToasts()
@@ -54,7 +56,45 @@ const form = reactive({
   post: p?.post_minutes ? String(p.post_minutes) : '',
   niche: p?.niche ?? niche.current ?? UNASSIGNED,
   tags: [...(p?.tags ?? [])] as string[],
+  link: p?.source_url ?? '',
+  designer: p?.designer ?? '',
+  licence: p?.licence ?? '',
 })
+
+// Import from link (contracts/sources.py): the page is recognised and kept; only a site with a public API whose
+// connector is on (Thingiverse) gives details. MakerWorld / Printables: the details come from the downloaded 3MF.
+const linkInfo = ref<LinkInfo | null>(null)
+const linkBusy = ref(false)
+const linkError = ref('')
+const linkInput = ref<HTMLInputElement | null>(null)
+async function checkLink() {
+  linkError.value = ''
+  linkInfo.value = null
+  if (!form.link.trim()) return
+  linkBusy.value = true
+  try {
+    linkInfo.value = await catalog.link(form.link.trim())
+    form.link = linkInfo.value.url
+  } catch (err) {
+    linkError.value = errorText(err)
+  } finally {
+    linkBusy.value = false
+  }
+}
+function useLookup() {
+  const l = linkInfo.value?.lookup
+  if (!l) return
+  if (!form.name.trim() && l.title) form.name = l.title.slice(0, 80)
+  if (l.designer) form.designer = l.designer
+  if (l.licence) form.licence = l.licence
+}
+const newOff = ref(false)
+const licence = computed(() => licenceStatus(form.licence))
+const brands = computed(() => [...new Set([...(p?.trademarks ?? []), ...(upload.value?.info.design?.trademarks ?? []),
+  ...(linkInfo.value?.lookup?.trademarks ?? [])])])
+// Going on sale under a licence that does not allow selling prints: the owner's word that they hold the rights.
+const needsRights = computed(() => licence.value === 'non_commercial' && form.active && !(p?.active))
+const rightsChecked = ref(false)
 // The main niche (archived ones only when the product is still in one) and the extra niches it is also tagged with.
 const nicheChoices = computed(() => niche.all.filter((n) => !n.archived || n.slug === form.niche))
 const tagChoices = computed(() => niche.list.filter((n) => n.slug !== form.niche && n.slug !== UNASSIGNED))
@@ -101,6 +141,17 @@ async function pick(e: Event) {
     if (!form.sku) form.sku = skuFromName(file.name)
     if (!form.name) form.name = file.name.replace(/\.(gcode\.)?3mf$/i, '').slice(0, 80)
     if (upload.value.info.filament && !p) form.material = upload.value.info.filament
+    const design = upload.value.info.design
+    if (design) {
+      if (!form.designer) form.designer = design.designer
+      if (!form.licence) form.licence = design.licence
+      if (!p && design.title && (!form.name || form.name === file.name.replace(/\.(gcode\.)?3mf$/i, '').slice(0, 80)))
+        form.name = design.title.slice(0, 80)
+      if (!p && licenceStatus(form.licence) === 'non_commercial') {
+        form.active = false
+        newOff.value = true
+      }
+    }
   } catch (err) {
     error.value = errorText(err)
   } finally {
@@ -163,6 +214,7 @@ const invalid = computed(() => {
   if (form.post !== '' && !(Number(form.post) >= 0 && Number(form.post) <= 600)) return 'finishing minutes: 0 to 600'
   if (upload.value && upload.value.info.plates > 1) return 'the file holds several sliced plates: export one plate per file'
   if (!fromSlicer.value && !(Number(form.grams) > 0 && Number(form.minutes) > 0)) return 'enter the grams and print minutes (the template is not sliced)'
+  if (needsRights.value && !rightsChecked.value) return t('catalog.rightsConfirm')
   return null
 })
 
@@ -187,6 +239,10 @@ async function submit() {
       post_minutes: form.post === '' ? 0 : Number(form.post),
       tags: form.tags.filter((t) => t !== form.niche),
       image_upload: image.value?.image_upload ?? '',
+      source_url: form.link.trim(),
+      designer: form.designer.trim(),
+      licence: form.licence.trim(),
+      rights_confirmed: needsRights.value && rightsChecked.value,
     })
     const lines = bomRows.value.filter((r) => r.item_id && Number(r.qty) > 0).map((r) => ({ item_id: r.item_id, qty: Number(r.qty) }))
     if (JSON.stringify(lines) !== bomBefore) await stock.setBom(form.sku, lines)
@@ -201,7 +257,8 @@ async function submit() {
 }
 
 onMounted(() => {
-  if (!p) fileInput.value?.focus()
+  if (props.linkFirst) linkInput.value?.focus()
+  else if (!p) fileInput.value?.focus()
 })
 </script>
 
@@ -212,6 +269,37 @@ onMounted(() => {
         <h2 id="product-title">{{ p ? `Edit ${p.sku}` : 'Import 3MF' }}</h2>
         <button type="button" class="icon-btn" aria-label="Close" @click="emit('close')"><Icon name="x" /></button>
       </header>
+
+      <section class="link" data-testid="product-link">
+        <label>
+          {{ t('catalog.link') }}
+          <span class="link-row">
+            <input ref="linkInput" v-model.trim="form.link" class="input" type="url" inputmode="url" dir="ltr" maxlength="500"
+              :placeholder="t('catalog.linkPlaceholder')" data-testid="link-url" @keydown.enter.prevent="checkLink" />
+            <button type="button" class="btn btn-sm" :disabled="!form.link || linkBusy" data-testid="link-check" @click="checkLink">{{ t('catalog.linkCheck') }}</button>
+          </span>
+        </label>
+        <span v-if="linkBusy" class="muted small">{{ t('catalog.linkChecking') }}</span>
+        <span v-else-if="linkError" class="err small" role="alert" data-testid="link-error">{{ linkError }}</span>
+        <div v-else-if="linkInfo" class="info" data-testid="link-info">
+          <span>
+            <b>{{ t('catalog.linkModel', { site: linkInfo.site_name, id: linkInfo.model_id }) }}</b> ·
+            <a :href="linkInfo.url" target="_blank" rel="noopener noreferrer" data-testid="link-open">{{ t('catalog.linkOpen', { site: linkInfo.site_name }) }} ↗</a>
+          </span>
+          <template v-if="linkInfo.lookup">
+            <span>{{ t('catalog.linkFound', { site: linkInfo.site_name }) }} <b>{{ linkInfo.lookup.title }}</b> · {{ linkInfo.lookup.designer }} · {{ linkInfo.lookup.licence }}
+              <span v-if="linkInfo.lookup.mode === 'fake'" class="muted">({{ t('catalog.linkFake') }})</span></span>
+            <span class="muted small">{{ linkInfo.lookup.has_3mf ? t('catalog.linkHas3mf') : t('catalog.linkNo3mf') }}</span>
+            <button type="button" class="btn btn-sm use" data-testid="link-use" @click="useLookup">{{ t('catalog.linkUse') }}</button>
+          </template>
+          <span v-else-if="linkInfo.site !== 'thingiverse'" class="muted small" data-testid="link-note">{{ t('catalog.linkNoApi', { site: linkInfo.site_name }) }}</span>
+          <span v-else class="muted small" data-testid="link-note">{{ linkInfo.note }}</span>
+        </div>
+        <span v-else-if="p?.source_url && form.link === p.source_url" class="small">
+          <a :href="p.source_url" target="_blank" rel="noopener noreferrer">{{ t('catalog.source') }} ↗</a>
+        </span>
+        <span v-else class="muted small">{{ t('catalog.linkHint') }}</span>
+      </section>
 
       <label>
         {{ p ? 'New template (optional)' : '3MF template' }}
@@ -281,11 +369,24 @@ onMounted(() => {
           <legend>Also in <span class="muted">(extra niches, optional)</span></legend>
           <label v-for="n in tagChoices" :key="n.slug" class="check"><input v-model="form.tags" type="checkbox" :value="n.slug" :data-testid="`product-tag-${n.slug}`" /> {{ n.name }}</label>
         </fieldset>
+        <label>{{ t('catalog.designer') }}<input v-model="form.designer" class="input" maxlength="120" data-testid="designer" /></label>
+        <label>
+          {{ t('catalog.licence') }}
+          <input v-model="form.licence" class="input" maxlength="120" data-testid="licence" />
+        </label>
+        <p class="verdict" :class="licence" data-testid="licence-verdict">
+          {{ licence === 'commercial' ? t('catalog.licenceOk') : licence === 'non_commercial' ? t('catalog.licenceNo') : t('catalog.licenceUnknown') }}
+          <span v-if="upload?.info.design" class="muted"> · {{ t('catalog.licenceFrom3mf', { designer: upload.info.design.designer, licence: upload.info.design.licence }) }}</span>
+        </p>
+        <p v-if="brands.length" class="verdict non_commercial" data-testid="brand-warning">™ {{ t('catalog.brandWarn', { terms: brands.join(', ') }) }}</p>
         <label>Finishing minutes per piece <span class="muted">(sanding, assembly: priced as labour)</span><input v-model="form.post" class="input" inputmode="decimal" placeholder="0" data-testid="post-minutes" /></label>
-        <div v-if="p" class="sale-row" data-testid="product-sale">
-          <ToggleSwitch v-model="form.active" :label="form.active ? t('catalog.switchOffLabel', { sku: p.sku }) : t('catalog.switchOnLabel', { sku: p.sku })" data-testid="product-active" />
-          <span><b>{{ form.active ? t('catalog.onSale') : t('catalog.off') }}</b> <span class="muted">{{ t('catalog.saleHelp') }}</span></span>
+        <div class="sale-row" data-testid="product-sale">
+          <ToggleSwitch v-model="form.active" :label="form.active ? t('catalog.switchOffLabel', { sku: form.sku }) : t('catalog.switchOnLabel', { sku: form.sku })" data-testid="product-active" />
+          <span><b>{{ form.active ? t('catalog.onSale') : t('catalog.off') }}</b> <span class="muted">{{ newOff && !form.active ? t('catalog.newOffNote') : t('catalog.saleHelp') }}</span></span>
         </div>
+        <label v-if="needsRights" class="check rights" data-testid="rights">
+          <input v-model="rightsChecked" type="checkbox" data-testid="rights-confirm" /> {{ t('catalog.rightsConfirm') }}
+        </label>
       </div>
 
       <fieldset class="bom" data-testid="bom">
@@ -419,6 +520,41 @@ label.check {
 }
 .file {
   padding-top: 8px;
+}
+.link {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.link-row {
+  display: flex;
+  gap: 6px;
+}
+.link-row .input {
+  flex: 1;
+  min-width: 0;
+}
+.info .use {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.verdict {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  margin: 0;
+}
+.verdict.commercial {
+  color: var(--ok);
+}
+.verdict.non_commercial {
+  color: var(--warn);
+}
+.verdict.unknown {
+  color: var(--muted);
+}
+label.check.rights {
+  color: var(--text);
+  align-items: flex-start;
 }
 .image {
   display: flex;

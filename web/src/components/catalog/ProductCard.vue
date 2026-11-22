@@ -59,6 +59,16 @@ const part = computed(() => {
       </span>
     </div>
     <span class="muted small">{{ CATEGORY_LABEL[product.category] ?? product.category }} · {{ product.material }} {{ product.color }} · {{ shekels(product.price_agorot) }}</span>
+    <div v-if="product.source_url || product.licence_status === 'non_commercial' || product.licence_status === 'commercial' || product.trademarks?.length" class="rights">
+      <a v-if="product.source_url" class="src small" :href="product.source_url" target="_blank" rel="noopener noreferrer" :data-testid="`source-${product.sku}`">
+        <Icon name="external" :size="12" />{{ product.designer ? `${product.designer} · ` : '' }}{{ t('catalog.source') }}
+      </a>
+      <span v-if="product.licence_status === 'non_commercial'" class="chip warn" :title="product.licence_label" :data-testid="`licence-${product.sku}`">
+        {{ product.rights_confirmed_by ? t('catalog.rightsBy', { by: product.rights_confirmed_by }) : t('catalog.licenceNo') }}
+      </span>
+      <span v-else-if="product.licence_status === 'commercial'" class="chip ok" :title="product.licence_label" :data-testid="`licence-${product.sku}`">{{ t('catalog.licenceOk') }}</span>
+      <span v-if="product.trademarks?.length" class="chip warn" :title="t('catalog.brandWarn', { terms: product.trademarks.join(', ') })" :data-testid="`brand-${product.sku}`">™ {{ product.trademarks.join(', ') }}</span>
+    </div>
 
     <dl class="stats">
       <div>
@@ -154,6 +164,41 @@ const part = computed(() => {
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
+}
+.rights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  text-decoration: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.src:hover {
+  text-decoration: underline;
+}
+.chip {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.chip.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.chip.ok {
+  color: var(--ok);
+  border-color: var(--ok);
 }
 .sale {
   display: inline-flex;

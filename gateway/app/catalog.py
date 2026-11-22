@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from printfarm.agents.personalization.catalog import BatchItem, InvalidThreeMf, estimate_batch, inspect_3mf
+from printfarm.contracts import new_message
 from printfarm.contracts.catalog import (
     CATEGORIES,
     DEMAND_DAYS,
@@ -25,6 +26,8 @@ from printfarm.contracts.catalog import (
     trend_pct,
     valid_sku,
 )
+from printfarm.contracts.messages import ModelLookupQuery
+from printfarm.contracts.sources import SITES, licence_check, parse_model_url, trademark_terms
 
 from . import auth
 from .niches import niche_scope
@@ -38,6 +41,7 @@ PRODUCTS_SQL = f"""
   SELECT p.sku, p.name, p.category, p.material, p.color, p.price_agorot, p.file_name, p.sliced, p.printer_model,
          p.footprint_w, p.footprint_d, p.est_grams, p.est_minutes, p.estimated, p.active, p.created_at, p.updated_at,
          p.updated_by, p.niche, p.post_minutes, img.sha256 AS image_sha, img.source AS image_source,
+         p.source_url, p.source_site, p.source_id, p.designer, p.licence, p.rights_confirmed_by, p.rights_confirmed_at,
          coalesce((SELECT json_agg(t.niche ORDER BY t.niche) FROM catalog.product_tags t WHERE t.sku = p.sku), '[]')
            AS tags,
          coalesce((SELECT f.on_hand - f.reserved FROM coordinator.finished_goods f WHERE f.sku = p.sku), 0) AS on_shelf,
@@ -70,8 +74,11 @@ def _product(row: dict) -> dict:
     sha = row.pop("image_sha", None)
     # ?v= changes with the picture, so the browser may keep each version as long as it likes
     url = f"/api/v1/catalog/products/{row['sku']}/image?v={sha[:16]}" if sha else None
+    lic = licence_check(row.get("licence"))
     return {**row, "footprint_mm": [row.pop("footprint_w"), row.pop("footprint_d")],
-            "trend_pct": trend_pct(row["sold_7d"], row["sold_prev_7d"]), "image_url": url}
+            "trend_pct": trend_pct(row["sold_7d"], row["sold_prev_7d"]), "image_url": url,
+            "licence_status": lic.status, "licence_label": lic.label,
+            "trademarks": trademark_terms(row.get("name"), row.get("file_name"))}
 
 
 @router.get("/products", dependencies=[Depends(auth.require_auth)])
@@ -128,6 +135,39 @@ async def product_image(sku: str, request: Request):
     return Response(data, media_type=mime, headers={
         "Cache-Control": "private, max-age=31536000, immutable", "ETag": f'"{row["sha256"]}"',
         "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+LOOKUP_WAIT_S = 10.0
+
+
+@router.get("/link", dependencies=[Depends(auth.require_auth)])
+async def model_link(request: Request, url: str = Query("", max_length=600)):
+    """Import from link: which model page this is, its canonical address, and, for a site with a public API whose
+    connector is switched on (Thingiverse), the details it states. The farm never fetches MakerWorld or Printables
+    pages (no public API; they refuse automated requests): their details come from the downloaded 3MF."""
+    try:
+        link = parse_model_url(url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    out = {"site": link.site, "site_name": SITES[link.site], "model_id": link.model_id, "url": link.url,
+           "lookup": None, "note": ""}
+    if link.site != "thingiverse":
+        out["note"] = (f"{SITES[link.site]} has no public API: open the page, download the 3MF and choose it here. "
+                       "Its title, designer and licence are read from the file.")
+        return out
+    env = new_message(ModelLookupQuery(site=link.site, model_id=link.model_id), source="/gateway")
+    try:
+        reply = (await request.app.state.bus.request(env, timeout=LOOKUP_WAIT_S)).data
+    except Exception as exc:  # noqa: BLE001 - no agent, a timeout: the link still works without details
+        out["note"] = f"the integrations agent did not answer ({type(exc).__name__}): fill the details in yourself"
+        return out
+    if reply.get("found"):
+        lic = licence_check(reply.get("licence"))
+        out["lookup"] = {k: reply.get(k) for k in ("title", "designer", "licence", "image_url", "files", "has_3mf", "mode")} | {
+            "licence_status": lic.status, "licence_label": lic.label, "trademarks": trademark_terms(reply.get("title"))}
+    else:
+        out["note"] = str(reply.get("reason") or "no details")
+    return out
 
 
 @router.get("/products/{sku}/references", dependencies=[Depends(auth.require_auth)])

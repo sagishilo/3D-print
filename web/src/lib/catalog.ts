@@ -29,6 +29,72 @@ export interface CatalogProduct {
   on_shelf?: number // finished pieces free on the shelf (Wave 1 / M4)
   image_url?: string | null // the product picture (the 3MF's preview or an uploaded one), versioned: cache it freely
   image_source?: '3mf' | 'upload' | null
+  // where it comes from (contracts/sources.py): its model page, designer and licence, and what the licence allows
+  source_url?: string | null
+  source_site?: string | null
+  source_id?: string | null
+  designer?: string
+  licence?: string
+  licence_status?: LicenceStatus
+  licence_label?: string
+  trademarks?: string[] // brand words in its name: a file licence is no brand licence
+  rights_confirmed_by?: string | null
+}
+
+export type LicenceStatus = 'commercial' | 'non_commercial' | 'unknown'
+
+/** What a 3MF says about its design (MakerWorld, Bambu Studio). */
+export interface DesignMeta {
+  title: string
+  designer: string
+  licence: string
+  origin: string
+  design_id: string
+  licence_status: LicenceStatus
+  licence_label: string
+  trademarks: string[]
+}
+
+/** GET /catalog/link: the model page a link points at, and the details a site with a public API gave. */
+export interface LinkInfo {
+  site: string
+  site_name: string
+  model_id: string
+  url: string
+  note: string
+  lookup: null | {
+    title: string
+    designer: string
+    licence: string
+    image_url: string
+    files: string[]
+    has_3mf: boolean
+    mode: string
+    licence_status: LicenceStatus
+    licence_label: string
+    trademarks: string[]
+  }
+}
+
+// The same rules as contracts/sources.py licence_check (tests/catalog-source.spec.ts and tests/test_sources.py use
+// the same cases): may prints made from this file be sold, as far as its licence text says.
+const RULES: [RegExp, LicenceStatus][] = [
+  [/\bstandard digital file\b/, 'non_commercial'],
+  [/\bexclusive\b/, 'non_commercial'],
+  [/\bpersonal use\b|\bnon commercial\b|\bnoncommercial\b/, 'non_commercial'],
+  [/\b(cc )?by nc( nd| sa)?\b|\bcreative commons attribution non ?commercial\b/, 'non_commercial'],
+  [/\bcommercial (licen[cs]e|use allowed|membership)\b/, 'commercial'],
+  [/\bcc0\b|\bpublic domain\b|\bcc zero\b/, 'commercial'],
+  [/\b(cc )?by nd\b/, 'commercial'],
+  [/\b(cc )?by sa\b/, 'commercial'],
+  [/^(cc )?by( \d(\s?\d)?)?$|\bcreative commons attribution\b(?! non)/, 'commercial'],
+  [/\bgpl\b|\blgpl\b|\bbsd\b|\bmit\b/, 'commercial'],
+]
+
+export function licenceStatus(text: string | null | undefined): LicenceStatus {
+  const t = (text ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (!t) return 'unknown'
+  return RULES.find(([re]) => re.test(t))?.[1] ?? 'unknown'
 }
 
 /** What still refers to a SKU (GET /catalog/products/{sku}/references); ``blocked``: why it cannot be deleted. */
@@ -58,6 +124,7 @@ export interface ThreeMfInfo {
   printer_model: string | null
   filament: string | null
   warnings: string[]
+  design?: DesignMeta | null
 }
 
 export interface Upload {

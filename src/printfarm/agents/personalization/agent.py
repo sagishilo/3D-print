@@ -14,7 +14,13 @@ from pathlib import Path
 from psycopg.types.json import Jsonb
 
 from printfarm.agents.base import Agent, on
-from printfarm.agents.personalization.catalog import InvalidThreeMf, ThreeMfInfo, inspect_3mf, thumbnail_3mf
+from printfarm.agents.personalization.catalog import (
+    InvalidThreeMf,
+    ThreeMfInfo,
+    design_meta,
+    inspect_3mf,
+    thumbnail_3mf,
+)
 from printfarm.agents.personalization.nameplate import InvalidText, NameplateSpec, generate, safe_name
 from printfarm.agents.personalization.slicer import SliceError, find_slicer, slice_3mf
 from printfarm.agents.telemetry.platefiles import local_path
@@ -44,6 +50,7 @@ from printfarm.contracts.messages import (
     UpsertCatalogProduct,
     UpsertNiche,
 )
+from printfarm.contracts.sources import licence_check, parse_model_url
 
 NO_SLICER = ("no slicer is installed next to the personalization agent: slice the template in Bambu Studio or "
              "OrcaSlicer (one plate, File > Export > Export plate sliced file) and import that 3MF for the same SKU")
@@ -208,9 +215,18 @@ class PersonalizationAgent(Agent):
         if archived:
             return await self._reject(conn, env, cmd.sku, "upsert", f"niche {', '.join(archived)} is archived", by)
 
+        source = await self._source(cmd, row, info)
+        going_on = cmd.active and (row is None or not row["active"])
+        refused = self._rights_refused(source.get("licence", row["licence"] if row else ""), going_on,
+                                       cmd.rights_confirmed)
+        if refused:
+            return await self._reject(conn, env, cmd.sku, "upsert", refused, by)
+        if going_on and cmd.rights_confirmed:
+            source |= {"rights_confirmed_by": by}
+
         values = {"name": cmd.name, "category": cmd.category, "material": cmd.material, "color": cmd.color,
                   "price_agorot": cmd.price_agorot, "est_grams": grams, "est_minutes": minutes, "estimated": estimated,
-                  "active": cmd.active, "updated_by": by, **file}
+                  "active": cmd.active, "updated_by": by, **file, **source}
         if cmd.niche is not None:
             values["niche"] = cmd.niche
         if cmd.post_minutes is not None:
@@ -224,6 +240,8 @@ class PersonalizationAgent(Agent):
             sets = ", ".join(f"{k} = %s" for k in values)
             await conn.execute(f"UPDATE catalog.products SET {sets}, updated_at = now() WHERE sku = %s",
                                (*values.values(), cmd.sku))
+        if "rights_confirmed_by" in values:
+            await conn.execute("UPDATE catalog.products SET rights_confirmed_at = now() WHERE sku = %s", (cmd.sku,))
         if cmd.tags is not None:
             main = values.get("niche", row["niche"] if row else UNASSIGNED)
             await conn.execute("DELETE FROM catalog.product_tags WHERE sku = %s", (cmd.sku,))
@@ -235,6 +253,37 @@ class PersonalizationAgent(Agent):
                       "sliced" if sliced else "unsliced")
         await self.emit(conn, CatalogProductUpdated(sku=cmd.sku, name=cmd.name, active=cmd.active, sliced=sliced, by=by),
                         cause=env)
+
+    async def _source(self, cmd: UpsertCatalogProduct, row, info: ThreeMfInfo | None) -> dict:
+        """The product's model page, designer and licence after this save: what the command says (None: keep), else
+        what the product had, else what the 3MF states (a new file, or the stored one for products imported before)."""
+        out: dict = {}
+        if cmd.source_url is not None:
+            link = parse_model_url(cmd.source_url) if cmd.source_url else None
+            out |= {"source_url": link.url if link else None, "source_site": link.site if link else None,
+                    "source_id": link.model_id if link else None}
+        design = info.design if info is not None else None
+        if design is None and row is not None and not (row["designer"] or row["licence"]):
+            path = local_path(row["file_uri"])
+            if path.is_file():
+                design = await asyncio.to_thread(design_meta, await asyncio.to_thread(path.read_bytes))
+        for key in ("designer", "licence"):
+            given = getattr(cmd, key)
+            if given is not None:
+                out[key] = given.strip()
+            elif not (row and row[key]) and design and design.get(key):
+                out[key] = design[key]
+        return out
+
+    @staticmethod
+    def _rights_refused(licence: str, going_on: bool, confirmed: bool) -> str | None:
+        """Why a product may not go on sale: a licence that does not allow selling prints, unless the owner confirms
+        they hold the designer's commercial licence. Switching off, or a product already on sale, is never stopped."""
+        check = licence_check(licence)
+        if not going_on or confirmed or check.status != "non_commercial":
+            return None
+        return (f"{check.label}: this licence does not allow selling prints. Switch it on only with the designer's "
+                "commercial licence, and confirm that you hold it")
 
     async def _update_image(self, conn, sku: str, row, picture: tuple[bytes, str] | None, data: bytes | None,
                             by: str) -> None:
@@ -260,11 +309,19 @@ class PersonalizationAgent(Agent):
     @on("cmd.personalization.set_product_active")
     async def set_product_active(self, env, cmd: SetCatalogProductActive, conn):
         by = cmd.changed_by or "unknown"
-        row = await (await conn.execute(
-            "UPDATE catalog.products SET active = %s, updated_by = %s, updated_at = now() WHERE sku = %s "
-            "RETURNING name, sliced", (cmd.active, by, cmd.sku))).fetchone()
-        if row is None:
+        current = await self._product(conn, cmd.sku)
+        if current is None:
             return await self._reject(conn, env, cmd.sku, "active", f"no SKU {cmd.sku} in the catalog", by)
+        going_on = cmd.active and not current["active"]
+        refused = self._rights_refused(current["licence"], going_on, cmd.rights_confirmed)
+        if refused:
+            return await self._reject(conn, env, cmd.sku, "active", refused, by)
+        confirm = going_on and cmd.rights_confirmed
+        row = await (await conn.execute(
+            "UPDATE catalog.products SET active = %s, updated_by = %s, updated_at = now(), "
+            "rights_confirmed_by = CASE WHEN %s THEN %s ELSE rights_confirmed_by END, "
+            "rights_confirmed_at = CASE WHEN %s THEN now() ELSE rights_confirmed_at END "
+            "WHERE sku = %s RETURNING name, sliced", (cmd.active, by, confirm, by, confirm, cmd.sku))).fetchone()
         self.log.info("catalog %s switched %s by %s", cmd.sku, "on" if cmd.active else "off", by)
         await self.emit(conn, CatalogProductUpdated(sku=cmd.sku, name=row["name"], active=cmd.active,
                                                     sliced=row["sliced"], by=by), cause=env)

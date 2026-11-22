@@ -21,11 +21,12 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from printfarm.contracts.catalog import CATEGORIES, NICHE_COLORS, NICHE_PATTERN, SKU_PATTERN, UNASSIGNED, valid_niche
 from printfarm.contracts.envelope import Kind, Payload
 from printfarm.contracts.orders import CHANNELS, OrderLine, price_order
+from printfarm.contracts.sources import parse_model_url
 
 # ---------------------------------------------------------------- shared types
 
@@ -482,7 +483,19 @@ class UpsertCatalogProduct(Command):
     # a picture uploaded for the product (SHA-256 in the uploads bucket, from POST /catalog/images); empty: keep. A new
     # 3MF brings its own preview, unless the product has an uploaded picture.
     image_upload: str = Field(default="", pattern=r"^([0-9a-f]{64})?$")
+    # where it comes from (contracts/sources.py): the model page (None: keep, "": none), designer and licence
+    # (None: keep; a new 3MF fills them when the product has none). Switching on a product whose licence does not allow
+    # selling prints needs ``rights_confirmed``: the owner says they hold the designer's commercial licence.
+    source_url: str | None = Field(default=None, max_length=600)
+    designer: str | None = Field(default=None, max_length=120)
+    licence: str | None = Field(default=None, max_length=120)
+    rights_confirmed: bool = False
     changed_by: str = ""
+
+    @field_validator("source_url")
+    @classmethod
+    def _source_url(cls, v: str | None) -> str | None:
+        return parse_model_url(v).url if v else v                       # canonical; a wrong link says why
 
     @model_validator(mode="after")
     def _category(self) -> UpsertCatalogProduct:
@@ -559,6 +572,7 @@ class SetCatalogProductActive(Command):
     subject: ClassVar[str] = "cmd.personalization.set_product_active"
     sku: str = Field(pattern=SKU_PATTERN)
     active: bool
+    rights_confirmed: bool = False        # needed to switch on a product whose licence does not allow selling prints
     changed_by: str = ""
 
 
@@ -1217,6 +1231,29 @@ class AvailabilityQuery(Command):
     kind: ClassVar[Kind] = Kind.COMMAND
     material: str
     color: str
+
+
+class ModelLookupQuery(Command):
+    """Catalog › Import from link: the details of a model on a site with a public API (Thingiverse), asked of the
+    integrations agent, which holds the connector's token. Core NATS request/reply, never persisted."""
+
+    subject: ClassVar[str] = "qry.integrations.model_lookup"
+    kind: ClassVar[Kind] = Kind.COMMAND
+    site: str = Field(pattern=r"^[a-z]{3,20}$")
+    model_id: str = Field(pattern=r"^\d{1,12}$")
+
+
+class ModelLookupReply(Reply):
+    subject: ClassVar[str] = "qry.integrations.model_lookup.reply"
+    found: bool
+    reason: str = ""                       # why not (connector off, no token, not found...)
+    mode: str = ""                         # fake | live: fake answers are test data
+    title: str = ""
+    designer: str = ""
+    licence: str = ""
+    image_url: str = ""
+    files: list[str] = Field(default_factory=list)
+    has_3mf: bool = False
 
 
 class AvailabilityReply(Reply):

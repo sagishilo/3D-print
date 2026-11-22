@@ -23,7 +23,8 @@ SOURCES = [
     # W2-D: settings labels and help, connector settings, inventory alerts, trend suggestions, health, saga refusals
     "src/printfarm/contracts/config_keys.py", "src/printfarm/agents/integrations/shopify.py",
     "src/printfarm/agents/integrations/morning.py", "src/printfarm/agents/integrations/israelpost.py",
-    "src/printfarm/agents/integrations/telegram.py", "src/printfarm/agents/integrations/channels.py",
+    "src/printfarm/agents/integrations/telegram.py",
+    "src/printfarm/agents/integrations/thingiverse.py", "src/printfarm/agents/integrations/channels.py",
     "src/printfarm/agents/integrations/connectors.py", "src/printfarm/agents/inventory/agent.py",
     "src/printfarm/agents/inventory/model.py", "src/printfarm/agents/trend/agent.py", "gateway/app/analytics.py",
     "gateway/app/system.py", "src/printfarm/agents/coordinator/saga.py",
