@@ -1,5 +1,6 @@
-"""Instant Catalog read side, the 3MF upload and the batch estimate. Products change only through commands
-(catalog.upsert / catalog.slice); a batch is queued with catalog.batch (a stock order, dispatched at once)."""
+"""Instant Catalog read side, the 3MF and picture uploads, product images and the batch estimate. Products change
+only through commands (catalog.upsert / catalog.slice / catalog.active / catalog.delete); a batch is queued with
+catalog.batch (a stock order, dispatched at once)."""
 
 from __future__ import annotations
 
@@ -8,15 +9,19 @@ import hashlib
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from printfarm.agents.personalization.catalog import BatchItem, InvalidThreeMf, estimate_batch, inspect_3mf
 from printfarm.contracts.catalog import (
     CATEGORIES,
     DEMAND_DAYS,
+    MAX_IMAGE_BYTES,
     MAX_UPLOAD_BYTES,
+    REFERENCES_SQL,
     STOCK_CHANNEL,
     UPLOAD_BUCKET,
+    delete_blocker,
+    image_type,
     trend_pct,
     valid_sku,
 )
@@ -32,13 +37,14 @@ _ITEM = re.compile(r"^([A-Z0-9][A-Z0-9-]{1,31}):(\d{1,3})$")
 PRODUCTS_SQL = f"""
   SELECT p.sku, p.name, p.category, p.material, p.color, p.price_agorot, p.file_name, p.sliced, p.printer_model,
          p.footprint_w, p.footprint_d, p.est_grams, p.est_minutes, p.estimated, p.active, p.created_at, p.updated_at,
-         p.updated_by, p.niche, p.post_minutes,
+         p.updated_by, p.niche, p.post_minutes, img.sha256 AS image_sha, img.source AS image_source,
          coalesce((SELECT json_agg(t.niche ORDER BY t.niche) FROM catalog.product_tags t WHERE t.sku = p.sku), '[]')
            AS tags,
          coalesce((SELECT f.on_hand - f.reserved FROM coordinator.finished_goods f WHERE f.sku = p.sku), 0) AS on_shelf,
          coalesce(d.sold_7d, 0) AS sold_7d, coalesce(d.sold_prev_7d, 0) AS sold_prev_7d,
          coalesce(d.in_production, 0) AS in_production
   FROM catalog.products p
+  LEFT JOIN catalog.product_images img ON img.sku = p.sku
   LEFT JOIN (
     SELECT i.sku,
            sum(i.quantity) FILTER (WHERE o.channel <> '{STOCK_CHANNEL}'
@@ -61,8 +67,11 @@ IN_NICHE = "(p.niche = %s OR EXISTS (SELECT 1 FROM catalog.product_tags t WHERE 
 
 
 def _product(row: dict) -> dict:
+    sha = row.pop("image_sha", None)
+    # ?v= changes with the picture, so the browser may keep each version as long as it likes
+    url = f"/api/v1/catalog/products/{row['sku']}/image?v={sha[:16]}" if sha else None
     return {**row, "footprint_mm": [row.pop("footprint_w"), row.pop("footprint_d")],
-            "trend_pct": trend_pct(row["sold_7d"], row["sold_prev_7d"])}
+            "trend_pct": trend_pct(row["sold_7d"], row["sold_prev_7d"]), "image_url": url}
 
 
 @router.get("/products", dependencies=[Depends(auth.require_auth)])
@@ -101,6 +110,71 @@ async def product(sku: str, request: Request):
     if row is None:
         raise HTTPException(404, f"no SKU {sku}")
     return _product(row)
+
+
+@router.get("/products/{sku}/image", dependencies=[Depends(auth.require_auth)])
+async def product_image(sku: str, request: Request):
+    """The product's picture (the 3MF's preview or an uploaded one). Served only as the type its bytes show."""
+    if not valid_sku(sku):
+        raise HTTPException(400, "bad SKU")
+    row = await request.app.state.db.fetchrow(
+        "SELECT sha256, mime, data FROM catalog.product_images WHERE sku = %s", (sku,))
+    if row is None:
+        raise HTTPException(404, f"no image for {sku}")
+    data = bytes(row["data"])
+    mime = image_type(data)
+    if mime is None:
+        raise HTTPException(404, f"no image for {sku}")
+    return Response(data, media_type=mime, headers={
+        "Cache-Control": "private, max-age=31536000, immutable", "ETag": f'"{row["sha256"]}"',
+        "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+@router.get("/products/{sku}/references", dependencies=[Depends(auth.require_auth)])
+async def product_references(sku: str, request: Request):
+    """What still points at a SKU (orders, stock, store listings), and why it cannot be deleted, if it cannot."""
+    if not valid_sku(sku):
+        raise HTTPException(400, "bad SKU")
+    db = request.app.state.db
+    if await db.fetchrow("SELECT 1 FROM catalog.products WHERE sku = %s", (sku,)) is None:
+        raise HTTPException(404, f"no SKU {sku}")
+    refs = dict(await db.fetchrow(REFERENCES_SQL, {"sku": sku}))
+    return {**refs, "blocked": delete_blocker(refs)}
+
+
+async def check_delete(db, body: dict) -> None:
+    """catalog.delete answers at once when it cannot happen (the agent checks again before it deletes)."""
+    sku = body.get("sku")
+    if not isinstance(sku, str) or not valid_sku(sku):
+        return                                            # the contract's validation says what is wrong
+    if await db.fetchrow("SELECT 1 FROM catalog.products WHERE sku = %s", (sku,)) is None:
+        raise HTTPException(404, f"no SKU {sku} in the catalog")
+    blocked = delete_blocker(dict(await db.fetchrow(REFERENCES_SQL, {"sku": sku})))
+    if blocked:
+        raise HTTPException(409, f"{sku} cannot be deleted: {blocked}")
+
+
+@router.post("/images", status_code=201)
+async def upload_image(request: Request, _c: dict = Depends(auth.OPERATOR_CHANGE)):
+    """A product picture as the raw request body (PNG, JPEG or WebP, up to 2 MB), kept 7 days in the uploads store
+    under its SHA-256 for catalog.upsert (``image_upload``)."""
+    length = request.headers.get("content-length")
+    too_big = f"a picture may be at most {MAX_IMAGE_BYTES // (1024 * 1024)} MB"
+    if length and length.isdigit() and int(length) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, too_big)
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(413, too_big)
+    if not data:
+        raise HTTPException(400, "send the picture as the request body")
+    mime = image_type(bytes(data))
+    if mime is None:
+        raise HTTPException(415, "the picture must be a PNG, JPEG or WebP image")
+    sha = hashlib.sha256(data).hexdigest()
+    await request.app.state.bus.blob_put(UPLOAD_BUCKET, sha, bytes(data))
+    return {"image_upload": sha, "type": mime, "bytes": len(data)}
 
 
 @router.post("/uploads", status_code=201)

@@ -5,9 +5,19 @@ import { computed, ref, watch } from 'vue'
 
 import { ApiError, api, command, csrfToken, errorText, refreshSession } from '@/lib/api'
 import { useNiche } from '@/stores/niche'
-import { type Batch, type BatchEstimate, type CatalogProduct, estimateUrl, type Sort, type Upload } from '@/lib/catalog'
+import {
+  type Batch,
+  type BatchEstimate,
+  type CatalogProduct,
+  estimateUrl,
+  type ImageUpload,
+  type ProductReferences,
+  type Sort,
+  type Upload,
+} from '@/lib/catalog'
 
 const BATCH_KEY = 'pf.catalog.batch'
+const INACTIVE_KEY = 'pf.catalog.showInactive'
 
 function readBatch(): Batch {
   try {
@@ -21,15 +31,24 @@ function readBatch(): Batch {
   return {}
 }
 
-/** POST the raw 3MF (the gateway reads the body as the file). */
-async function postFile(file: Blob, name: string, retry = true): Promise<Upload> {
-  const res = await fetch(`/api/v1/catalog/uploads?name=${encodeURIComponent(name)}`, {
+/** Switched-off products are shown (dimmed, with their switch) unless this browser chose to hide them. */
+function readShowInactive(): boolean {
+  try {
+    return localStorage.getItem(INACTIVE_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+/** POST a raw file (the gateway reads the body as the file): a 3MF to /uploads, a picture to /images. */
+async function postFile<T = Upload>(file: Blob, name: string, retry = true, path = 'uploads'): Promise<T> {
+  const res = await fetch(`/api/v1/catalog/${path}?name=${encodeURIComponent(name)}`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrfToken() },
     credentials: 'same-origin',
     body: file,
   })
-  if (res.status === 401 && retry && (await refreshSession())) return postFile(file, name, false)
+  if (res.status === 401 && retry && (await refreshSession())) return postFile<T>(file, name, false, path)
   if (!res.ok) {
     let detail: unknown = res.statusText
     try {
@@ -39,7 +58,7 @@ async function postFile(file: Blob, name: string, retry = true): Promise<Upload>
     }
     throw new ApiError(res.status, detail)
   }
-  return (await res.json()) as Upload
+  return (await res.json()) as T
 }
 
 export const useCatalog = defineStore('catalog', () => {
@@ -48,7 +67,7 @@ export const useCatalog = defineStore('catalog', () => {
   const counts = ref<Record<string, number>>({})
   const category = ref<string | null>(null)
   const sort = ref<Sort>('demand')
-  const showInactive = ref(false)
+  const showInactive = ref(readShowInactive())
   const loaded = ref(false)
   const error = ref('')
   const batch = ref<Batch>(readBatch())
@@ -105,6 +124,14 @@ export const useCatalog = defineStore('catalog', () => {
     }
   }
 
+  watch(showInactive, (v) => {
+    try {
+      localStorage.setItem(INACTIVE_KEY, String(v))
+    } catch {
+      /* not kept across reloads: fine */
+    }
+  })
+
   watch(
     batch,
     (b) => {
@@ -141,5 +168,10 @@ export const useCatalog = defineStore('catalog', () => {
     upload: (file: File) => postFile(file, file.name),
     upsert: (body: Record<string, unknown>) => command('catalog.upsert', body),
     slice: (sku: string) => command('catalog.slice', { sku }),
+    uploadImage: (file: File) => postFile<ImageUpload>(file, file.name, true, 'images'),
+    /** On sale or switched off: the personalization agent answers on the live feed (catalog.product.updated). */
+    setActive: (sku: string, active: boolean) => command('catalog.active', { sku, active }),
+    references: (sku: string) => api<ProductReferences>(`/api/v1/catalog/products/${encodeURIComponent(sku)}/references`),
+    remove: (sku: string) => command('catalog.delete', { sku }),
   }
 })

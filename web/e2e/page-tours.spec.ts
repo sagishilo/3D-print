@@ -18,7 +18,8 @@ const stepsOf = (id: TourId) => TOURS[id].steps.filter((s) => !s.mode || s.mode 
 const ROUTE = Object.fromEntries(PAGE_TOURS.map((id) => [id, TOURS[id].steps[0].route])) as Record<TourId, string>
 
 /** Steps whose element depends on what the farm is doing right now (no printer waiting for clearing, no AMS, …). */
-const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams', 'social-card', 'catalog-card', 'catalog-batch', 'finance-vat', 'onboarding-test'])
+const MAY_BE_MISSING = new Set(['live-bed-cleared', 'orders-failed', 'fleet-ams', 'social-card', 'catalog-card', 'catalog-batch', 'finance-vat', 'onboarding-test',
+  'schedule-spool'])   // shown only while queued jobs wait for a filament no printer has loaded
 
 async function signIn(page: Page, path: string) {
   await page.goto(path)

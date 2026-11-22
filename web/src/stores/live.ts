@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
+import { t } from '@/i18n'
 import { refreshSession } from '@/lib/api'
 import { type Described, describe } from '@/lib/events'
 import { ago } from '@/lib/format'
@@ -90,7 +91,9 @@ export const useLive = defineStore('live', () => {
     if (d.kind.startsWith('catalog.') || d.kind === 'order.order.created' || d.kind === 'order.order.shipped' ||
       d.kind === 'fleet.plate.scheduled' || d.kind === 'inventory.spool.adjusted') useCatalog().reloadSoon()
     if (d.kind === 'catalog.product.rejected')
-      toasts.error(data.action === 'slice' ? `${data.sku} not sliced` : `${data.sku} not saved`, String(data.reason))
+      toasts.error(data.action === 'slice' ? `${data.sku} not sliced` : data.action === 'delete' ? t('catalog.notDeleted', { sku: data.sku })
+        : data.action === 'active' ? t('catalog.notSwitched', { sku: data.sku }) : `${data.sku} not saved`, String(data.reason))
+    if (d.kind === 'catalog.product.deleted') toasts.ok(t('catalog.deleted', { sku: data.sku }), d.text)
     if (d.kind === 'catalog.product.updated') toasts.ok(`${data.sku} in the catalog`, d.text)
     if (d.kind.startsWith('catalog.niche.')) void useNiche().load()
     if (d.kind.startsWith('order.stock.') || d.kind.startsWith('inventory.') || d.kind === 'order.order.shipped' || d.kind === 'order.order.created') useStock().reloadSoon()

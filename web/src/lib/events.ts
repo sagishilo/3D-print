@@ -1,4 +1,6 @@
 // Plain-language lines for the live feed, one per event type (contracts in src/printfarm/contracts/messages.py).
+import { t } from '@/i18n'
+
 import { bytes, duration, shekels } from './format'
 import type { Envelope, Tone } from './types'
 
@@ -107,7 +109,11 @@ export function describe(env: Envelope): Described {
       return out(`Capture labelled ${d.label === 'buyer' ? 'buyer' : 'not a buyer'} (${d.by})`, 'idle', 'social')
     case 'catalog.product.updated':
       return out(`${d.sku} “${d.name}” saved${d.sliced ? ' · sliced' : ' · not sliced'}${d.active ? '' : ' · switched off'} (${d.by})`, 'ok', 'stock')
+    case 'catalog.product.deleted':
+      return out(t('catalog.deletedFeed', { sku: d.sku, name: d.name, by: d.by }), 'idle', 'stock')
     case 'catalog.product.rejected':
+      if (d.action === 'delete' || d.action === 'active')
+        return out(`${t(d.action === 'delete' ? 'catalog.notDeleted' : 'catalog.notSwitched', { sku: d.sku })} · ${d.reason}`, 'warn', 'stock')
       return out(`${d.sku}: ${d.action === 'slice' ? 'not sliced' : 'not saved'} · ${d.reason}`, 'warn', 'stock')
     case 'catalog.niche.updated':
       return out(`Niche “${d.name}” ${d.archived ? 'archived' : 'saved'}${d.skus_moved ? ` · ${d.skus_moved} product${d.skus_moved === 1 ? '' : 's'} moved` : ''} (${d.by})`, 'ok', 'stock')

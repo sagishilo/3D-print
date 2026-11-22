@@ -107,3 +107,86 @@ def test_catalog_commands():
     assert env.data["changed_by"] == "admin" and "upsert_product" in env.type
     env = build_command("catalog.slice", {"sku": "HOOK-A"}, "admin", KEY)
     assert env.data["requested_by"] == "admin"
+
+
+# ---------------------------------------------------------------- images, switching on and off, deleting
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+SHA = "ab" * 32
+REFS = "count(DISTINCT order_id)"                     # a substring of REFERENCES_SQL only
+
+
+def test_a_product_carries_its_image_url_and_the_image_is_served_as_what_it_is(client):
+    db = client.app.state.db
+    db.rows["FROM catalog.products p"] = [{**PRODUCT, "sold_7d": 0, "sold_prev_7d": 0, "in_production": 0,
+                                           "image_sha": SHA, "image_source": "3mf"},
+                                          {**PRODUCT, "sku": "BARE-1", "sold_7d": 0, "sold_prev_7d": 0, "in_production": 0,
+                                           "image_sha": None, "image_source": None}]
+    hook, bare = client.get("/api/v1/catalog/products").json()["products"]
+    assert hook["image_url"] == f"/api/v1/catalog/products/HOOK-A/image?v={SHA[:16]}" and hook["image_source"] == "3mf"
+    assert bare["image_url"] is None
+    db.rows["FROM catalog.product_images WHERE sku"] = [{"sha256": SHA, "mime": "image/png", "data": PNG}]
+    r = client.get("/api/v1/catalog/products/HOOK-A/image")
+    assert r.status_code == 200 and r.content == PNG and r.headers["content-type"] == "image/png"
+    assert r.headers["x-content-type-options"] == "nosniff" and "immutable" in r.headers["cache-control"]
+    # bytes that are no picture are never served, whatever type was stored
+    db.rows["FROM catalog.product_images WHERE sku"] = [{"sha256": SHA, "mime": "image/png", "data": b"<svg/>"}]
+    assert client.get("/api/v1/catalog/products/HOOK-A/image").status_code == 404
+    db.rows["FROM catalog.product_images WHERE sku"] = []
+    assert client.get("/api/v1/catalog/products/HOOK-A/image").status_code == 404
+    assert client.get("/api/v1/catalog/products/bad sku/image").status_code == 400
+
+
+def test_a_picture_upload_takes_png_jpeg_webp_only(client):
+    r = client.post("/api/v1/catalog/images", content=PNG, headers=csrf(client))
+    assert r.status_code == 201 and r.json()["type"] == "image/png"
+    assert client.app.state.bus.kv["obs:uploads"][r.json()["image_upload"]] == PNG
+    svg = client.post("/api/v1/catalog/images", content=b"<svg onload=alert(1)/>", headers=csrf(client))
+    assert svg.status_code == 415
+    big = client.post("/api/v1/catalog/images", content=PNG + b"\x00" * (2 * 1024 * 1024), headers=csrf(client))
+    assert big.status_code == 413
+    assert client.post("/api/v1/catalog/images", content=b"", headers=csrf(client)).status_code == 400
+    assert client.post("/api/v1/catalog/images", content=PNG).status_code == 403                 # CSRF
+
+
+def test_delete_answers_at_once_when_orders_keep_the_product(client):
+    db = client.app.state.db
+    db.rows["SELECT 1 FROM catalog.products WHERE sku"] = [{"?column?": 1}]
+    db.rows[REFS] = [{"orders": 2, "stock": 0, "store_maps": 0}]
+    refs = client.get("/api/v1/catalog/products/HOOK-A/references").json()
+    assert refs["orders"] == 2 and "switch it off instead" in refs["blocked"]
+    r = client.post("/api/v1/commands/catalog.delete", headers={**csrf(client), "Idempotency-Key": KEY}, json={"sku": "HOOK-A"})
+    assert r.status_code == 409 and "2 orders" in r.json()["detail"]
+    assert not client.app.state.bus.js.published                                                  # nothing reached the bus
+    db.rows[REFS] = [{"orders": 0, "stock": 0, "store_maps": 0}]
+    assert client.get("/api/v1/catalog/products/HOOK-A/references").json()["blocked"] is None
+    ok = client.post("/api/v1/commands/catalog.delete", headers={**csrf(client), "Idempotency-Key": KEY}, json={"sku": "HOOK-A"})
+    assert ok.status_code == 202
+    subject, published = client.app.state.bus.js.published[-1]
+    assert subject == "cmd.personalization.delete_product" and published["data"]["changed_by"] == "admin"
+    db.rows["SELECT 1 FROM catalog.products WHERE sku"] = []
+    gone = client.post("/api/v1/commands/catalog.delete", headers=csrf(client), json={"sku": "HOOK-A"})
+    assert gone.status_code == 404
+    assert client.get("/api/v1/catalog/products/HOOK-A/references").status_code == 404
+
+
+def test_deleting_is_for_owners_switching_on_and_off_for_operators(client):
+    import asyncio
+    import importlib
+
+    commands = importlib.import_module("app.commands")
+    from gateway_support import PASSWORD, add_user
+
+    assert commands.COMMANDS["catalog.delete"].min_role == "owner"
+    assert commands.COMMANDS["catalog.active"].min_role == "operator"
+    env = build_command("catalog.active", {"sku": "HOOK-A", "active": True, "changed_by": "mallory"}, "noa", KEY)
+    assert env.data == {"sku": "HOOK-A", "active": True, "changed_by": "noa"} and "set_product_active" in env.type
+    asyncio.run(add_user(client.app, "noa", "operator"))
+    client.post("/api/v1/auth/login", json={"username": "noa", "password": PASSWORD})
+    r = client.post("/api/v1/commands/catalog.delete", headers=csrf(client), json={"sku": "HOOK-A"})
+    assert r.status_code == 403
+    r = client.post("/api/v1/commands/catalog.active", headers={**csrf(client), "Idempotency-Key": KEY},
+                    json={"sku": "HOOK-A", "active": False})
+    assert r.status_code == 202
+    audit = client.app.state.db.audit[KEY]
+    assert audit["actor"] == "noa" and audit["subject"] == "cmd.personalization.set_product_active"

@@ -1,12 +1,27 @@
 <script setup lang="ts">
 // Import 3MF (a new SKU, or a new template for an existing one) and Edit. The file goes to the gateway first, which
 // says what it holds (sliced? time and weight from the slicer, footprint); the personalization agent then checks it
-// again and keeps it. Grams and minutes are typed in only for an unsliced model.
-import { computed, onMounted, reactive, ref } from 'vue'
+// again and keeps it. Grams and minutes are typed in only for an unsliced model. The product image is the 3MF's own
+// preview, or a picture uploaded here (kept when a new 3MF comes); the owner can delete a product nothing refers to.
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import Icon from '@/components/ui/Icon.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { errorText } from '@/lib/api'
-import { type CatalogProduct, CATEGORY_LABEL, minutes, skuError, skuFromName, type Upload } from '@/lib/catalog'
+import {
+  type CatalogProduct,
+  CATEGORY_LABEL,
+  IMAGE_TYPES,
+  type ImageUpload,
+  MAX_IMAGE_BYTES,
+  minutes,
+  skuError,
+  skuFromName,
+  type Upload,
+} from '@/lib/catalog'
+import { useProductActions } from '@/lib/productActions'
+import { useAuth } from '@/stores/auth'
 import { bytes, shekels } from '@/lib/format'
 import { UNASSIGNED } from '@/lib/niches'
 import { toAgorot } from '@/lib/orders'
@@ -20,6 +35,9 @@ const emit = defineEmits<{ close: [] }>()
 const catalog = useCatalog()
 const toasts = useToasts()
 const niche = useNiche()
+const auth = useAuth()
+const actions = useProductActions()
+const { t } = useI18n()
 
 const COLORS = ['black', 'white', 'grey', 'red', 'blue', 'green', 'gold', 'clear']
 const p = props.product
@@ -90,6 +108,47 @@ async function pick(e: Event) {
   }
 }
 
+// The product picture: a new one picked here is uploaded at once and saved with the product.
+const image = ref<ImageUpload | null>(null)
+const imagePreview = ref<string | null>(null)
+const imageBusy = ref(false)
+const imageError = ref('')
+const shownImage = computed(() => imagePreview.value ?? p?.image_url ?? null)
+
+async function pickImage(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  imageError.value = ''
+  if (!file) return
+  if (!IMAGE_TYPES.includes(file.type)) {
+    imageError.value = t('catalog.imageTypes')
+    input.value = ''
+    return
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    imageError.value = t('catalog.imageTypes')
+    input.value = ''
+    return
+  }
+  imageBusy.value = true
+  try {
+    image.value = await catalog.uploadImage(file)
+    if (imagePreview.value) URL.revokeObjectURL(imagePreview.value)
+    imagePreview.value = URL.createObjectURL(file)
+  } catch (err) {
+    imageError.value = errorText(err)
+  } finally {
+    imageBusy.value = false
+  }
+}
+onBeforeUnmount(() => {
+  if (imagePreview.value) URL.revokeObjectURL(imagePreview.value)
+})
+
+async function removeProduct() {
+  if (p && (await actions.remove(p))) emit('close')
+}
+
 // Sliced and with the slicer's numbers (this upload, or the stored template when no new file is picked).
 const fromSlicer = computed(() => {
   if (upload.value) return upload.value.info.sliced && upload.value.info.est_grams != null && upload.value.info.est_minutes != null
@@ -127,6 +186,7 @@ async function submit() {
       niche: form.niche,
       post_minutes: form.post === '' ? 0 : Number(form.post),
       tags: form.tags.filter((t) => t !== form.niche),
+      image_upload: image.value?.image_upload ?? '',
     })
     const lines = bomRows.value.filter((r) => r.item_id && Number(r.qty) > 0).map((r) => ({ item_id: r.item_id, qty: Number(r.qty) }))
     if (JSON.stringify(lines) !== bomBefore) await stock.setBom(form.sku, lines)
@@ -170,6 +230,26 @@ onMounted(() => {
         <span v-for="w in upload.info.warnings" :key="w" class="text-warn">{{ w }}</span>
       </div>
 
+      <section class="image" data-testid="product-image">
+        <div class="pic">
+          <img v-if="shownImage" :src="shownImage" :alt="t('catalog.imageAlt', { name: form.name || form.sku })" data-testid="product-image-preview" />
+          <Icon v-else name="camera" :size="22" />
+        </div>
+        <div class="pic-side">
+          <b>{{ t('catalog.image') }}</b>
+          <span class="muted small" data-testid="product-image-source">
+            {{ image ? t('catalog.imageReady') : p?.image_source === 'upload' ? t('catalog.imageUploaded') : p?.image_url ? t('catalog.imageFrom3mf') : t('catalog.imageNone') }}
+          </span>
+          <label class="pick">
+            <span class="btn btn-sm"><Icon name="camera" :size="14" />{{ shownImage ? t('catalog.imageReplace') : t('catalog.imagePick') }}</span>
+            <input class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" data-testid="image-file" @change="pickImage" />
+          </label>
+          <span v-if="imageBusy" class="muted small">{{ t('catalog.imageUploading') }}</span>
+          <span v-else-if="imageError" class="err small" role="alert">{{ imageError }}</span>
+          <span v-else class="muted small">{{ t('catalog.imageTypes') }}</span>
+        </div>
+      </section>
+
       <div class="grid">
         <label>SKU<input v-model="form.sku" class="input mono" maxlength="32" :disabled="!!p" data-testid="sku" @input="form.sku = form.sku.toUpperCase()" /></label>
         <label>Name<input v-model="form.name" class="input" maxlength="80" data-testid="name" /></label>
@@ -202,7 +282,10 @@ onMounted(() => {
           <label v-for="n in tagChoices" :key="n.slug" class="check"><input v-model="form.tags" type="checkbox" :value="n.slug" :data-testid="`product-tag-${n.slug}`" /> {{ n.name }}</label>
         </fieldset>
         <label>Finishing minutes per piece <span class="muted">(sanding, assembly: priced as labour)</span><input v-model="form.post" class="input" inputmode="decimal" placeholder="0" data-testid="post-minutes" /></label>
-        <label v-if="p" class="check"><input v-model="form.active" type="checkbox" /> On sale (off: no new orders or batches)</label>
+        <div v-if="p" class="sale-row" data-testid="product-sale">
+          <ToggleSwitch v-model="form.active" :label="form.active ? t('catalog.switchOffLabel', { sku: p.sku }) : t('catalog.switchOnLabel', { sku: p.sku })" data-testid="product-active" />
+          <span><b>{{ form.active ? t('catalog.onSale') : t('catalog.off') }}</b> <span class="muted">{{ t('catalog.saleHelp') }}</span></span>
+        </div>
       </div>
 
       <fieldset class="bom" data-testid="bom">
@@ -224,8 +307,12 @@ onMounted(() => {
 
       <p v-if="error || (invalid && (upload || p))" class="err" role="alert">{{ error || invalid }}</p>
       <footer>
+        <button v-if="p && auth.can('owner')" type="button" class="btn btn-danger-ghost" :aria-label="t('catalog.deleteLabel', { sku: p.sku })" data-testid="delete-product" @click="removeProduct">
+          <Icon name="trash" :size="14" />{{ t('catalog.delete') }}
+        </button>
+        <span class="grow" />
         <button type="button" class="btn" @click="emit('close')">Cancel</button>
-        <button type="submit" class="btn btn-primary" :disabled="!!invalid || busy || uploading" data-testid="save-product">
+        <button type="submit" class="btn btn-primary" :disabled="!!invalid || busy || uploading || imageBusy" data-testid="save-product">
           {{ p ? 'Save' : 'Add to catalog' }}
         </button>
       </footer>
@@ -332,6 +419,60 @@ label.check {
 }
 .file {
   padding-top: 8px;
+}
+.image {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.pic {
+  width: 96px;
+  height: 96px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2, var(--bg));
+  color: var(--muted);
+  overflow: hidden;
+}
+.pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pic-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pick {
+  flex-direction: row;
+  align-self: flex-start;
+  cursor: pointer;
+}
+.pick:focus-within .btn {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.small {
+  font-size: 12px;
+}
+.sale-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.grow {
+  flex: 1;
+}
+.btn-danger-ghost {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 .hint {
   font-size: 12px;

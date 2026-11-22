@@ -56,7 +56,7 @@ class RateLimiter:
 def bucket_for(method: str, path: str) -> str | None:
     if not path.startswith("/api/"):
         return None
-    if method == "POST" and path.startswith("/api/v1/catalog/uploads"):
+    if method == "POST" and path.startswith(("/api/v1/catalog/uploads", "/api/v1/catalog/images")):
         return "uploads"
     if method == "POST" and (path.startswith("/api/v1/commands") or path in COMMAND_LIKE):
         return "commands"

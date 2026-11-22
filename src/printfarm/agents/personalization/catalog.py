@@ -210,6 +210,41 @@ def gcode_max_z(head: bytes) -> float | None:
         return None
 
 
+_THUMBNAIL_REL = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail"
+# Where slicers put a preview when the package does not name one: the plate render (Bambu Studio, OrcaSlicer), the
+# project thumbnail (PrusaSlicer, OrcaSlicer), Bambu's small cover picture.
+_THUMBNAILS = ("Metadata/plate_1.png", "Metadata/thumbnail.png", "Auxiliaries/.thumbnails/thumbnail_small.png")
+
+
+def thumbnail_3mf(data: bytes) -> tuple[bytes, str] | None:
+    """The preview picture a 3MF carries, as (bytes, type): the package's thumbnail relationship (``_rels/.rels``)
+    first, then the slicers' usual places. Only PNG / JPEG / WebP up to MAX_IMAGE_BYTES; None when there is none."""
+    from printfarm.contracts.catalog import MAX_IMAGE_BYTES, image_type
+
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return None
+    with z:
+        sizes = {i.filename: i.file_size for i in z.infolist()}
+        wanted: list[str] = []
+        if "_rels/.rels" in sizes and sizes["_rels/.rels"] < 64 * 1024:
+            try:
+                rels = _xml(z.read("_rels/.rels"), ".rels")
+                wanted += [r.get("Target", "").lstrip("/") for r in rels.iter()
+                           if r.get("Type") == _THUMBNAIL_REL and r.get("Target")]
+            except InvalidThreeMf:
+                pass
+        for name in [*wanted, *_THUMBNAILS]:
+            if name in sizes and 0 < sizes[name] <= MAX_IMAGE_BYTES:
+                with z.open(name) as f:
+                    pic = f.read(MAX_IMAGE_BYTES + 1)          # the header's size is the uploader's word: read at most
+                kind = image_type(pic) if len(pic) <= MAX_IMAGE_BYTES else None
+                if kind:
+                    return pic, kind
+    return None
+
+
 def inspect_3mf(data: bytes) -> ThreeMfInfo:
     """What an uploaded 3MF holds. Raises InvalidThreeMf for anything that is not a usable template."""
     try:

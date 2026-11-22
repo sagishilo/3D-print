@@ -479,6 +479,9 @@ class UpsertCatalogProduct(Command):
     niche: str | None = Field(default=None, pattern=NICHE_PATTERN)   # None: keep (a new SKU: unassigned)
     post_minutes: float | None = Field(default=None, ge=0, le=600)   # post-processing labour per piece; None: keep
     tags: list[str] | None = Field(default=None, max_length=8)      # extra niches; None: keep
+    # a picture uploaded for the product (SHA-256 in the uploads bucket, from POST /catalog/images); empty: keep. A new
+    # 3MF brings its own preview, unless the product has an uploaded picture.
+    image_upload: str = Field(default="", pattern=r"^([0-9a-f]{64})?$")
     changed_by: str = ""
 
     @model_validator(mode="after")
@@ -550,6 +553,24 @@ class NicheRejected(Event):
     by: str
 
 
+class SetCatalogProductActive(Command):
+    """Switch a SKU on (for sale: orders and batches) or off (Catalog: the switch on the card, or Edit)."""
+
+    subject: ClassVar[str] = "cmd.personalization.set_product_active"
+    sku: str = Field(pattern=SKU_PATTERN)
+    active: bool
+    changed_by: str = ""
+
+
+class DeleteCatalogProduct(Command):
+    """Remove a SKU, its template files and its image. Refused (CatalogProductRejected, action "delete") when orders,
+    stock or a store listing refer to it: such a product is switched off instead (contracts.catalog.delete_blocker)."""
+
+    subject: ClassVar[str] = "cmd.personalization.delete_product"
+    sku: str = Field(pattern=SKU_PATTERN)
+    changed_by: str = ""
+
+
 class SliceCatalogProduct(Command):
     """Slice a SKU's unsliced template with the slicer CLI on the personalization agent's host (when installed)."""
 
@@ -576,8 +597,15 @@ class CatalogProductUpdated(Event):
     by: str
 
 
+class CatalogProductDeleted(Event):
+    subject: ClassVar[str] = "evt.catalog.product.deleted"
+    sku: str
+    name: str
+    by: str
+
+
 class CatalogProductRejected(Event):
-    """An upsert or a slice that did not happen; ``action`` is "upsert" or "slice"."""
+    """A change that did not happen; ``action`` is "upsert", "slice", "active" or "delete"."""
 
     subject: ClassVar[str] = "evt.catalog.product.rejected"
     sku: str

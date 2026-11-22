@@ -252,3 +252,72 @@ def test_no_slicer_and_a_failing_slicer(tmp_path, monkeypatch):
     with pytest.raises(SliceError, match="the slicer failed"):            # python rejects --slice: exit code 2
         import asyncio
         asyncio.run(slice_3mf(sys.executable, src, tmp_path / "out" / "x.3mf"))
+
+
+# ---------------------------------------------------------------- product images and deletion rules
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+RELS = ('<?xml version="1.0" encoding="UTF-8"?><Relationships '
+        'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Target="/3D/3dmodel.model" Id="rel-1" '
+        'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+        '<Relationship Target="/Auxiliaries/.thumbnails/thumbnail_3mf.png" Id="rel-2" '
+        'Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail"/></Relationships>')
+
+
+def model_with(files: dict[str, str | bytes]) -> bytes:
+    return three_mf({"3D/3dmodel.model": f'<model {NS}><resources>{cube("1", 10, 10, 1)}</resources>'
+                                         '<build><item objectid="1"/></build></model>', **files})
+
+
+def test_the_package_thumbnail_comes_first():
+    from printfarm.agents.personalization.catalog import thumbnail_3mf
+
+    data = model_with({"_rels/.rels": RELS, "Auxiliaries/.thumbnails/thumbnail_3mf.png": PNG,
+                       "Metadata/plate_1.png": PNG + b"plate"})
+    assert thumbnail_3mf(data) == (PNG, "image/png")
+
+
+def test_without_a_package_thumbnail_the_plate_render_is_used():
+    from printfarm.agents.personalization.catalog import thumbnail_3mf
+
+    assert thumbnail_3mf(model_with({"Metadata/plate_1.png": JPEG})) == (JPEG, "image/jpeg")
+    # the relationship names a missing file: fall back
+    assert thumbnail_3mf(model_with({"_rels/.rels": RELS, "Metadata/thumbnail.png": PNG})) == (PNG, "image/png")
+
+
+def test_a_thumbnail_that_is_no_picture_or_none_at_all_gives_nothing():
+    from printfarm.agents.personalization.catalog import thumbnail_3mf
+
+    assert thumbnail_3mf(model_with({"Metadata/plate_1.png": b"<svg onload=alert(1)>"})) is None
+    assert thumbnail_3mf(model_with({})) is None
+    assert thumbnail_3mf(b"not a zip") is None
+
+
+def test_a_thumbnail_over_the_size_limit_is_skipped():
+    from printfarm.agents.personalization.catalog import thumbnail_3mf
+    from printfarm.contracts.catalog import MAX_IMAGE_BYTES
+
+    big = PNG + b"\x00" * MAX_IMAGE_BYTES
+    assert thumbnail_3mf(model_with({"Metadata/plate_1.png": big, "Metadata/thumbnail.png": JPEG})) == (JPEG, "image/jpeg")
+
+
+@pytest.mark.parametrize(("data", "kind"), [
+    (PNG, "image/png"), (JPEG, "image/jpeg"), (b"RIFF\x10\x00\x00\x00WEBPVP8 ", "image/webp"),
+    (b"GIF89a", None), (b"<svg/>", None), (b"<html>", None), (b"", None), (b"RIFF\x10\x00\x00\x00WAVE", None),
+])
+def test_pictures_are_recognised_by_their_bytes(data, kind):
+    from printfarm.contracts.catalog import image_type
+
+    assert image_type(data) == kind
+
+
+def test_what_keeps_a_product_from_being_deleted():
+    from printfarm.contracts.catalog import delete_blocker
+
+    assert delete_blocker({"orders": 0, "stock": 0, "store_maps": 0}) is None
+    one = delete_blocker({"orders": 1, "stock": 0, "store_maps": 0})
+    assert one is not None and "1 order:" in one and "switch it off instead" in one
+    both = delete_blocker({"orders": 3, "stock": 1, "store_maps": 2})
+    assert both is not None and "3 orders" in both and "finished stock" in both and "2 store listings" in both

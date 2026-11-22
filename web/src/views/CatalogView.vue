@@ -19,12 +19,14 @@ import { useConfirm } from '@/stores/confirm'
 import { useToasts } from '@/stores/toasts'
 import { vCan } from '@/directives/can'
 import { useAuth } from '@/stores/auth'
+import { useProductActions } from '@/lib/productActions'
 
 const auth = useAuth()
 const catalog = useCatalog()
 const niche = useNiche()
 const confirm = useConfirm()
 const toasts = useToasts()
+const actions = useProductActions()
 
 onMounted(() => {
   void catalog.load()
@@ -132,6 +134,7 @@ async function queue() {
       @qty="catalog.setQty(p.sku, $event)"
       @slice="slice(p)"
       @edit="dialog = { product: p }"
+      @active="actions.setActive(p, $event)"
     />
   </div>
   <EmptyState v-if="catalog.loaded && !catalog.products.length && !catalog.error && niche.current && !catalog.category" icon="tag"

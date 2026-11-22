@@ -1,16 +1,26 @@
 <script setup lang="ts">
-// One SKU (design screen 6): its footprint on the bed, 7-day demand, print time, filament, Slice now, the batch toggle.
-import { computed } from 'vue'
+// One SKU (design screen 6): its picture (or its footprint on the bed), 7-day demand, print time, filament, Slice now,
+// the on-sale switch and the batch toggle.
+import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import Icon from '@/components/ui/Icon.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { type CatalogProduct, CATEGORY_LABEL, minutes, trendLabel } from '@/lib/catalog'
 import { shekels } from '@/lib/format'
 import { vCan } from '@/directives/can'
 import { nicheColor } from '@/lib/niches'
 import { useNiche } from '@/stores/niche'
+import { useAuth } from '@/stores/auth'
 
 const props = defineProps<{ product: CatalogProduct; qty: number; bed: [number, number] }>()
-const emit = defineEmits<{ add: [qty: number]; qty: [qty: number]; slice: []; edit: [] }>()
+const emit = defineEmits<{ add: [qty: number]; qty: [qty: number]; slice: []; edit: []; active: [on: boolean] }>()
+const { t } = useI18n()
+const auth = useAuth()
+// A picture that fails to load (removed meanwhile) falls back to the footprint drawing.
+const broken = ref(false)
+watch(() => props.product.image_url, () => (broken.value = false))
+const photo = computed(() => (props.product.image_url && !broken.value ? props.product.image_url : null))
 
 const niche = useNiche()
 const trend = computed(() => trendLabel(props.product))
@@ -28,7 +38,11 @@ const part = computed(() => {
 
 <template>
   <article class="card" :class="{ inactive: !product.active, picked: qty > 0 }" :data-testid="`sku-${product.sku}`" data-tour="sku-card">
-    <svg class="thumb" :viewBox="`0 0 ${view} ${view}`" role="img" :aria-label="`${product.footprint_mm[0]} × ${product.footprint_mm[1]} mm on a ${bed[0]} × ${bed[1]} mm bed`">
+    <div v-if="photo" class="thumb photo">
+      <img :src="photo" :alt="t('catalog.imageAlt', { name: product.name })" loading="lazy" decoding="async" :data-testid="`sku-image-${product.sku}`" @error="broken = true" />
+      <span class="dims-chip mono" translate="no">{{ product.footprint_mm[0] }} × {{ product.footprint_mm[1] }} mm</span>
+    </div>
+    <svg v-else class="thumb" :viewBox="`0 0 ${view} ${view}`" role="img" :aria-label="t('catalog.footprintAlt', { w: product.footprint_mm[0], d: product.footprint_mm[1], bw: bed[0], bd: bed[1] })">
       <rect class="bed" x="0" y="0" :width="bed[0]" :height="bed[1]" rx="6" />
       <rect class="part" :x="part.x" :y="part.y" :width="part.w" :height="part.d" rx="2" />
       <text class="dims" :x="bed[0] / 2" :y="bed[1] - 10" text-anchor="middle">{{ product.footprint_mm[0] }} × {{ product.footprint_mm[1] }} mm</text>
@@ -44,7 +58,7 @@ const part = computed(() => {
         3MF · {{ product.sliced ? 'sliced' : 'unsliced' }}
       </span>
     </div>
-    <span class="muted small">{{ CATEGORY_LABEL[product.category] ?? product.category }} · {{ product.material }} {{ product.color }} · {{ shekels(product.price_agorot) }}{{ product.active ? '' : ' · switched off' }}</span>
+    <span class="muted small">{{ CATEGORY_LABEL[product.category] ?? product.category }} · {{ product.material }} {{ product.color }} · {{ shekels(product.price_agorot) }}</span>
 
     <dl class="stats">
       <div>
@@ -71,6 +85,16 @@ const part = computed(() => {
         {{ product.sliced ? 'Sliced ✓' : 'Slice now' }}
       </button>
       <button v-can="'operator'" type="button" class="btn btn-sm" :aria-label="`Edit ${product.sku}`" @click="emit('edit')"><Icon name="gear" :size="14" /></button>
+      <span class="sale" :data-testid="`sale-${product.sku}`">
+        <ToggleSwitch
+          :model-value="product.active"
+          :label="product.active ? t('catalog.switchOffLabel', { sku: product.sku }) : t('catalog.switchOnLabel', { sku: product.sku })"
+          :disabled="!auth.can('operator')"
+          :data-testid="`active-${product.sku}`"
+          @update:model-value="emit('active', $event)"
+        />
+        <span class="sale-label" :class="{ on: product.active }">{{ product.active ? t('catalog.onSale') : t('catalog.off') }}</span>
+      </span>
       <span class="grow" />
       <template v-if="qty > 0">
         <label class="qty">
@@ -100,7 +124,8 @@ const part = computed(() => {
 .card.picked {
   border-color: var(--accent);
 }
-.card.inactive {
+.card.inactive .thumb,
+.card.inactive .head {
   opacity: 0.6;
 }
 .thumb {
@@ -108,6 +133,39 @@ const part = computed(() => {
   aspect-ratio: 16 / 9;
   background: var(--surface-2, var(--bg));
   border-radius: calc(var(--radius) - 2px);
+}
+.photo {
+  position: relative;
+  overflow: hidden;
+}
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.dims-chip {
+  position: absolute;
+  inset-inline-end: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.sale {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sale-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.sale-label.on {
+  color: var(--ok);
 }
 .bed {
   fill: none;

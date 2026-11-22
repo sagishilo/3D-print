@@ -37,6 +37,7 @@ from printfarm.contracts.messages import (
     ApprovalRequested,
     AvailabilityReply,
     BomChanged,
+    CatalogProductDeleted,
     ConfirmPoOrdered,
     CountItem,
     FilamentConsumed,
@@ -575,6 +576,11 @@ class InventoryAgent(Agent):
             await conn.execute("INSERT INTO inventory.bom (sku, item_id, qty) VALUES (%s, %s, %s) ON CONFLICT (sku, item_id) "
                                "DO UPDATE SET qty = inventory.bom.qty + EXCLUDED.qty", (cmd.sku, x.item_id, x.qty))
         await self.emit(conn, BomChanged(sku=cmd.sku, lines=lines, by=by), cause=env)
+
+    @on("evt.catalog.product.deleted")
+    async def product_deleted(self, env, ev: CatalogProductDeleted, conn):
+        """A SKU left the catalog (it had no orders): its parts list goes too, so a new SKU of that name starts empty."""
+        await conn.execute("DELETE FROM inventory.bom WHERE sku = %s", (ev.sku,))
 
     @on("evt.order.order.shipped")
     async def order_shipped(self, env, ev: OrderShipped, conn):

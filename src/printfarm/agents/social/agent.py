@@ -25,6 +25,7 @@ from printfarm.contracts.messages import (
     CaptureLabelled,
     CaptureScored,
     CaptureSubmitted,
+    CatalogProductDeleted,
     CatalogProductUpdated,
     DecideLead,
     LabelCapture,
@@ -152,6 +153,11 @@ class SocialAgent(Agent):
             "SELECT sku, name, category, price_agorot, active FROM catalog.products WHERE sku = %s", (ev.sku,))).fetchone()
         if row:
             await self._upsert_sku(conn, row)
+
+    @on("evt.catalog.product.deleted", from_start=True)
+    async def product_deleted(self, env, ev: CatalogProductDeleted, conn):
+        """A deleted SKU is no longer a match for posts."""
+        await conn.execute("DELETE FROM social.sku_vectors WHERE sku = %s", (ev.sku,))
 
     # ------------------------------------------------------------ the pipeline
 

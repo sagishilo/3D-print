@@ -45,7 +45,7 @@ DATA_TABLES = (
     "messaging.inbox", "messaging.outbox",
     "gateway.capture_tokens", "gateway.audit_log",
 )
-CATALOG_TABLES = ("catalog.product_tags", "catalog.products", "inventory.bom", "inventory.item_ledger",
+CATALOG_TABLES = ("catalog.product_tags", "catalog.product_images", "catalog.products", "inventory.bom", "inventory.item_ledger",
                   "inventory.items", "social.sku_vectors")
 
 # NATS: the event and command history and the live printer state. Not the "config" bucket (settings) nor uploads.

@@ -23,7 +23,7 @@ from psycopg_pool import PoolTimeout
 from pydantic import BaseModel, Field, ValidationError
 
 from printfarm.bus.nats_bus import NatsBus
-from printfarm.contracts.catalog import MAX_UPLOAD_BYTES
+from printfarm.contracts.catalog import MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES
 from printfarm.store import schema
 
 from . import (
@@ -82,7 +82,8 @@ app = FastAPI(title="PrintFarm Ops Gateway", lifespan=lifespan, docs_url=None, r
 limiter = RateLimiter({"api": settings.rate_api_per_min, "commands": settings.rate_commands_per_min,
                        "uploads": settings.rate_uploads_per_min})
 app.add_middleware(Guard, limiter=limiter, max_body=settings.max_body_bytes,
-                   large_body_paths={"/api/v1/catalog/uploads": MAX_UPLOAD_BYTES + 64 * 1024})
+                   large_body_paths={"/api/v1/catalog/uploads": MAX_UPLOAD_BYTES + 64 * 1024,
+                                     "/api/v1/catalog/images": MAX_IMAGE_BYTES + 64 * 1024})
 
 
 def _rid(request: Request) -> str:
@@ -209,6 +210,8 @@ async def command(name: str, request: Request, claims: dict = Depends(auth.requi
     body = await _json_object(request)
     if name in CATALOG_LINES:
         body = await catalog.resolve_lines(request.app.state.db, body)
+    if name == "catalog.delete":
+        await catalog.check_delete(request.app.state.db, body)
     return await _dispatch(request, name, body, claims)
 
 

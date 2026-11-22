@@ -8,27 +8,38 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from pathlib import Path
 
 from psycopg.types.json import Jsonb
 
 from printfarm.agents.base import Agent, on
-from printfarm.agents.personalization.catalog import InvalidThreeMf, ThreeMfInfo, inspect_3mf
+from printfarm.agents.personalization.catalog import InvalidThreeMf, ThreeMfInfo, inspect_3mf, thumbnail_3mf
 from printfarm.agents.personalization.nameplate import InvalidText, NameplateSpec, generate, safe_name
 from printfarm.agents.personalization.slicer import SliceError, find_slicer, slice_3mf
 from printfarm.agents.telemetry.platefiles import local_path
-from printfarm.contracts.catalog import UNASSIGNED, UPLOAD_BUCKET
+from printfarm.contracts.catalog import (
+    MAX_IMAGE_BYTES,
+    REFERENCES_SQL,
+    UNASSIGNED,
+    UPLOAD_BUCKET,
+    delete_blocker,
+    image_type,
+)
 from printfarm.contracts.messages import (
     ArchiveNiche,
     AssignNiche,
+    CatalogProductDeleted,
     CatalogProductRejected,
     CatalogProductUpdated,
+    DeleteCatalogProduct,
     GenerateNameplate,
     ModelFailed,
     ModelReady,
     NicheRejected,
     NicheUpdated,
     PrepareCatalogItem,
+    SetCatalogProductActive,
     SliceCatalogProduct,
     UpsertCatalogProduct,
     UpsertNiche,
@@ -110,12 +121,45 @@ class PersonalizationAgent(Agent):
         self.log.info("catalog %s %s refused: %s", action, sku, reason)
         await self.emit(conn, CatalogProductRejected(sku=sku, action=action, reason=reason, by=by or "unknown"), cause=env)
 
+    async def _image(self, conn, sku: str):
+        return await (await conn.execute("SELECT sha256, source FROM catalog.product_images WHERE sku = %s",
+                                         (sku,))).fetchone()
+
+    async def _save_image(self, conn, sku: str, pic: bytes, mime: str, source: str, by: str) -> None:
+        await conn.execute(
+            "INSERT INTO catalog.product_images (sku, sha256, mime, data, source, updated_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (sku) DO UPDATE SET sha256 = EXCLUDED.sha256, "
+            "mime = EXCLUDED.mime, data = EXCLUDED.data, source = EXCLUDED.source, updated_by = EXCLUDED.updated_by, "
+            "updated_at = now()",
+            (sku, hashlib.sha256(pic).hexdigest(), mime, pic, source, by))
+
+    async def _uploaded_image(self, sha: str) -> tuple[bytes, str] | str:
+        """The picture uploaded for a product, checked again here: (bytes, type), or why it cannot be used."""
+        pic = await self.bus.blob_get(UPLOAD_BUCKET, sha)
+        if pic is None:
+            return "the picture upload is gone (kept 7 days): upload it again"
+        if hashlib.sha256(pic).hexdigest() != sha:
+            return "the picture does not match its checksum"
+        if len(pic) > MAX_IMAGE_BYTES:
+            return f"a picture may be at most {MAX_IMAGE_BYTES // (1024 * 1024)} MB"
+        kind = image_type(pic)
+        if kind is None:
+            return "the picture is not a PNG, JPEG or WebP image"
+        return pic, kind
+
     @on("cmd.personalization.upsert_product")
     async def upsert_product(self, env, cmd: UpsertCatalogProduct, conn):
         by = cmd.changed_by or "unknown"
         row = await self._product(conn, cmd.sku)
         file: dict = {}
         info: ThreeMfInfo | None = None
+        data: bytes | None = None
+        picture: tuple[bytes, str] | None = None
+        if cmd.image_upload:
+            got = await self._uploaded_image(cmd.image_upload)
+            if isinstance(got, str):
+                return await self._reject(conn, env, cmd.sku, "upsert", got, by)
+            picture = got
         if cmd.upload:
             data = await self.bus.blob_get(UPLOAD_BUCKET, cmd.upload)
             if data is None:
@@ -185,11 +229,72 @@ class PersonalizationAgent(Agent):
             await conn.execute("DELETE FROM catalog.product_tags WHERE sku = %s", (cmd.sku,))
             for tag in sorted(set(cmd.tags) - {main}):
                 await conn.execute("INSERT INTO catalog.product_tags (sku, niche) VALUES (%s, %s)", (cmd.sku, tag))
+        await self._update_image(conn, cmd.sku, row, picture, data, by)
         sliced = file.get("sliced", row["sliced"] if row else False)
         self.log.info("catalog %s %s (%s)", "added" if row is None else "updated", cmd.sku,
                       "sliced" if sliced else "unsliced")
         await self.emit(conn, CatalogProductUpdated(sku=cmd.sku, name=cmd.name, active=cmd.active, sliced=sliced, by=by),
                         cause=env)
+
+    async def _update_image(self, conn, sku: str, row, picture: tuple[bytes, str] | None, data: bytes | None,
+                            by: str) -> None:
+        """An uploaded picture wins. Otherwise the 3MF's own preview: from a new template (unless the operator uploaded
+        a picture), or, for a product that has none yet, from its stored template (products imported before images)."""
+        if picture:
+            await self._save_image(conn, sku, *picture, "upload", by)
+            return
+        current = await self._image(conn, sku)
+        if data is None:
+            if current is not None or row is None:
+                return
+            path = local_path(row["file_uri"])
+            if not path.is_file():
+                return
+            data = await asyncio.to_thread(path.read_bytes)
+        elif current is not None and current["source"] == "upload":
+            return
+        thumb = await asyncio.to_thread(thumbnail_3mf, data)
+        if thumb:
+            await self._save_image(conn, sku, *thumb, "3mf", by)
+
+    @on("cmd.personalization.set_product_active")
+    async def set_product_active(self, env, cmd: SetCatalogProductActive, conn):
+        by = cmd.changed_by or "unknown"
+        row = await (await conn.execute(
+            "UPDATE catalog.products SET active = %s, updated_by = %s, updated_at = now() WHERE sku = %s "
+            "RETURNING name, sliced", (cmd.active, by, cmd.sku))).fetchone()
+        if row is None:
+            return await self._reject(conn, env, cmd.sku, "active", f"no SKU {cmd.sku} in the catalog", by)
+        self.log.info("catalog %s switched %s by %s", cmd.sku, "on" if cmd.active else "off", by)
+        await self.emit(conn, CatalogProductUpdated(sku=cmd.sku, name=row["name"], active=cmd.active,
+                                                    sliced=row["sliced"], by=by), cause=env)
+
+    @on("cmd.personalization.delete_product")
+    async def delete_product(self, env, cmd: DeleteCatalogProduct, conn):
+        by = cmd.changed_by or "unknown"
+        row = await self._product(conn, cmd.sku)
+        if row is None:
+            return await self._reject(conn, env, cmd.sku, "delete", f"no SKU {cmd.sku} in the catalog", by)
+        # A read-only look at what still points at the SKU (orders, the shelf, store listings): those keep it.
+        refs = await (await conn.execute(REFERENCES_SQL, {"sku": cmd.sku})).fetchone()
+        blocked = delete_blocker(refs)
+        if blocked:
+            return await self._reject(conn, env, cmd.sku, "delete", f"not deleted: {blocked}", by)
+        await conn.execute("DELETE FROM catalog.products WHERE sku = %s", (cmd.sku,))   # tags and image cascade
+        await self.emit(conn, CatalogProductDeleted(sku=cmd.sku, name=row["name"], by=by), cause=env)
+        removed = await asyncio.to_thread(self._remove_files, cmd.sku)
+        self.log.info("catalog %s deleted by %s (%d template files removed)", cmd.sku, by, removed)
+
+    def _remove_files(self, sku: str) -> int:
+        """This SKU's templates on the artifacts volume (``<SKU>-<12 hex>.3mf`` and ``.sliced.3mf``), nothing else."""
+        mine = re.compile(rf"^{re.escape(sku)}-[0-9a-f]{{12}}(\.sliced)?\.3mf$")
+        folder = self._catalog_dir()
+        n = 0
+        for f in folder.iterdir() if folder.is_dir() else ():
+            if mine.match(f.name):
+                f.unlink(missing_ok=True)
+                n += 1
+        return n
 
     # ------------------------------------------------------------ niches (catalog.niches, owned here)
 

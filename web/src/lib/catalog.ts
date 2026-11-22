@@ -27,7 +27,26 @@ export interface CatalogProduct {
   tags: string[] // extra niches
   post_minutes?: number // finishing labour per piece (Wave 1 / M5)
   on_shelf?: number // finished pieces free on the shelf (Wave 1 / M4)
+  image_url?: string | null // the product picture (the 3MF's preview or an uploaded one), versioned: cache it freely
+  image_source?: '3mf' | 'upload' | null
 }
+
+/** What still refers to a SKU (GET /catalog/products/{sku}/references); ``blocked``: why it cannot be deleted. */
+export interface ProductReferences {
+  orders: number
+  stock: number
+  store_maps: number
+  blocked: string | null
+}
+
+export interface ImageUpload {
+  image_upload: string // SHA-256 in the uploads bucket, for catalog.upsert
+  type: string
+  bytes: number
+}
+
+export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+export const MAX_IMAGE_BYTES = 2 * 1024 * 1024
 
 export interface ThreeMfInfo {
   sliced: boolean

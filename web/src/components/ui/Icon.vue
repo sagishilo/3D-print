@@ -30,6 +30,7 @@ const PATHS: Record<string, string[]> = {
   stop: ['M6 6h12v12H6z'],
   refresh: ['M20 11a8 8 0 1 0-2 6', 'M20 4v7h-7'],
   x: ['M6 6l12 12M18 6L6 18'],
+  trash: ['M4 7h16M10 11v6M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
   check: ['M5 12l5 5 9-10'],
   alert: ['M12 3l10 18H2z', 'M12 10v5M12 18v.5'],
   external: ['M14 4h6v6M20 4l-9 9M18 14v6H4V6h6'],
